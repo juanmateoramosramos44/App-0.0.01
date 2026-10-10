@@ -1,0 +1,6 @@
+{
+  "name": "Mantenimiento Hotelero & Bombas",
+  "description": "Sistema integral de gestión de mantenimiento hotelero con sincronización en tiempo real entre compañeros y dispositivos para reportes de averías, rondas técnicas, bombas e inspecciones.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

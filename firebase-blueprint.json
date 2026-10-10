@@ -1,0 +1,323 @@
+{
+  "entities": {
+    "Equipment": {
+      "title": "Equipment",
+      "description": "Ficha técnica y estado operativo de equipos y maquinaria del hotel",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "tag": { "type": "string" },
+        "name": { "type": "string" },
+        "category": { "type": "string" },
+        "area": { "type": "string" },
+        "status": { "type": "string" },
+        "brand": { "type": "string" },
+        "model": { "type": "string" },
+        "powerHp": { "type": "number" },
+        "nominalPressurePsi": { "type": "number" },
+        "nominalAmps": { "type": "number" },
+        "currentHours": { "type": "number" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "tag", "name", "area", "status"]
+    },
+    "Incident": {
+      "title": "Incident",
+      "description": "Inconvenientes, anomalías o averías reportadas en tiempo real por el personal",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "area": { "type": "string" },
+        "equipmentId": { "type": "string" },
+        "equipmentTag": { "type": "string" },
+        "severity": { "type": "string" },
+        "status": { "type": "string" },
+        "reportedBy": { "type": "string" },
+        "timestamp": { "type": "string" },
+        "resolvedBy": { "type": "string" },
+        "resolutionNotes": { "type": "string" },
+        "resolvedAt": { "type": "string" }
+      },
+      "required": ["id", "title", "description", "area", "severity", "status", "reportedBy", "timestamp"]
+    },
+    "Round": {
+      "title": "Round",
+      "description": "Registro de rondas diarias de inspección técnica por turno",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "date": { "type": "string" },
+        "time": { "type": "string" },
+        "shift": { "type": "string" },
+        "technicianName": { "type": "string" },
+        "status": { "type": "string" },
+        "compliancePercentage": { "type": "number" },
+        "generalNotes": { "type": "string" },
+        "anomaliesCount": { "type": "number" }
+      },
+      "required": ["id", "date", "shift", "technicianName", "status"]
+    },
+    "Request": {
+      "title": "Request",
+      "description": "Solicitudes de mantenimiento reportadas por departamentos o habitaciones",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "location": { "type": "string" },
+        "category": { "type": "string" },
+        "priority": { "type": "string" },
+        "status": { "type": "string" },
+        "requestedBy": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "title", "location", "status", "requestedBy", "createdAt"]
+    },
+    "UploadedDocument": {
+      "title": "UploadedDocument",
+      "description": "Documentos técnicos, hojas de vida y manuales de equipos",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "uploadDate": { "type": "string" },
+        "equipmentId": { "type": "string" }
+      },
+      "required": ["id", "name", "uploadDate"]
+    },
+    "PumpInspection": {
+      "title": "PumpInspection",
+      "description": "Inspección técnica de parámetros de bombas",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "equipmentId": { "type": "string" },
+        "equipmentTag": { "type": "string" },
+        "date": { "type": "string" },
+        "technicianName": { "type": "string" },
+        "suctionPressurePsi": { "type": "number" },
+        "dischargePressurePsi": { "type": "number" },
+        "overallCondition": { "type": "string" }
+      },
+      "required": ["id", "equipmentId", "date", "technicianName", "overallCondition"]
+    },
+    "PreventivePlan": {
+      "title": "PreventivePlan",
+      "description": "Planes preventivos programados para equipos",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "equipmentId": { "type": "string" },
+        "equipmentTag": { "type": "string" },
+        "title": { "type": "string" },
+        "frequency": { "type": "string" },
+        "status": { "type": "string" }
+      },
+      "required": ["id", "equipmentId", "title", "frequency", "status"]
+    },
+    "WorkOrder": {
+      "title": "WorkOrder",
+      "description": "Órdenes de ejecución preventiva",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "planId": { "type": "string" },
+        "equipmentTag": { "type": "string" },
+        "status": { "type": "string" },
+        "scheduledDate": { "type": "string" }
+      },
+      "required": ["id", "planId", "status", "scheduledDate"]
+    },
+    "HotelSettings": {
+      "title": "HotelSettings",
+      "description": "Configuraciones globales del sistema de mantenimiento",
+      "type": "object",
+      "properties": {
+        "hotelName": { "type": "string" },
+        "adminPin": { "type": "string" },
+        "technicians": { "type": "array" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["hotelName"]
+    },
+    "DocumentFolder": {
+      "title": "DocumentFolder",
+      "description": "Carpetas organizadoras de hojas de vida y documentos",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "name"]
+    },
+    "User": {
+      "title": "User",
+      "description": "Perfiles de usuario del sistema con sus respectivos roles y permisos",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "displayName": { "type": "string" },
+        "role": { "type": "string", "enum": ["admin", "editor", "reader"] },
+        "permissions": {
+          "type": "object",
+          "properties": {
+            "canEditSettings": { "type": "boolean" },
+            "canDeleteRecords": { "type": "boolean" },
+            "canManageUsers": { "type": "boolean" }
+          }
+        },
+        "status": { "type": "string", "enum": ["active", "inactive"] },
+        "visibleSections": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "email", "role", "status"]
+    },
+    "RoundTemplate": {
+      "title": "RoundTemplate",
+      "description": "Plantilla maestra de puntos de chequeo de rondas compartida en vivo",
+      "type": "object",
+      "properties": {
+        "items": { "type": "array" }
+      },
+      "required": ["items"]
+    },
+    "Task": {
+      "title": "Task",
+      "description": "Tareas asignadas entre compañeros del equipo de mantenimiento con checklist y seguimiento en tiempo real",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "assignedToName": { "type": "string" },
+        "createdByName": { "type": "string" },
+        "priority": { "type": "string" },
+        "status": { "type": "string" },
+        "category": { "type": "string" },
+        "area": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "title", "assignedToName", "priority", "status", "area", "createdAt"]
+    },
+    "TechnicianSchedule": {
+      "title": "TechnicianSchedule",
+      "description": "Horarios y turnos asignados a los técnicos para la quincena o mes",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "technicianId": { "type": "string" },
+        "technicianName": { "type": "string" },
+        "date": { "type": "string" },
+        "shiftType": { "type": "string" },
+        "startTime": { "type": "string" },
+        "endTime": { "type": "string" },
+        "status": { "type": "string" }
+      },
+      "required": ["id", "technicianId", "technicianName", "date", "shiftType"]
+    },
+    "ShiftSwapRequest": {
+      "title": "ShiftSwapRequest",
+      "description": "Solicitudes de permuta y cambio de turnos entre técnicos",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "requesterTechnicianId": { "type": "string" },
+        "status": { "type": "string" }
+      },
+      "required": ["id", "status"]
+    },
+    "Cronograma": {
+      "title": "Cronograma",
+      "description": "Cronograma maestro de mantenimiento y operaciones del hotel",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "category": { "type": "string" },
+        "area": { "type": "string" },
+        "startDate": { "type": "string" },
+        "endDate": { "type": "string" },
+        "status": { "type": "string" },
+        "priority": { "type": "string" },
+        "leaderName": { "type": "string" },
+        "completionPercentage": { "type": "number" }
+      },
+      "required": ["id", "title", "startDate", "endDate", "status"]
+    }
+  },
+  "firestore": {
+    "/schedules/{scheduleId}": {
+      "schema": "TechnicianSchedule",
+      "description": "Horarios y turnos de la quincena del personal técnico"
+    },
+    "/shift_swaps/{swapId}": {
+      "schema": "ShiftSwapRequest",
+      "description": "Solicitudes de cambio y permuta de turnos"
+    },
+    "/tasks/{taskId}": {
+      "schema": "Task",
+      "description": "Tareas y actividades asignadas a compañeros de mantenimiento"
+    },
+    "/equipments/{equipmentId}": {
+      "schema": "Equipment",
+      "description": "Equipos de bombeo, calderas y maquinaria crítica del hotel"
+    },
+    "/incidents/{incidentId}": {
+      "schema": "Incident",
+      "description": "Inconvenientes, anomalías o averías reportadas en tiempo real por el equipo de mantenimiento"
+    },
+    "/rounds/{roundId}": {
+      "schema": "Round",
+      "description": "Rondas diarias de inspección técnica"
+    },
+    "/requests/{requestId}": {
+      "schema": "Request",
+      "description": "Solicitudes de mantenimiento reportadas por departamentos o habitaciones"
+    },
+    "/uploaded_documents/{documentId}": {
+      "schema": "UploadedDocument",
+      "description": "Documentos técnicos, hojas de vida y manuales de equipos"
+    },
+    "/pump_inspections/{inspectionId}": {
+      "schema": "PumpInspection",
+      "description": "Inspecciones técnicas de parámetros hidráulicos y eléctricos"
+    },
+    "/preventive_plans/{planId}": {
+      "schema": "PreventivePlan",
+      "description": "Planes de mantenimiento preventivo del hotel"
+    },
+    "/work_orders/{orderId}": {
+      "schema": "WorkOrder",
+      "description": "Órdenes de trabajo de mantenimiento"
+    },
+    "/hotel_settings/{settingsId}": {
+      "schema": "HotelSettings",
+      "description": "Configuración global de técnicos y parámetros del hotel"
+    },
+    "/document_folders/{folderId}": {
+      "schema": "DocumentFolder",
+      "description": "Carpetas de documentos y planos"
+    },
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "Usuarios del sistema y sus permisos"
+    },
+    "/hotel_round_template/{templateId}": {
+      "schema": "RoundTemplate",
+      "description": "Plantilla compartida de rondas técnicas"
+    },
+    "/cronogramas/{cronogramaId}": {
+      "schema": "Cronograma",
+      "description": "Cronogramas maestros de mantenimiento y operaciones"
+    }
+  }
+}

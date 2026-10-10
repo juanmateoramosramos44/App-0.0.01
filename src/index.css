@@ -1,0 +1,25 @@
+@import "tailwindcss";
+
+/* Permitir desplazamiento vertical normal y suave, bloqueando únicamente el desplazamiento lateral indeseado */
+html,
+body {
+  max-width: 100vw;
+  width: 100%;
+  overflow-x: hidden;
+  overflow-y: auto; /* Garantiza desplazamiento vertical nativo y libre en todos los teléfonos */
+  -webkit-overflow-scrolling: touch; /* Desplazamiento táctil ultra suave nativo en iOS y Android */
+}
+
+#root {
+  max-width: 100vw;
+  width: 100%;
+  overflow-x: hidden;
+  overflow-y: visible;
+}
+
+/* Permite el desplazamiento horizontal suave únicamente en las tablas o planillas que lo requieren */
+.overflow-x-auto {
+  max-width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
