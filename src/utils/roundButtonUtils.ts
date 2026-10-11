@@ -236,6 +236,16 @@ export function isCheckpointComplete(
       const effVal = (f.value !== undefined && f.value !== null && String(f.value).trim() !== '') 
         ? f.value 
         : (fields.length === 1 ? chk.currentValue : undefined);
+
+      const hasUnit = Boolean(f.unit || tplF?.unit || f.name || tplF?.name);
+      if (hasUnit && (f.unit === '°C' || f.unit === '°F' || f.unit === 'PSI' || f.unit === 'bar' || f.unit === 'kWh' || f.unit === 'm³' || f.unit === 'L' || f.unit === '%' || f.unit === 'ppm' || f.unit === 'pH' || f.unit)) {
+        if (effVal === undefined || effVal === null || String(effVal).trim() === '') {
+          return false;
+        }
+        const num = typeof effVal === 'number' ? effVal : parseFloat(String(effVal).replace(',', '.'));
+        return !isNaN(num);
+      }
+
       const effStatus = (f.statusValue !== undefined && f.statusValue !== null && String(f.statusValue).trim() !== '')
         ? f.statusValue
         : (fields.length === 1 ? chk.statusValue : undefined);
@@ -255,11 +265,11 @@ export function isCheckpointComplete(
 
   // 2. Numeric single checkpoint (e.g. Nevera, Temperatura, Presión, etc.)
   if (chk.type === 'numeric' || tpl?.type === 'numeric') {
-    if (statusVal) return true;
     if (directVal) {
       const num = typeof chk.currentValue === 'number' ? chk.currentValue : parseFloat(String(chk.currentValue).replace(',', '.'));
       return !isNaN(num);
     }
+    if (statusVal && !(chk.unit || tpl?.unit)) return true;
     return false;
   }
 

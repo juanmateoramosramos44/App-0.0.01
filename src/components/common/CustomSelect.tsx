@@ -8,7 +8,7 @@ export interface OptionItem<T = string> {
   label: string;
   description?: string;
   badge?: string;
-  color?: 'emerald' | 'amber' | 'rose' | 'blue' | 'slate' | 'indigo' | 'teal' | 'cyan' | 'sky' | 'orange' | 'violet';
+  color?: 'emerald' | 'amber' | 'rose' | 'blue' | 'slate' | 'indigo' | 'teal' | 'cyan' | 'sky' | 'orange' | 'violet' | string;
   icon?: React.ReactNode;
 }
 

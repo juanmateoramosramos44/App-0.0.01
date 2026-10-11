@@ -229,7 +229,7 @@ export const TechnicianSchedulesView: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
 
   // Schedule Personnel List synchronized in real-time with Cloud Firestore
-  const [schedulePersonnel, setSchedulePersonnel] = useState<Array<{ id: string; displayName: string; role?: string; department?: string }>>(() => {
+  const [schedulePersonnel, setSchedulePersonnel] = useState<Array<{ id: string; displayName: string; role?: string; department?: string; email?: string }>>(() => {
     try {
       const saved = localStorage.getItem('hotel_maint_schedule_personnel');
       if (saved) {

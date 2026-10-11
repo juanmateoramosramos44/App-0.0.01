@@ -191,6 +191,7 @@ export interface RoundAnomaly {
   registeredBy: string;
   timestamp: string;
   photoUrl?: string;
+  photos?: string[];
   resolvedBy?: string;
   resolvedAt?: string;
   resolutionNotes?: string;
@@ -210,6 +211,8 @@ export interface HotelRequest {
   requestedByEmail?: string;
   requestedById?: string;
   assignedTo?: string;
+  assignedToId?: string;
+  assignedToEmail?: string;
   createdAt: string;
   updatedAt?: string;
   resolvedAt?: string;
@@ -353,6 +356,8 @@ export interface User {
   id: string;
   email: string;
   displayName: string;
+  name?: string;
+  phone?: string;
   role: UserRole;
   password?: string;
   department?: string;
@@ -383,6 +388,8 @@ export interface UploadedDocumentSheet {
   name: string;
   headers: string[];
   rows: (string | number | boolean | null)[][];
+  totalColumns?: number;
+  totalRows?: number;
   cellStyles?: Record<string, CellStyleInfo>; // Key format "rowIdx-colIdx"
   headerBgColor?: string;
   headerTextColor?: string;
@@ -534,7 +541,7 @@ export interface TechnicianSchedule {
   assignedAreas?: string[];
   isOnCall?: boolean; // Turno de guardia / disponibilidad activa
   notes?: string;
-  status: 'programado' | 'en_curso' | 'completado' | 'ausente' | 'cambio_solicitado';
+  status?: 'programado' | 'en_curso' | 'completado' | 'ausente' | 'cambio_solicitado';
   createdAt?: string;
   updatedAt?: string;
   createdBy?: string;

@@ -287,12 +287,23 @@ export const isRoundActivelyBeingPerformed = (round: DailyRound, currentActiveId
   if (!timeStr) return true;
   const ts = new Date(timeStr).getTime();
   if (isNaN(ts)) return true;
-  const SHIFT_WINDOW_MS = 18 * 60 * 60 * 1000; // 18 horas para cubrir toda la jornada y cambios de turno
+  const SHIFT_WINDOW_MS = 36 * 60 * 60 * 1000; // 36 horas para cubrir cambios de turno y posibles retrasos
   return (Date.now() - ts) <= SHIFT_WINDOW_MS;
-};
+}
 
 export const isUserOwnRound = (round: DailyRound | null | undefined, user: User | null | undefined): boolean => {
   if (!round || !user) return false;
+  const isUserAdmin = Boolean(
+    user.role === 'admin' ||
+    user.email?.toLowerCase().trim() === 'juanmateoramosramos44@gmail.com' ||
+    user.id === 'usr-admin-master' ||
+    user.id === 'usr-1789230683226' ||
+    normalizeStr(user.displayName) === 'juan mateo ramos' ||
+    normalizeStr(user.displayName) === 'administrador principal' ||
+    normalizeStr(user.role) === 'administrador' ||
+    normalizeStr(user.role) === 'admin'
+  );
+  if (isUserAdmin) return true;
   if (round.userId && user.id && round.userId === user.id) return true;
   
   const roundTechNorm = (round.technicianName || '').toLowerCase().trim();
@@ -396,11 +407,11 @@ interface MaintenanceContextType {
   startNewRound: (shift: RoundShift, technicianName: string, customDate?: string) => DailyRound | null;
   updateRound: (roundId: string, data: Partial<DailyRound>) => Promise<void>;
   updateActiveRoundCheckpoint: (chkId: string, val: any, notes?: string, measurementFields?: RoundMeasurementField[], statusValue?: string, ampState?: string, immediate?: boolean, photoUrl?: string) => void;
-  updateActiveRoundMeasurementField: (chkId: string, fieldIndex: number, val: number | string, ampState?: string, statusValue?: string) => void;
+  updateActiveRoundMeasurementField: (chkId: string, fieldIndex: number, val: number | string, ampState?: string, statusValue?: string, immediate?: boolean) => void;
   updateActiveRoundMeterReadings: (readings: Partial<DailyRound['meterReadings']>, generalNotes?: string) => void;
   updateActiveRoundCheckpointTags: (chkId: string, tags: string[], saveToTemplate?: boolean, targetTitle?: string, targetArea?: string) => Promise<void>;
   addRoundAnomaly: (anomaly: Omit<RoundAnomaly, 'id' | 'timestamp'>) => void;
-  completeActiveRound: (readings: any, notes: string, signature: string) => Promise<DailyRound | undefined>;
+  completeActiveRound: (readings: any, notes: string, signature: string, allowPartial?: boolean) => Promise<DailyRound | undefined>;
   cancelActiveRound: () => void;
   deleteRound: (roundId: string) => Promise<void>;
   resumeRound: (round: DailyRound) => void;
@@ -428,7 +439,7 @@ interface MaintenanceContextType {
   importDataJson: (jsonString: string) => boolean;
   notification: string | null;
   setNotification: (msg: string | null) => void;
-  notify: (msg: string) => void;
+  notify: (msg: string | { type?: string; title?: string; message?: string; [key: string]: any }) => void;
   notificationPermission: NotificationPermission | 'unsupported';
   requestSystemNotificationPermission: () => Promise<boolean>;
 
@@ -1259,12 +1270,18 @@ const getRoundTimestamp = (r: DailyRound): number => {
 const normalizeRoundRecord = (round: DailyRound): DailyRound => {
   if (!round) return round;
 
+  // STRICT RULE: If the round is in progress, NEVER force it to completada behind the user's back!
+  if (round.status === 'en_progreso') {
+    return round;
+  }
+
   const chks = round.checkpoints || [];
   const filledCount = chks.filter(c => isCheckpointComplete(c)).length;
-  const isAllPointsFilled = chks.length > 0 && (filledCount >= chks.length || (chks.length >= 22 && filledCount >= chks.length - 1));
+  // All points must be strictly filled (no missing points allowed for 100%)
+  const isAllPointsFilled = chks.length > 0 && filledCount >= chks.length;
   const isFerneyTarde = round.date === '2026-10-09' && round.shift === 'tarde' && (round.technicianName || '').toLowerCase().includes('ferney');
 
-  if (isAllPointsFilled || isFerneyTarde || (round.compliancePercentage && round.compliancePercentage >= 95 && (Boolean(round.technicianSignature) || round.status === 'completada' || round.status === 'incompleta'))) {
+  if (isAllPointsFilled || isFerneyTarde || (round.compliancePercentage === 100 && Boolean(round.technicianSignature) && round.status === 'completada')) {
     return {
       ...round,
       status: 'completada',
@@ -4792,16 +4809,11 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
               safeSetItem(STORAGE_KEYS.ROUNDS, JSON.stringify(mergedRounds));
             }
             if (activeRoundRef.current) {
-              const todayStr = getLocalDateString();
               const activeId = activeRoundRef.current.id;
-              const match = (roundsRef.current || []).find(r => r && r.id === activeId);
               const deletedIds = getDeletedRoundIds();
-              if (
-                deletedIds.has(activeId) ||
-                activeRoundRef.current.date !== todayStr ||
-                activeRoundRef.current.status === 'completada' ||
-                (match && (match.status === 'completada' || match.date !== todayStr || (match.compliancePercentage === 100 && Boolean(match.technicianSignature))))
-              ) {
+              // Keep active round intact while user is filling it; only discard if deleted or cancelled
+              const isLocked = localStorage.getItem('active_round_resume_lock') === activeId;
+              if (deletedIds.has(activeId) && !isLocked) {
                 activeRoundRef.current = null;
                 setActiveRound(null);
                 localStorage.removeItem(STORAGE_KEYS.ACTIVE_ROUND);
@@ -5623,14 +5635,11 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
             safeSetItem(STORAGE_KEYS.ROUNDS, JSON.stringify(mergedList));
             persistToServer();
           }
-          if (activeRoundRef.current) {
-            const matchInList = list.find(r => r.id === activeRoundRef.current?.id);
-            if (matchInList && (matchInList.status === 'completada' || (matchInList.compliancePercentage === 100 && Boolean(matchInList.technicianSignature)))) {
-              activeRoundRef.current = null;
-              setActiveRound(null);
-              localStorage.removeItem(STORAGE_KEYS.ACTIVE_ROUND);
-              idbRemove(STORAGE_KEYS.ACTIVE_ROUND).catch(() => {});
-            }
+          if (activeRoundRef.current && activeRoundRef.current.status === 'completada') {
+            activeRoundRef.current = null;
+            setActiveRound(null);
+            localStorage.removeItem(STORAGE_KEYS.ACTIVE_ROUND);
+            idbRemove(STORAGE_KEYS.ACTIVE_ROUND).catch(() => {});
           }
 
           // Reconcile and reflect round anomalies in live incidents instantly for all users
@@ -7689,6 +7698,7 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
 
     if (syncActiveRoundTimeoutRef.current) {
       clearTimeout(syncActiveRoundTimeoutRef.current);
+    }
     const isFull100 = round.compliancePercentage === 100 || (
       Array.isArray(round.checkpoints) &&
       round.checkpoints.length >= (roundTemplateRef.current?.length || 22) &&
@@ -8517,11 +8527,41 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
 
   const resumeRound = (round: DailyRound) => {
     if (!round) return;
-    const reconciled = reconcileActiveRoundWithTemplate(round, roundTemplateRef.current || roundTemplate);
+    const reopenedRound: DailyRound = {
+      ...round,
+      status: 'en_progreso',
+      userId: currentUser?.id || round.userId,
+      technicianName: currentUser ? (currentUser.displayName || currentUser.name || round.technicianName) : round.technicianName
+    };
+    const reconciled = reconcileActiveRoundWithTemplate(reopenedRound, roundTemplateRef.current || roundTemplate);
     activeRoundRef.current = reconciled;
     setActiveRound(reconciled);
     safeSetItem(STORAGE_KEYS.ACTIVE_ROUND, JSON.stringify(reconciled));
-    notify(`Reanudando ronda de turno ${reconciled.shift ? (reconciled.shift === 'manana' ? 'MAÑANA' : reconciled.shift.toUpperCase()) : ''}`);
+
+    const updated = (roundsRef.current || []).map(r => r.id === reconciled.id ? reconciled : r);
+    roundsRef.current = updated;
+    setRounds(updated);
+    safeSetItem(STORAGE_KEYS.ROUNDS, JSON.stringify(updated));
+
+    setSelectedTab('rondas');
+
+    fetch('/api/rounds', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Client-Id': clientSessionId.current
+      },
+      body: JSON.stringify(reopenedRound)
+    }).catch(() => {});
+
+    hasPendingLocalChanges.current = true;
+    
+    // Set a temporary lock in storage to prevent background sync from clearing this round 
+    // until it is successfully synced to the server
+    localStorage.setItem('active_round_resume_lock', reopenedRound.id);
+    setTimeout(() => localStorage.removeItem('active_round_resume_lock'), 5000);
+
+    notify(`Ronda reanudada: Continúa completando los puntos pendientes.`);
   };
 
   const updateRound = async (roundId: string, data: Partial<DailyRound>) => {
@@ -9169,7 +9209,6 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
     </MaintenanceContext.Provider>
   );
 };
-}
 
 export const useMaintenance = () => {
   const context = useContext(MaintenanceContext);

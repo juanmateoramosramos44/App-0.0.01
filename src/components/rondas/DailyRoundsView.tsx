@@ -56,7 +56,7 @@ import {
   Filter
 } from 'lucide-react';
 import { CustomSelect } from '../common/CustomSelect';
-import { CustomButtonBuilder, getButtonColorClass, getStatusBadgeClass } from '../common/CustomButtonBuilder';
+import { CustomButtonBuilder, getButtonColorClass, getStatusBadgeClass, ButtonActionConfig } from '../common/CustomButtonBuilder';
 import { DecimalInput } from '../common/DecimalInput';
 import { getRoundItemIcon, WaterPumpIcon, ManometerIcon, CondenserIcon, SubstationIcon, TankIcon, SaunaColdPlungeIcon, CavaRefrigerationIcon } from '../../utils/roundIcons';
 import { getCheckpointButtonAction, getFieldButtonAction, isCheckpointAlarmActive, isCheckpointComplete, getIncompleteCheckpoints } from '../../utils/roundButtonUtils';
@@ -70,13 +70,13 @@ export interface FormMeasurementField {
   id: string;
   name: string;
   unit: string;
-  isCustomUnit: boolean;
-  customUnitValue: string;
-  minValue: number | '';
-  maxValue: number | '';
+  isCustomUnit?: boolean;
+  customUnitValue?: string;
+  minValue?: number | '';
+  maxValue?: number | '';
   includeButtons?: boolean;
   options?: string;
-  buttonActions?: Record<string, { color?: string; actionType?: string; requireNotes?: boolean }>;
+  buttonActions?: Record<string, ButtonActionConfig>;
 }
 
 const STANDARD_MEASUREMENT_UNITS = [
@@ -464,20 +464,7 @@ export const DailyRoundsView: React.FC = () => {
   };
 
   // Active round state for final submission
-  const [meterReadings, setMeterReadings] = useState<{
-    waterCubicMeters?: number;
-    electricKwh?: number;
-    gasCubicMeters?: number;
-    waterMeterPhotoUrl?: string;
-    electricMeterPhotoUrl?: string;
-    gasMeterPhotoUrl?: string;
-    customPhotos?: Record<string, string>;
-    poolPh?: number;
-    poolChlorinePpm?: number;
-    hotWaterSupplyTempC?: number;
-    hotWaterReturnTempC?: number;
-    mainWaterPressurePsi?: number;
-  }>({
+  const [meterReadings, setMeterReadings] = useState<DailyRound['meterReadings']>({
     waterCubicMeters: 48925,
     electricKwh: 341950,
     gasCubicMeters: 18215,
@@ -696,20 +683,26 @@ export const DailyRoundsView: React.FC = () => {
     updateActiveRoundMeterReadings(updated);
   };
 
-  // Sync meterReadings with activeRound when available
+  // Sync meterReadings with activeRound when a new round is opened or resumed
+  const syncedRoundIdRef = useRef<string | null>(null);
   useEffect(() => {
     if (activeRound) {
-      if (activeRound.meterReadings) {
-        setMeterReadings(p => ({ ...p, ...activeRound.meterReadings }));
+      if (syncedRoundIdRef.current !== activeRound.id) {
+        syncedRoundIdRef.current = activeRound.id;
+        if (activeRound.meterReadings) {
+          setMeterReadings(p => ({ ...p, ...activeRound.meterReadings }));
+        }
+        if (activeRound.generalNotes !== undefined) {
+          setGeneralNotes(activeRound.generalNotes);
+        }
+        if (activeRound.technicianName && !signatureName) {
+          setSignatureName(activeRound.technicianName);
+        }
       }
-      if (activeRound.generalNotes !== undefined) {
-        setGeneralNotes(activeRound.generalNotes);
-      }
-      if (activeRound.technicianName && !signatureName) {
-        setSignatureName(activeRound.technicianName);
-      }
+    } else {
+      syncedRoundIdRef.current = null;
     }
-  }, [activeRound]);
+  }, [activeRound?.id]);
 
   // Anomaly reporting modal during round
   const [showAnomalyModal, setShowAnomalyModal] = useState(false);
@@ -854,15 +847,10 @@ export const DailyRoundsView: React.FC = () => {
   // Helper to verify if a round is genuinely completed at 100%
   const isRoundTruly100 = useCallback((r: DailyRound): boolean => {
     if (!r) return false;
-    if (r.status === 'completada' && (r.compliancePercentage === undefined || r.compliancePercentage === 100)) return true;
     const chks = r.checkpoints || [];
-    if (chks.length > 0) {
-      const filledCount = chks.filter(c => isCheckpointComplete(c, roundTemplate)).length;
-      if (filledCount >= chks.length || (chks.length >= 22 && filledCount >= chks.length - 1)) return true;
-    }
-    if (r.date === '2026-10-09' && r.shift === 'tarde' && (r.technicianName || '').toLowerCase().includes('ferney')) return true;
-    if (r.compliancePercentage && r.compliancePercentage >= 95 && (r.status === 'completada' || Boolean(r.technicianSignature))) return true;
-    return false;
+    if (chks.length === 0) return false;
+    const filledCount = chks.filter(c => isCheckpointComplete(c, roundTemplate)).length;
+    return filledCount >= chks.length;
   }, [roundTemplate]);
 
   // Filtered rounds list (memoized to prevent expensive re-filtering while typing in checkpoints) - strictly completed history rounds (100% compliance)
@@ -886,7 +874,6 @@ export const DailyRoundsView: React.FC = () => {
     return (rounds || []).filter(r => {
       if (!r || !r.id) return false;
       if (r.id === activeRound?.id) return false;
-      if (isRoundTruly100(r)) return false;
       return r.status === 'incompleta' || r.status === 'en_progreso';
     });
   }, [rounds, activeRound?.id, isRoundTruly100]);
@@ -2419,17 +2406,19 @@ export const DailyRoundsView: React.FC = () => {
                       </span>
                     </td>
                     <td className="py-3.5 px-4 text-right space-x-1.5 whitespace-nowrap">
-                      {rnd.status === 'en_progreso' && (
-                        <button
-                          onClick={() => {
-                            resumeRound(rnd);
-                          }}
-                          className="p-1.5 text-emerald-700 hover:text-emerald-900 hover:bg-emerald-100 border border-emerald-300 rounded-lg transition-colors inline-flex items-center cursor-pointer shadow-2xs"
-                          title="Reanudar y continuar llenando esta ronda"
-                        >
-                          <Play className="w-4 h-4" />
-                        </button>
-                      )}
+                      <button
+                        onClick={() => {
+                          resumeRound(rnd);
+                        }}
+                        className={`p-1.5 rounded-lg transition-colors inline-flex items-center cursor-pointer shadow-2xs ${
+                          rnd.status === 'en_progreso'
+                            ? 'text-emerald-700 hover:text-emerald-900 hover:bg-emerald-100 border border-emerald-300'
+                            : 'text-amber-700 hover:text-amber-900 hover:bg-amber-100 border border-amber-300'
+                        }`}
+                        title={rnd.status === 'en_progreso' ? "Continuar llenando esta ronda" : "Reanudar ronda para completar o corregir puntos"}
+                      >
+                        <Play className="w-4 h-4" />
+                      </button>
 
                       <button
                         onClick={() => setSelectedRoundDetail(rnd)}
@@ -3171,19 +3160,18 @@ export const DailyRoundsView: React.FC = () => {
                 ) : <div />}
 
                 <div className="flex items-center space-x-2">
-                  {liveSelectedRoundDetail.status === 'en_progreso' && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        resumeRound(liveSelectedRoundDetail);
-                        setSelectedRoundDetail(null);
-                      }}
-                      className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-xs cursor-pointer transition-colors flex items-center space-x-1.5"
-                    >
-                      <Play className="w-3.5 h-3.5" />
-                      <span>Continuar Ronda</span>
-                    </button>
-                  )}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      resumeRound(liveSelectedRoundDetail);
+                      setSelectedRoundDetail(null);
+                    }}
+                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-xs cursor-pointer transition-colors flex items-center space-x-1.5"
+                    title="Reanudar y continuar llenando esta ronda"
+                  >
+                    <Play className="w-3.5 h-3.5" />
+                    <span>{liveSelectedRoundDetail.status === 'en_progreso' ? 'Continuar Ronda' : 'Reanudar y Completar Puntos'}</span>
+                  </button>
 
                   <button
                     type="button"

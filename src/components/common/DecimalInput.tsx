@@ -28,6 +28,17 @@ export const DecimalInput: React.FC<DecimalInputProps> = ({
   });
 
   const isFocused = useRef(false);
+  const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const pendingValueRef = useRef<string | null>(null);
+
+  // Clean timer on unmount
+  useEffect(() => {
+    return () => {
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+      }
+    };
+  }, []);
 
   // Sync from outside props when not actively focused or when disabled state changes
   useEffect(() => {
@@ -37,7 +48,6 @@ export const DecimalInput: React.FC<DecimalInputProps> = ({
     }
 
     if (!isFocused.current) {
-      // If current text is already numerically equivalent to incoming value, preserve user's formatting (whether dot or comma)
       const currentParsed = parseFloat(text.replace(',', '.'));
       const incomingParsed = typeof value === 'number' 
         ? value 
@@ -52,39 +62,62 @@ export const DecimalInput: React.FC<DecimalInputProps> = ({
     }
   }, [value, disabled]);
 
+  const scheduleParentUpdate = (rawVal: string) => {
+    pendingValueRef.current = rawVal;
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+    }
+    // 130ms debounce: ultra-fast for zero perceived lag while avoiding parent context thrashing
+    debounceTimerRef.current = setTimeout(() => {
+      debounceTimerRef.current = null;
+      pendingValueRef.current = null;
+      onChange(rawVal);
+    }, 130);
+  };
+
+  const flushParentUpdate = () => {
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+      debounceTimerRef.current = null;
+    }
+    if (pendingValueRef.current !== null) {
+      const pending = pendingValueRef.current;
+      pendingValueRef.current = null;
+      onChange(pending);
+    }
+  };
+
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const raw = e.target.value;
 
     // Allow empty string or lone negative sign
     if (raw === '' || raw === '-') {
       setText(raw);
-      onChange(raw);
+      scheduleParentUpdate(raw);
       return;
     }
 
     // Allow lone separator or negative separator (e.g. "." or "," or "-." or "-,")
     if (raw === '.' || raw === ',' || raw === '-.' || raw === '-,') {
       setText(raw);
-      onChange(raw);
+      scheduleParentUpdate(raw);
       return;
     }
 
     // Match valid numbers that can contain digits, optional leading minus, and at most one separator (either dot or comma)
     if (/^-?\d*[.,]?\d*$/.test(raw)) {
-      // Prevent multiple separators (e.g. "12.3," or "12,3.4")
       const separatorCount = (raw.match(/[.,]/g) || []).length;
       if (separatorCount > 1) {
         return;
       }
 
       setText(raw);
-      onChange(raw);
+      scheduleParentUpdate(raw);
     }
   };
 
   const handleFocus = (e: React.FocusEvent<HTMLInputElement>) => {
     isFocused.current = true;
-    // If the value is '0' or '0.0', auto-select so user can immediately type their number without backspacing
     if (autoSelectOnZero && (text === '0' || text === '0.0' || text === '0,0')) {
       e.target.select();
     }
@@ -92,9 +125,10 @@ export const DecimalInput: React.FC<DecimalInputProps> = ({
 
   const handleBlur = () => {
     isFocused.current = false;
+    flushParentUpdate();
+
     let clean = text.trim();
 
-    // If ends with trailing dot or comma, clean it for final submission
     if (clean.endsWith('.') || clean.endsWith(',')) {
       clean = clean.slice(0, -1);
     }

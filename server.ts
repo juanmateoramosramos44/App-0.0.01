@@ -1847,8 +1847,10 @@ app.post("/api/rounds", (req, res) => {
   for (let round of validRounds) {
     const isFull100 = isRoundFullyCompletedServer(round) || (Array.isArray(round.checkpoints) && round.checkpoints.length >= 22 && round.checkpoints.every((c: any) => isRoundCheckpointCompleteServer(c)));
     
-    if (round.status === 'completada' || isFull100) {
-      if (isFull100 || (round.compliancePercentage && round.compliancePercentage >= 95)) {
+    if (round.status === 'en_progreso') {
+      // Keep strictly in progress while technician is working! Never force completed
+    } else if (round.status === 'completada' || isFull100) {
+      if (isFull100) {
         round.status = 'completada';
         round.compliancePercentage = 100;
         if (!round.completedAt) {

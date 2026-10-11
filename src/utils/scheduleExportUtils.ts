@@ -12,11 +12,19 @@ export interface DisplayedDay {
   holidayName?: string;
 }
 
+export type ScheduleTechnician = {
+  id: string;
+  displayName: string;
+  role?: string;
+  email?: string;
+  department?: string;
+};
+
 export interface ScheduleExportParams {
   periodLabel: string;
   periodSublabel: string;
   displayedDays: DisplayedDay[];
-  technicians: User[];
+  technicians: (User | ScheduleTechnician)[];
   schedules: TechnicianSchedule[];
   hotelInfo?: HotelInfo;
 }

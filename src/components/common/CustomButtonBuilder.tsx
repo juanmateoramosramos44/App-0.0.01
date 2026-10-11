@@ -71,8 +71,9 @@ const COLOR_OPTIONS: OptionItem[] = [
 ];
 
 export interface ButtonActionConfig {
-  actionType?: 'default' | 'turn_off' | 'turn_on' | 'failure';
-  color?: 'auto' | 'emerald' | 'rose' | 'amber' | 'slate' | 'blue';
+  actionType?: 'default' | 'turn_off' | 'turn_on' | 'failure' | string;
+  color?: 'auto' | 'emerald' | 'rose' | 'amber' | 'slate' | 'blue' | string;
+  requireNotes?: boolean;
 }
 
 export interface CustomButtonBuilderProps {

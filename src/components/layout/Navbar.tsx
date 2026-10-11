@@ -325,7 +325,7 @@ export const Navbar: React.FC = () => {
                 <Menu className="w-6 h-6" />
               </button>
 
-              {settings.hotelInfo.logoUrl ? (
+              {settings?.hotelInfo?.logoUrl ? (
                 <img 
                   src={settings.hotelInfo.logoUrl} 
                   alt="Logo del Hotel" 
@@ -349,10 +349,10 @@ export const Navbar: React.FC = () => {
               <div>
                 <div className="flex items-center space-x-2">
                   <h1 className="text-base font-bold tracking-tight text-white line-clamp-1">
-                    {settings.hotelInfo.hotelName}
+                    {settings?.hotelInfo?.hotelName || 'Grand Horizon Luxury Resort & Spa'}
                   </h1>
                   <span className="text-xs px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 font-mono hidden sm:inline-block">
-                    {settings.hotelInfo.propertyCode}
+                    {settings?.hotelInfo?.propertyCode || 'GHLR-041'}
                   </span>
                 </div>
                 <div className="flex items-center space-x-2">
@@ -511,7 +511,7 @@ export const Navbar: React.FC = () => {
             {/* Cabecera del Menú Lateral */}
             <div className="p-4 border-b border-slate-800 flex items-center justify-between bg-slate-950/60">
               <div className="flex items-center space-x-3">
-                {settings.hotelInfo.logoUrl ? (
+                {settings?.hotelInfo?.logoUrl ? (
                   <img 
                     src={settings.hotelInfo.logoUrl} 
                     alt="Logo del Hotel" 
@@ -534,10 +534,10 @@ export const Navbar: React.FC = () => {
                 )}
                 <div>
                   <h2 className="text-sm font-bold text-white leading-tight">
-                    {settings.hotelInfo.hotelName}
+                    {settings?.hotelInfo?.hotelName || 'Grand Horizon Luxury Resort & Spa'}
                   </h2>
                   <p className="text-[11px] text-slate-400 font-mono">
-                    {settings.hotelInfo.propertyCode} • Mant. Hotel
+                    {settings?.hotelInfo?.propertyCode || 'GHLR-041'} • Mant. Hotel
                   </p>
                 </div>
               </div>

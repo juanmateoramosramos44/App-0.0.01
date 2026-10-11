@@ -535,7 +535,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
                 <p className="text-slate-500 line-clamp-2 mt-0.5 text-[11px]">{inc.description}</p>
                 <div className="mt-2 pt-2 border-t border-slate-100 flex items-center justify-between text-[10px] text-slate-400">
                   <span className="truncate max-w-[120px] font-medium text-slate-600">{inc.registeredBy}</span>
-                  <span>{inc.timestamp.split(' ')[0]}</span>
+                  <span>{(inc.timestamp || '').split(/[ T]/)[0] || 'Hoy'}</span>
                 </div>
               </div>
             );
@@ -590,9 +590,9 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
               />
             </div>
             <div className="flex justify-between text-[10px] text-slate-400 mt-1">
-              <span>Min: {settings.alertThresholds.defaultMinBoosterPsi} PSI</span>
+              <span>Min: {settings?.alertThresholds?.defaultMinBoosterPsi ?? 60} PSI</span>
               <span>Óptimo: 70-75</span>
-              <span>Max: {settings.alertThresholds.defaultMaxBoosterPsi} PSI</span>
+              <span>Max: {settings?.alertThresholds?.defaultMaxBoosterPsi ?? 80} PSI</span>
             </div>
           </div>
 

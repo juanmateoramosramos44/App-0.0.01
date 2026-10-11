@@ -54,11 +54,16 @@ try {
 } catch {}
 
 export function isFirestoreQuotaExceeded(): boolean {
-  return false;
+  return Date.now() < quotaExceededUntil;
 }
 
-export function markFirestoreQuotaExceeded() {
-  // No-op
+export function markFirestoreQuotaExceeded(durationMs: number = 60 * 60 * 1000) {
+  quotaExceededUntil = Date.now() + durationMs;
+  try {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(QUOTA_STORAGE_KEY, String(quotaExceededUntil));
+    }
+  } catch {}
 }
 
 // Global protection: Intercept and suppress Firestore quota exhaustion console spam and unhandled promise rejections
@@ -99,9 +104,16 @@ if (typeof window !== 'undefined') {
 }
 
 export async function safeFirestoreWrite<T>(writeFn: () => Promise<T>): Promise<T | null> {
+  if (isFirestoreQuotaExceeded()) {
+    return null;
+  }
   try {
     return await writeFn();
   } catch (err: any) {
+    const msg = String(err?.message || '');
+    if (err?.code === 'resource-exhausted' || msg.includes('Quota limit exceeded') || msg.includes('quota')) {
+      markFirestoreQuotaExceeded();
+    }
     console.warn('Firestore write warning:', err);
     return null;
   }
@@ -188,20 +200,25 @@ ensureAuthenticated().catch(() => null);
 
 // Test connection on boot as mandated by Firebase skill
 export async function testFirestoreConnection() {
+  if (isFirestoreQuotaExceeded()) {
+    return;
+  }
   try {
     // Wait for auth to be ready
     await ensureAuthenticated();
     
     // Non-blocking, soft-fail ping test
-    // Use a small timeout to ensure we don't hang startup
     const pingPromise = getDocFromServer(doc(db, 'hotel_settings', 'connection_test'));
-    const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000));
+    const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 4000));
     
     await Promise.race([pingPromise, timeoutPromise]);
     console.log('Firebase backend reachable.');
-  } catch (error) {
-    // This is expected during early startup or if offline
-    console.debug('Firestore backend not immediately reachable (expected during startup).');
+  } catch (error: any) {
+    const msg = String(error?.message || '');
+    if (error?.code === 'resource-exhausted' || msg.includes('Quota limit exceeded')) {
+      markFirestoreQuotaExceeded();
+    }
+    console.debug('Firestore backend not immediately reachable (expected during startup or quota limit).');
   }
 }
 

@@ -112,71 +112,83 @@ function AppContent() {
 
       {/* Main Content Area */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
-        {selectedTab === 'dashboard' && isSectionAllowed('dashboard') && (
-          <DashboardOverview 
-            onStartRound={handleStartRoundFromDashboard}
-            onNewPumpInspection={handleNewPumpInspectionFromDashboard}
-          />
-        )}
+        <ErrorBoundary sectionTitle="este módulo">
+          {selectedTab === 'dashboard' && isSectionAllowed('dashboard') && (
+            <DashboardOverview 
+              onStartRound={handleStartRoundFromDashboard}
+              onNewPumpInspection={handleNewPumpInspectionFromDashboard}
+            />
+          )}
 
-        {selectedTab === 'rondas' && isSectionAllowed('rondas') && (
-          <DailyRoundsView />
-        )}
+          {selectedTab === 'rondas' && isSectionAllowed('rondas') && (
+            <DailyRoundsView />
+          )}
 
-        {selectedTab === 'contadores' && isSectionAllowed('contadores') && (
-          <MetersView />
-        )}
+          {selectedTab === 'contadores' && isSectionAllowed('contadores') && (
+            <MetersView />
+          )}
 
-        {selectedTab === 'bombas' && isSectionAllowed('bombas') && (
-          <EquipmentAndPumpsView 
-            preselectedEquipmentId={preselectedEquipmentId}
-            onClearPreselection={() => setPreselectedEquipmentId(null)}
-          />
-        )}
+          {selectedTab === 'bombas' && isSectionAllowed('bombas') && (
+            <EquipmentAndPumpsView 
+              preselectedEquipmentId={preselectedEquipmentId}
+              onClearPreselection={() => setPreselectedEquipmentId(null)}
+            />
+          )}
 
-        {selectedTab === 'hojas_vida' && isSectionAllowed('hojas_vida') && (
-          <EquipmentResumeView />
-        )}
+          {selectedTab === 'hojas_vida' && isSectionAllowed('hojas_vida') && (
+            <EquipmentResumeView />
+          )}
 
-        {selectedTab === 'incidencias' && isSectionAllowed('incidencias') && (
-          <IncidentsLiveView />
-        )}
+          {selectedTab === 'incidencias' && isSectionAllowed('incidencias') && (
+            <IncidentsLiveView />
+          )}
 
-        {selectedTab === 'preventivo' && isSectionAllowed('preventivo') && (
-          <PreventiveView />
-        )}
+          {selectedTab === 'preventivo' && isSectionAllowed('preventivo') && (
+            <PreventiveView />
+          )}
 
-        {selectedTab === 'solicitudes' && isSectionAllowed('solicitudes') && (
-          <RequestsView />
-        )}
+          {selectedTab === 'solicitudes' && isSectionAllowed('solicitudes') && (
+            <RequestsView />
+          )}
 
-        {selectedTab === 'tareas' && isSectionAllowed('tareas') && (
-          <TasksView />
-        )}
+          {selectedTab === 'tareas' && isSectionAllowed('tareas') && (
+            <TasksView />
+          )}
 
-        {selectedTab === 'cronograma' && isSectionAllowed('cronograma') && (
-          <CronogramaView />
-        )}
+          {selectedTab === 'cronograma' && isSectionAllowed('cronograma') && (
+            <CronogramaView />
+          )}
 
-        {selectedTab === 'horarios' && isSectionAllowed('horarios') && (
-          <TechnicianSchedulesView />
-        )}
+          {selectedTab === 'horarios' && isSectionAllowed('horarios') && (
+            <TechnicianSchedulesView />
+          )}
 
-        {selectedTab === 'usuarios' && isSectionAllowed('usuarios') && (
-          <UsersView />
-        )}
+          {selectedTab === 'usuarios' && isSectionAllowed('usuarios') && (
+            <UsersView />
+          )}
 
-        {selectedTab === 'configuraciones' && isSectionAllowed('configuraciones') && (
-          <SettingsView />
-        )}
+          {selectedTab === 'configuraciones' && isSectionAllowed('configuraciones') && (
+            <SettingsView />
+          )}
 
-        {/* Fallback de seguridad anti-pantalla en blanco: si la pestaña no es válida o no está permitida, se muestra el Dashboard o Rondas */}
-        {(!['dashboard', 'rondas', 'contadores', 'bombas', 'hojas_vida', 'incidencias', 'preventivo', 'solicitudes', 'tareas', 'cronograma', 'horarios', 'usuarios', 'configuraciones'].includes(selectedTab) || !isSectionAllowed(selectedTab)) && (
-          <DashboardOverview 
-            onStartRound={handleStartRoundFromDashboard}
-            onNewPumpInspection={handleNewPumpInspectionFromDashboard}
-          />
-        )}
+          {/* Fallback de seguridad anti-pantalla en blanco: si la pestaña no es válida o no está permitida */}
+          {(!['dashboard', 'rondas', 'contadores', 'bombas', 'hojas_vida', 'incidencias', 'preventivo', 'solicitudes', 'tareas', 'cronograma', 'horarios', 'usuarios', 'configuraciones'].includes(selectedTab) || !isSectionAllowed(selectedTab)) && (
+            isSectionAllowed('dashboard') ? (
+              <DashboardOverview 
+                onStartRound={handleStartRoundFromDashboard}
+                onNewPumpInspection={handleNewPumpInspectionFromDashboard}
+              />
+            ) : isSectionAllowed('rondas') ? (
+              <DailyRoundsView />
+            ) : isSectionAllowed('solicitudes') ? (
+              <RequestsView />
+            ) : isSectionAllowed('incidencias') ? (
+              <IncidentsLiveView />
+            ) : (
+              <DailyRoundsView />
+            )
+          )}
+        </ErrorBoundary>
       </main>
 
       {/* Global Real-Time Incident Report Modal */}
@@ -186,7 +198,7 @@ function AppContent() {
       <footer className="bg-slate-900 border-t border-slate-800 text-slate-400 text-xs py-4">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-2">
           <p>
-            {settings.hotelInfo.hotelName} — Departamento de Ingeniería y Mantenimiento Hotelero.
+            {settings?.hotelInfo?.hotelName || 'Grand Horizon Luxury Resort & Spa'} — Departamento de Ingeniería y Mantenimiento Hotelero.
           </p>
           <div className="flex items-center space-x-4 text-slate-500">
             <span>Rondas Técnicas Diarias</span>
