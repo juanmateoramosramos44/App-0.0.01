@@ -70,7 +70,15 @@ export async function idbGet<T = any>(key: string): Promise<T | null> {
       const tx = db.transaction(STORE_NAME, 'readonly');
       const store = tx.objectStore(STORE_NAME);
       const req = store.get(key);
-      req.onsuccess = () => resolve(req.result !== undefined ? req.result : null);
+      req.onsuccess = () => {
+        let val = req.result !== undefined ? req.result : null;
+        if (typeof val === 'string' && (val.startsWith('{') || val.startsWith('['))) {
+          try {
+            val = JSON.parse(val);
+          } catch {}
+        }
+        resolve(val);
+      };
       req.onerror = () => reject(req.error);
     });
   } catch (e) {
@@ -256,7 +264,36 @@ export function safeSetItem(key: string, value: string): boolean {
         } catch {}
       }
 
-      // 4. Try one more time in case cleanup made space
+      // 4. If another key (e.g. deleted IDs, tasks, users) hit quota because hotel_maint_rounds is huge, compact hotel_maint_rounds in localStorage first
+      if (key !== 'hotel_maint_rounds') {
+        try {
+          const existingRounds = nativeGetItem('hotel_maint_rounds');
+          if (existingRounds && existingRounds.length > 100000) {
+            const parsed = JSON.parse(existingRounds);
+            if (Array.isArray(parsed)) {
+              const allCleaned = parsed.map((r: any) => {
+                const copy = { ...r };
+                if (copy.checkpoints && Array.isArray(copy.checkpoints)) {
+                  copy.checkpoints = copy.checkpoints.map((c: any) => ({
+                    ...c,
+                    photoUrl: undefined,
+                    photos: undefined,
+                    measurementFields: c.measurementFields?.map((f: any) => ({
+                      ...f,
+                      photoUrl: undefined,
+                      photos: undefined
+                    }))
+                  }));
+                }
+                return copy;
+              });
+              nativeSetItem('hotel_maint_rounds', JSON.stringify(allCleaned));
+            }
+          }
+        } catch {}
+      }
+
+      // 5. Try one more time now that space was freed
       try {
         nativeSetItem(key, value);
         return true;
@@ -311,6 +348,10 @@ export function initSafeStorage(): void {
   try {
     window.localStorage.setItem = function (key: string, value: string) {
       safeSetItem(key, value);
+    };
+
+    window.localStorage.removeItem = function (key: string) {
+      safeRemoveItem(key);
     };
 
     console.log('[safeStorage] Quota-resilient storage shield initialized successfully.');

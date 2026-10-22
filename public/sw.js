@@ -1,16 +1,18 @@
 // public/sw.js
-// Service Worker Completo para PWA Installability, Cache Offline y Notificaciones Push
+// Service Worker para instalación PWA en Teléfono y Computador, soporte Offline y Notificaciones Push
 
-const CACHE_NAME = 'mantenimiento-hotelero-pwa-v4';
+const CACHE_NAME = 'wake-maintenance-pwa-v9';
 const ASSETS_TO_CACHE = [
   '/',
   '/index.html',
   '/manifest.json',
+  '/manifest.webmanifest',
   '/pwa-192x192.png',
   '/pwa-512x512.png',
   '/pwa-maskable-512x512.png',
   '/apple-touch-icon.png',
-  '/favicon.ico'
+  '/favicon.ico',
+  '/wake-bio-logo.jpg'
 ];
 
 self.addEventListener('install', (event) => {
@@ -40,12 +42,52 @@ self.addEventListener('activate', (event) => {
 
 self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
-  
-  // No interceptar peticiones de la API o Firestore en vivo
-  if (event.request.url.includes('/api/') || event.request.url.includes('firestore.googleapis.com')) {
+
+  const url = event.request.url;
+
+  // No interceptar peticiones de la API, SSE, Vite HMR o Firestore en vivo
+  if (
+    url.includes('/api/') ||
+    url.includes('firestore.googleapis.com') ||
+    url.includes('googleapis.com') ||
+    url.includes('/@vite/') ||
+    url.includes('?v=') && url.includes('/node_modules/')
+  ) {
     return;
   }
 
+  // Network-first con respaldo en caché para navegación HTML y scripts/estilos
+  if (
+    event.request.mode === 'navigate' ||
+    event.request.destination === 'document' ||
+    event.request.destination === 'script' ||
+    event.request.destination === 'style'
+  ) {
+    event.respondWith(
+      fetch(event.request)
+        .then((response) => {
+          if (response && response.status === 200 && response.type === 'basic') {
+            const responseClone = response.clone();
+            caches.open(CACHE_NAME).then((cache) => {
+              cache.put(event.request, responseClone).catch(() => {});
+            });
+          }
+          return response;
+        })
+        .catch(async () => {
+          const cached = await caches.match(event.request);
+          if (cached) return cached;
+          if (event.request.mode === 'navigate') {
+            const rootCached = await caches.match('/index.html') || await caches.match('/');
+            if (rootCached) return rootCached;
+          }
+          return Response.error();
+        })
+    );
+    return;
+  }
+
+  // Recursos estáticos (iconos, imágenes, fuentes): Network-first con caché de respaldo
   event.respondWith(
     fetch(event.request)
       .then((response) => {
@@ -57,9 +99,7 @@ self.addEventListener('fetch', (event) => {
         }
         return response;
       })
-      .catch(() => {
-        return caches.match(event.request);
-      })
+      .catch(() => caches.match(event.request))
   );
 });
 
@@ -70,11 +110,11 @@ self.addEventListener('push', (event) => {
     try {
       data = event.data.json();
     } catch (e) {
-      data = { title: 'Mantenimiento Hotelero', body: event.data.text() };
+      data = { title: 'Wake Maintenance', body: event.data.text() };
     }
   }
 
-  const title = data.title || 'Mantenimiento Hotelero & Bombas';
+  const title = data.title || 'Wake Maintenance';
   const options = {
     body: data.body || 'Nueva actualización del sistema',
     icon: data.icon || '/pwa-192x192.png',

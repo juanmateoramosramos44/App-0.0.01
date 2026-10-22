@@ -615,7 +615,10 @@ export const SmartMeterScannerModal: React.FC<SmartMeterScannerModalProps> = ({
                       <div className="flex flex-col sm:flex-row gap-2.5 w-full max-w-sm pt-1">
                         <button
                           type="button"
-                          onClick={() => cameraAppInputRef.current?.click()}
+                          onClick={() => {
+                            stopCamera();
+                            cameraAppInputRef.current?.click();
+                          }}
                           className="flex-1 py-3 px-3.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-extrabold text-xs rounded-xl shadow-lg flex items-center justify-center space-x-2 transition-all cursor-pointer transform active:scale-95 border border-emerald-400/30"
                         >
                           <Camera className="w-4 h-4" />
@@ -624,7 +627,10 @@ export const SmartMeterScannerModal: React.FC<SmartMeterScannerModalProps> = ({
 
                         <button
                           type="button"
-                          onClick={() => galleryInputRef.current?.click()}
+                          onClick={() => {
+                            stopCamera();
+                            galleryInputRef.current?.click();
+                          }}
                           className="flex-1 py-3 px-3.5 bg-blue-600 hover:bg-blue-700 text-white font-extrabold text-xs rounded-xl shadow-md flex items-center justify-center space-x-2 transition-all cursor-pointer transform active:scale-95 border border-blue-400/30"
                         >
                           <ImageIcon className="w-4 h-4 text-amber-300" />
@@ -776,7 +782,10 @@ export const SmartMeterScannerModal: React.FC<SmartMeterScannerModalProps> = ({
                     </button>
                     <button
                       type="button"
-                      onClick={() => cameraAppInputRef.current?.click()}
+                      onClick={() => {
+                        stopCamera();
+                        cameraAppInputRef.current?.click();
+                      }}
                       className="py-3.5 px-4 bg-white hover:bg-slate-100 text-slate-800 border border-slate-300 font-bold text-xs rounded-xl shadow-xs flex items-center justify-center space-x-2 transition-all cursor-pointer transform active:scale-98"
                     >
                       <Camera className="w-4 h-4 text-slate-600" />

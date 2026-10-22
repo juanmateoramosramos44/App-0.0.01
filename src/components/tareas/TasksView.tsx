@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useMemo } from 'react';
+import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { useMaintenance } from '../../context/MaintenanceContext';
 import { 
   MaintenanceTask, 
@@ -42,7 +42,9 @@ import {
   Paperclip,
   Maximize2,
   Bell,
-  BellRing
+  BellRing,
+  FileDown,
+  Loader2
 } from 'lucide-react';
 import { 
   getLocalDateString, 
@@ -52,6 +54,7 @@ import {
   format12HourTime 
 } from '../../utils/dateUtils';
 import { FuturisticDateTimePickerModal } from '../common/FuturisticDateTimePickerModal';
+import { downloadTaskPdfReport } from '../../utils/taskPdfReport';
 
 const CATEGORY_CONFIG: Record<TaskCategory, { label: string; icon: any; color: string; bg: string }> = {
   mantenimiento: { label: 'Mantenimiento', icon: Wrench, color: 'text-blue-700', bg: 'bg-blue-50 border-blue-200' },
@@ -164,7 +167,14 @@ const BeautifulSelect: React.FC<BeautifulSelectProps> = ({
   }, []);
 
   const safeOptions = Array.isArray(options) ? options : [];
-  const selectedOption = safeOptions.find(o => o.value === value);
+  const selectedOption = safeOptions.find(o => 
+    o.value === value || 
+    (value && (
+      o.label.toLowerCase() === value.toLowerCase() ||
+      o.label.toLowerCase().includes(value.toLowerCase()) ||
+      (o.subtitle && o.subtitle.toLowerCase().includes(value.toLowerCase()))
+    ))
+  );
   const displayLabel = selectedOption ? selectedOption.label : (value || placeholder);
 
   return (
@@ -251,8 +261,81 @@ export const TasksView: React.FC = () => {
     users, 
     equipments, 
     settings,
-    notify
+    notify,
+    isAdmin: ctxIsAdmin
   } = useMaintenance();
+
+  const normalizeTechName = useCallback((str?: string): string => {
+    if (!str) return '';
+    return str
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/\/(técnico|tecnico|admin|supervisor|mantenimiento)/gi, '')
+      .trim();
+  }, []);
+
+  const isAdmin = Boolean(
+    ctxIsAdmin ||
+    !currentUser ||
+    currentUser?.role === 'admin' ||
+    currentUser?.email?.toLowerCase().trim() === 'juanmateoramosramos44@gmail.com' ||
+    currentUser?.id === 'usr-admin-master' ||
+    currentUser?.id === 'usr-1789230683226' ||
+    currentUser?.permissions?.canManageUsers ||
+    currentUser?.permissions?.canEditSettings ||
+    (currentUser?.displayName && normalizeTechName(currentUser.displayName) === 'administrador principal') ||
+    (currentUser?.displayName && normalizeTechName(currentUser.displayName) === 'juan mateo ramos') ||
+    (currentUser?.role && normalizeTechName(currentUser.role) === 'administrador') ||
+    (currentUser?.role && normalizeTechName(currentUser.role) === 'admin')
+  );
+
+  const isTaskAssignedToUser = useCallback((task: MaintenanceTask): boolean => {
+    if (!currentUser || !task) return false;
+
+    // 1. Direct ID match
+    if (task.assignedToId && task.assignedToId === currentUser.id) return true;
+
+    // 2. Direct Email match
+    const userEmail = (currentUser.email || '').toLowerCase().trim();
+    if (userEmail && task.assignedToId && task.assignedToId.toLowerCase().trim() === userEmail) return true;
+
+    // 3. Name match (normalized without accents and role suffixes)
+    const myNameNorm = normalizeTechName(currentUser.displayName || currentUser.name);
+    const assignedNorm = normalizeTechName(task.assignedToName);
+    if (myNameNorm && assignedNorm) {
+      if (myNameNorm === assignedNorm || myNameNorm.includes(assignedNorm) || assignedNorm.includes(myNameNorm)) {
+        return true;
+      }
+    }
+
+    // 4. "Todo el equipo" / "General" / "Todos"
+    const rawAssigned = (task.assignedToName || '').toLowerCase().trim();
+    if (rawAssigned.includes('todo el equipo') || rawAssigned.includes('general') || rawAssigned.includes('todos')) {
+      return true;
+    }
+
+    return false;
+  }, [currentUser, normalizeTechName]);
+
+  const isTaskCreatedByUser = useCallback((task: MaintenanceTask): boolean => {
+    if (!currentUser || !task) return false;
+    if (task.createdById && task.createdById === currentUser.id) return true;
+    const myNameNorm = normalizeTechName(currentUser.displayName || currentUser.name);
+    const creatorNorm = normalizeTechName(task.createdByName);
+    if (myNameNorm && creatorNorm && (myNameNorm === creatorNorm || myNameNorm.includes(creatorNorm) || creatorNorm.includes(myNameNorm))) {
+      return true;
+    }
+    return false;
+  }, [currentUser, normalizeTechName]);
+
+  // Si es administrador, tiene visibilidad completa de todas las tareas del hotel.
+  // Si es un técnico/usuario normal, sólo puede ver las tareas asignadas específicamente a su usuario (o creadas por él).
+  const userAllowedTasks = useMemo(() => {
+    const all = tasks || [];
+    if (isAdmin) return all;
+    return all.filter(t => isTaskAssignedToUser(t) || isTaskCreatedByUser(t));
+  }, [tasks, isAdmin, isTaskAssignedToUser, isTaskCreatedByUser]);
 
   // Configured technicians from system settings (Source of truth)
   const configuredCompanions = useMemo(() => {
@@ -292,6 +375,23 @@ export const TasksView: React.FC = () => {
 
   // Image zoom modal
   const [previewImage, setPreviewImage] = useState<string | null>(null);
+
+  // Estado y descarga de reporte oficial en PDF para tareas
+  const [downloadingTaskId, setDownloadingTaskId] = useState<string | null>(null);
+
+  const handleDownloadTaskPdf = async (taskToDownload: MaintenanceTask) => {
+    if (!taskToDownload) return;
+    try {
+      setDownloadingTaskId(taskToDownload.id);
+      await downloadTaskPdfReport(taskToDownload, settings?.hotelInfo);
+      notify(`📄 Reporte PDF de la tarea "${taskToDownload.title}" descargado con éxito.`);
+    } catch (err) {
+      console.error('Error al generar PDF de tarea:', err);
+      notify('❌ Ocurrió un error al generar el PDF. Por favor intenta de nuevo.');
+    } finally {
+      setDownloadingTaskId(null);
+    }
+  };
 
   // Form states
   const [formTitle, setFormTitle] = useState('');
@@ -596,7 +696,7 @@ export const TasksView: React.FC = () => {
 
   // Filtered tasks computation
   const filteredTasks = useMemo(() => {
-    return (tasks || []).filter(task => {
+    return userAllowedTasks.filter(task => {
       if (!task) return false;
 
       // Search term (title, description, area, equipment tag/name, assignedToName, createdByName)
@@ -616,17 +716,15 @@ export const TasksView: React.FC = () => {
 
       // Assignment filter
       if (assignmentFilter === 'my_tasks') {
-        const isAssignedToMe = 
-          !task.assignedToId || 
-          task.assignedToId === currentUser?.id || 
-          task.assignedToName?.toLowerCase().includes('todos') || 
-          task.assignedToName?.toLowerCase().includes('general') ||
-          (currentUser?.displayName && task.assignedToName?.toLowerCase().trim() === currentUser.displayName.toLowerCase().trim());
-        if (!isAssignedToMe) return false;
+        if (!isTaskAssignedToUser(task)) return false;
       } else if (assignmentFilter === 'created_by_me') {
-        if (task.createdById !== currentUser?.id) return false;
+        if (!isTaskCreatedByUser(task)) return false;
       } else if (assignmentFilter !== 'all') {
-        if (task.assignedToId !== assignmentFilter && task.assignedToName !== assignmentFilter) return false;
+        const filterNorm = normalizeTechName(assignmentFilter);
+        const matchId = task.assignedToId === assignmentFilter;
+        const taskAssignedNorm = normalizeTechName(task.assignedToName);
+        const matchName = taskAssignedNorm && (taskAssignedNorm === filterNorm || taskAssignedNorm.includes(filterNorm) || filterNorm.includes(taskAssignedNorm));
+        if (!matchId && !matchName) return false;
       }
 
       // Status filter
@@ -646,37 +744,32 @@ export const TasksView: React.FC = () => {
 
       return true;
     });
-  }, [tasks, searchTerm, assignmentFilter, statusFilter, priorityFilter, categoryFilter, currentUser]);
+  }, [userAllowedTasks, searchTerm, assignmentFilter, statusFilter, priorityFilter, categoryFilter, isTaskAssignedToUser, isTaskCreatedByUser, normalizeTechName]);
 
   // Quick stats
   const stats = useMemo(() => {
-    const all = tasks || [];
+    const all = userAllowedTasks || [];
     const pending = all.filter(t => t.status === 'pendiente').length;
     const inProgress = all.filter(t => t.status === 'en_progreso').length;
     const completed = all.filter(t => t.status === 'completada').length;
     const urgent = all.filter(t => t.priority === 'urgente' && t.status !== 'completada').length;
     const myTasksCount = all.filter(t => 
-      t.status !== 'completada' && (
-        !t.assignedToId || 
-        t.assignedToId === currentUser?.id || 
-        t.assignedToName?.toLowerCase().includes('todos') || 
-        t.assignedToName?.toLowerCase().includes('general') ||
-        (currentUser?.displayName && t.assignedToName?.toLowerCase().trim() === currentUser.displayName.toLowerCase().trim())
-      )
+      t.status !== 'completada' && isTaskAssignedToUser(t)
     ).length;
 
     return { total: all.length, pending, inProgress, completed, urgent, myTasksCount };
-  }, [tasks, currentUser]);
+  }, [userAllowedTasks, isTaskAssignedToUser]);
 
-  // Options for BeautifulSelect Dropdowns (Compañeros strictly from configuration, deduplicated against active users)
+  // Options for BeautifulSelect Dropdowns (Active users + configured companions, deduplicated)
   const companionFilterOptions: BeautifulSelectOption[] = useMemo(() => {
     const activeUsersList = (users || []).filter(u => u && u.status !== 'inactive');
     const filteredCompanions = configuredCompanions.filter(tech => {
       const cleanTech = tech.replace(/\/(técnico|tecnico|admin|supervisor)/gi, '').toLowerCase().trim();
+      if (!cleanTech) return false;
       return !activeUsersList.some(u => {
         const uName = (u.displayName || u.name || '').toLowerCase().trim();
         const cleanUName = uName.replace(/\/(técnico|tecnico|admin|supervisor)/gi, '').trim();
-        return cleanTech === cleanUName || cleanTech.includes(cleanUName) || cleanUName.startsWith(cleanUName) || cleanUName === 'juan mateo' || cleanUName === 'carlos manuel';
+        return cleanUName && (cleanTech === cleanUName || cleanTech.includes(cleanUName) || cleanUName.includes(cleanTech));
       });
     });
 
@@ -687,6 +780,12 @@ export const TasksView: React.FC = () => {
         subtitle: 'Ver tareas de todo el equipo',
         icon: <Users className="w-3.5 h-3.5 text-emerald-600" />
       },
+      ...activeUsersList.map((u) => ({
+        value: u.displayName || u.email || u.id,
+        label: u.displayName || u.email,
+        subtitle: `${u.department || 'Personal'} • ${u.role || 'Usuario'}`,
+        icon: <User className="w-3.5 h-3.5 text-blue-600" />
+      })),
       ...filteredCompanions.map((tech) => ({
         value: tech,
         label: tech,
@@ -729,7 +828,7 @@ export const TasksView: React.FC = () => {
       {
         value: '',
         label: '👥 Todo el equipo (General)',
-        subtitle: 'Visible para todos los técnicos',
+        subtitle: 'Visible para todos los técnicos del hotel',
         icon: <Users className="w-3.5 h-3.5 text-emerald-600" />
       }
     ];
@@ -737,20 +836,21 @@ export const TasksView: React.FC = () => {
     const activeUsersList = (users || []).filter(u => u && u.status !== 'inactive');
     for (const u of activeUsersList) {
       options.push({
-        value: u.displayName || u.email,
-        label: `👤 ${u.displayName}`,
-        subtitle: `${u.department || 'Personal'} • ${u.role || 'Usuario'}`,
+        value: u.id,
+        label: `👤 ${u.displayName || u.email}`,
+        subtitle: `${u.department || 'Personal'} • ${u.role === 'admin' ? 'Administrador' : 'Técnico'}`,
+        badge: u.role === 'admin' ? 'Admin' : 'Técnico',
         icon: <User className="w-3.5 h-3.5 text-blue-600" />
       });
     }
 
     // Add any configured companion not already present (strictly ignoring duplicates)
     for (const tech of configuredCompanions) {
-      const cleanTech = tech.replace(/\/(técnico|tecnico|admin|supervisor)/gi, '').toLowerCase().trim();
+      const cleanTech = normalizeTechName(tech);
+      if (!cleanTech) continue;
       const isAlreadyPresent = activeUsersList.some(u => {
-        const uName = (u.displayName || u.name || '').toLowerCase().trim();
-        const cleanUName = uName.replace(/\/(técnico|tecnico|admin|supervisor)/gi, '').trim();
-        return cleanTech === cleanUName || cleanTech.includes(cleanUName) || cleanUName.startsWith(cleanUName) || cleanUName === 'juan mateo' || cleanUName === 'carlos manuel';
+        const cleanUName = normalizeTechName(u.displayName || u.name);
+        return cleanUName && (cleanTech === cleanUName || cleanTech.includes(cleanUName) || cleanUName.includes(cleanTech));
       });
 
       if (!isAlreadyPresent) {
@@ -758,13 +858,14 @@ export const TasksView: React.FC = () => {
           value: tech,
           label: `👤 ${tech}`,
           subtitle: 'Personal registrado en configuración',
+          badge: 'Técnico',
           icon: <User className="w-3.5 h-3.5 text-slate-500" />
         });
       }
     }
 
     return options;
-  }, [users, configuredCompanions]);
+  }, [users, configuredCompanions, normalizeTechName]);
 
   const modalCategoryOptions: BeautifulSelectOption[] = useMemo(() => 
     Object.entries(CATEGORY_CONFIG).map(([key, config]) => {
@@ -936,22 +1037,24 @@ export const TasksView: React.FC = () => {
 
           {/* Quick Tab: Assignment filter */}
           <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl shrink-0 overflow-x-auto">
-            <button
-              type="button"
-              onClick={() => setAssignmentFilter('all')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all whitespace-nowrap ${
-                assignmentFilter === 'all'
-                  ? 'bg-white text-slate-900 shadow-sm'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              Todas
-            </button>
+            {isAdmin && (
+              <button
+                type="button"
+                onClick={() => setAssignmentFilter('all')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all whitespace-nowrap ${
+                  assignmentFilter === 'all'
+                    ? 'bg-white text-slate-900 shadow-sm'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                Todas ({stats.total})
+              </button>
+            )}
             <button
               type="button"
               onClick={() => setAssignmentFilter('my_tasks')}
               className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all whitespace-nowrap ${
-                assignmentFilter === 'my_tasks'
+                assignmentFilter === 'my_tasks' || (!isAdmin && assignmentFilter === 'all')
                   ? 'bg-emerald-600 text-white shadow-sm'
                   : 'text-slate-600 hover:text-slate-900'
               }`}
@@ -975,14 +1078,31 @@ export const TasksView: React.FC = () => {
         {/* Dropdown Filters Row */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-3 border-t border-slate-100">
           {/* Asignado a / Compañero registrado en configuración */}
-          <BeautifulSelect
-            label="Compañero"
-            value={assignmentFilter === 'my_tasks' || assignmentFilter === 'created_by_me' ? 'all' : assignmentFilter}
-            onChange={(val) => setAssignmentFilter(val)}
-            options={companionFilterOptions}
-            leadingIcon={<Users className="w-3.5 h-3.5 text-emerald-600" />}
-            placeholder="Todos los compañeros"
-          />
+          {isAdmin ? (
+            <BeautifulSelect
+              label="Compañero Asignado"
+              value={assignmentFilter === 'my_tasks' || assignmentFilter === 'created_by_me' ? 'all' : assignmentFilter}
+              onChange={(val) => setAssignmentFilter(val)}
+              options={companionFilterOptions}
+              leadingIcon={<Users className="w-3.5 h-3.5 text-emerald-600" />}
+              placeholder="Todos los compañeros"
+            />
+          ) : (
+            <div className="w-full">
+              <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1 truncate">
+                Usuario Asignado
+              </label>
+              <div className="w-full px-3 py-2 bg-emerald-50 border border-emerald-200 rounded-xl text-xs font-semibold text-emerald-900 flex items-center justify-between shadow-2xs">
+                <div className="flex items-center gap-2 truncate">
+                  <User className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                  <span className="truncate">{currentUser?.displayName || 'Mi Usuario'}</span>
+                </div>
+                <span className="text-[10px] bg-emerald-200/70 text-emerald-900 font-bold px-1.5 py-0.5 rounded-full shrink-0">
+                  Asignadas a ti
+                </span>
+              </div>
+            </div>
+          )}
 
           {/* Estado */}
           <BeautifulSelect
@@ -1053,12 +1173,7 @@ export const TasksView: React.FC = () => {
             const commentsCount = (task.comments || []).length;
             const photosCount = (task.photos || []).length + (task.completionPhotos || []).length;
 
-            const isAssignedToMe = 
-              !task.assignedToId || 
-              task.assignedToId === currentUser?.id || 
-              task.assignedToName?.toLowerCase().includes('todos') || 
-              task.assignedToName?.toLowerCase().includes('general') ||
-              (currentUser?.displayName && task.assignedToName?.toLowerCase().trim() === currentUser.displayName.toLowerCase().trim());
+            const isAssignedToMe = isTaskAssignedToUser(task);
 
             return (
               <div
@@ -1087,13 +1202,42 @@ export const TasksView: React.FC = () => {
                         <CategoryIcon className="w-3 h-3" />
                         {categoryStyle.label}
                       </span>
+
+                      {/* Badge Procedimiento Cargado */}
+                      {task.checklist && task.checklist.length > 0 && (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-bold rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200" title="Esta tarea cuenta con procedimiento paso a paso cargado">
+                          <ListTodo className="w-3 h-3 text-indigo-600" />
+                          <span>Procedimiento ({completedCount}/{checklistItems.length})</span>
+                        </span>
+                      )}
                     </div>
 
-                    {/* Status Badge */}
-                    <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 text-xs font-semibold rounded-full border ${statusStyle.bg} ${statusStyle.text} ${statusStyle.border}`}>
-                      <span className={`w-1.5 h-1.5 rounded-full ${statusStyle.dotColor}`} />
-                      {statusStyle.label}
-                    </span>
+                    {/* Status Badge & Botón PDF rápido */}
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDownloadTaskPdf(task);
+                        }}
+                        disabled={downloadingTaskId === task.id}
+                        className="inline-flex items-center gap-1 px-2.5 py-0.5 text-xs font-bold rounded-full bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 transition-all cursor-pointer shadow-2xs hover:shadow-xs active:scale-95 disabled:opacity-50"
+                        title="Descargar PDF de esta tarea con procedimiento y fotos"
+                      >
+                        {downloadingTaskId === task.id ? (
+                          <Loader2 className="w-3 h-3 animate-spin text-rose-600" />
+                        ) : (
+                          <FileDown className="w-3 h-3 text-rose-600" />
+                        )}
+                        <span>Descargar PDF</span>
+                      </button>
+
+                      {/* Status Badge */}
+                      <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 text-xs font-semibold rounded-full border ${statusStyle.bg} ${statusStyle.text} ${statusStyle.border}`}>
+                        <span className={`w-1.5 h-1.5 rounded-full ${statusStyle.dotColor}`} />
+                        {statusStyle.label}
+                      </span>
+                    </div>
                   </div>
 
                   {/* Title and Description (Click to open details & progress) */}
@@ -1267,6 +1411,30 @@ export const TasksView: React.FC = () => {
                       <span>{commentsCount > 0 ? `${commentsCount} avances` : 'Avance'}</span>
                     </button>
 
+                    {/* Botón Descargar PDF para cada tarea individual */}
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDownloadTaskPdf(task);
+                      }}
+                      disabled={downloadingTaskId === task.id}
+                      className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-xl text-xs font-bold transition-all shadow-2xs hover:shadow-xs active:scale-95 cursor-pointer disabled:opacity-50"
+                      title="Descargar tarea completa en PDF con procedimiento y fotos"
+                    >
+                      {downloadingTaskId === task.id ? (
+                        <>
+                          <Loader2 className="w-3.5 h-3.5 animate-spin text-rose-600" />
+                          <span>PDF...</span>
+                        </>
+                      ) : (
+                        <>
+                          <FileDown className="w-3.5 h-3.5 text-rose-600" />
+                          <span>PDF</span>
+                        </>
+                      )}
+                    </button>
+
                     {/* Edit button */}
                     <button
                       type="button"
@@ -1424,23 +1592,48 @@ export const TasksView: React.FC = () => {
                 {/* Asignar a compañero registrado en configuración */}
                 <div>
                   <BeautifulSelect
-                    label="Asignar a Compañero *"
-                    value={formAssignedToName === 'Todo el equipo' || !formAssignedToName ? '' : formAssignedToName}
-                    onChange={(selectedTech) => {
-                      if (!selectedTech || selectedTech === '') {
+                    label="Asignar a Compañero Específico *"
+                    value={formAssignedToId || formAssignedToName}
+                    onChange={(selectedVal) => {
+                      if (!selectedVal || selectedVal === '' || selectedVal === 'Todo el equipo') {
                         setFormAssignedToId('');
                         setFormAssignedToName('Todo el equipo');
                         setFormAssignedToDept('');
                       } else {
-                        setFormAssignedToId(selectedTech);
-                        setFormAssignedToName(selectedTech);
-                        setFormAssignedToDept('');
+                        const matchedUser = (users || []).find(
+                          u => u && (
+                            u.id === selectedVal ||
+                            (u.displayName || '').toLowerCase().trim() === selectedVal.toLowerCase().trim() ||
+                            (u.email || '').toLowerCase().trim() === selectedVal.toLowerCase().trim() ||
+                            normalizeTechName(u.displayName) === normalizeTechName(selectedVal)
+                          )
+                        );
+                        if (matchedUser) {
+                          setFormAssignedToId(matchedUser.id);
+                          setFormAssignedToName(matchedUser.displayName || matchedUser.email);
+                          setFormAssignedToDept(matchedUser.department || '');
+                        } else {
+                          const matchedSettingsTech = configuredCompanions.find(
+                            c => normalizeTechName(c) === normalizeTechName(selectedVal)
+                          );
+                          const chosenName = matchedSettingsTech || selectedVal;
+                          const userForTech = (users || []).find(
+                            u => normalizeTechName(u.displayName) === normalizeTechName(chosenName)
+                          );
+                          setFormAssignedToId(userForTech ? userForTech.id : selectedVal);
+                          setFormAssignedToName(userForTech?.displayName || chosenName);
+                          setFormAssignedToDept(userForTech?.department || '');
+                        }
                       }
                     }}
                     options={modalCompanionOptions}
                     leadingIcon={<Users className="w-3.5 h-3.5 text-emerald-600" />}
                     placeholder="Seleccionar compañero..."
                   />
+                  <p className="text-[10px] text-slate-500 mt-1 flex items-center gap-1">
+                    <Sparkles className="w-3 h-3 text-emerald-600 shrink-0" />
+                    <span>La tarea aparecerá exclusivamente al compañero asignado y al administrador.</span>
+                  </p>
                 </div>
 
                 {/* Prioridad */}
@@ -1959,21 +2152,82 @@ export const TasksView: React.FC = () => {
                   </h2>
                 </div>
               </div>
-              <button
-                type="button"
-                onClick={() => {
-                  setActiveTaskId(null);
-                  setProgressText('');
-                  setProgressPhotos([]);
-                }}
-                className="p-2 text-slate-400 hover:text-white rounded-xl hover:bg-slate-800 transition-colors shrink-0 cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleDownloadTaskPdf(activeTask)}
+                  disabled={downloadingTaskId === activeTask.id}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-rose-600 hover:bg-rose-500 text-white rounded-xl text-xs font-bold shadow-md transition-all active:scale-95 cursor-pointer disabled:opacity-50 shrink-0"
+                  title="Descargar este procedimiento y tarea en formato PDF con fotos"
+                >
+                  {downloadingTaskId === activeTask.id ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin text-rose-200" />
+                      <span>Generando PDF...</span>
+                    </>
+                  ) : (
+                    <>
+                      <FileDown className="w-3.5 h-3.5 text-white" />
+                      <span>Descargar en PDF</span>
+                    </>
+                  )}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveTaskId(null);
+                    setProgressText('');
+                    setProgressPhotos([]);
+                  }}
+                  className="p-2 text-slate-400 hover:text-white rounded-xl hover:bg-slate-800 transition-colors shrink-0 cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
             </div>
 
             {/* Scrollable Content Body */}
             <div className="p-5 overflow-y-auto flex-1 space-y-4 bg-slate-50/50">
+              {/* Banner Oficial Descargar Reporte en PDF */}
+              <div className="bg-gradient-to-r from-slate-900 via-blue-950 to-slate-900 text-white p-3.5 rounded-2xl border border-blue-500/30 flex items-center justify-between gap-3 shadow-md">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="p-2.5 bg-rose-500/20 text-rose-400 rounded-xl shrink-0 border border-rose-500/30">
+                    <FileDown className="w-5 h-5" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-xs font-bold text-white flex items-center gap-1.5">
+                      <span>Reporte Oficial en PDF de la Tarea</span>
+                      {activeTask.checklist && activeTask.checklist.length > 0 && (
+                        <span className="text-[10px] bg-emerald-500/25 text-emerald-300 border border-emerald-500/30 px-1.5 py-0.2 rounded font-semibold">
+                          Procedimiento Incluido
+                        </span>
+                      )}
+                    </p>
+                    <p className="text-[11px] text-slate-300 mt-0.5 truncate">
+                      Descarga el reporte técnico tal cual como se realizó: pasos, bitácora y registro fotográfico.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleDownloadTaskPdf(activeTask)}
+                  disabled={downloadingTaskId === activeTask.id}
+                  className="px-3.5 py-2 bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs rounded-xl shadow-md transition-all active:scale-95 cursor-pointer flex items-center gap-1.5 shrink-0 disabled:opacity-50"
+                >
+                  {downloadingTaskId === activeTask.id ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>Generando...</span>
+                    </>
+                  ) : (
+                    <>
+                      <FileDown className="w-3.5 h-3.5" />
+                      <span>Descargar PDF</span>
+                    </>
+                  )}
+                </button>
+              </div>
               {/* Task Overview Card */}
               <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-2xs space-y-3">
                 {activeTask.description && (

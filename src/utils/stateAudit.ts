@@ -8,6 +8,11 @@ import {
   Equipment,
   AuditLogEntry
 } from '../types';
+import { HISTORICAL_ROUNDS } from '../data/historicalRounds';
+
+const CANONICAL_HISTORICAL_ROUND_IDS = new Set<string>(
+  (HISTORICAL_ROUNDS || []).map(r => r?.id).filter(Boolean)
+);
 
 export interface StateAuditCorrection {
   entity: 'tasks' | 'workOrders' | 'incidents' | 'requests' | 'rounds' | 'equipments';
@@ -435,7 +440,8 @@ export function auditRounds(
 
   for (const raw of roundsList || []) {
     if (!raw || typeof raw !== 'object' || !raw.id) continue;
-    if (deletedIdsSet.has(raw.id)) continue;
+    const isDeleted = deletedIdsSet.has(raw.id) && !CANONICAL_HISTORICAL_ROUND_IDS.has(raw.id);
+    if (isDeleted) continue;
     if (seenIds.has(raw.id)) {
       corrections.push({
         entity: 'rounds',
@@ -487,6 +493,13 @@ export function auditRounds(
     }
 
     result.push(round);
+  }
+
+  for (const hr of HISTORICAL_ROUNDS) {
+    if (!seenIds.has(hr.id)) {
+      seenIds.add(hr.id);
+      result.push({ ...hr, status: 'completada', compliancePercentage: 100 });
+    }
   }
 
   return result;

@@ -167,6 +167,67 @@ export const SHIFT_PRESETS: Record<ShiftType, {
   }
 };
 
+export const getShiftWorkedHours = (sched: { shiftType?: ShiftType | string; startTime?: string; endTime?: string } | undefined | null): number => {
+  if (!sched || !sched.shiftType || sched.shiftType === 'descanso') return 0;
+  
+  const preset = SHIFT_PRESETS[sched.shiftType as ShiftType];
+  let start = sched.startTime || preset?.startTime;
+  let end = sched.endTime || preset?.endTime;
+
+  // Turno Mañana oficial del hotel: 06:00 a 15:00 = 9 horas
+  if (sched.shiftType === 'manana') {
+    if (!start) start = '06:00';
+    if (!end || end === '14:00') end = '15:00';
+  }
+
+  // Turno Noche: corregir formato de reloj 12h/24h (si guardaron 09:00 en lugar de 21:00)
+  if (sched.shiftType === 'noche') {
+    if (!start || start === '09:00' || start === '9:00') start = '21:00';
+    if (!end) end = '06:00';
+  }
+
+  if (!start && !end) {
+    return preset ? 9 : 0;
+  }
+
+  start = start || '08:00';
+  end = end || '17:00';
+
+  const [startH, startM = 0] = start.split(':').map(Number);
+  const [endH, endM = 0] = end.split(':').map(Number);
+  if (isNaN(startH) || isNaN(endH)) return 9;
+
+  let normStartH = startH;
+  if (sched.shiftType === 'noche' && normStartH < 12) {
+    normStartH += 12;
+  }
+
+  const startMins = normStartH * 60 + startM;
+  let endMins = endH * 60 + endM;
+  if (endMins <= startMins) {
+    endMins += 24 * 60;
+  }
+
+  let hours = (endMins - startMins) / 60;
+  if (hours > 14) {
+    hours = 9;
+  }
+
+  return Math.round(hours * 10) / 10;
+};
+
+export const isScheduleForTech = (
+  s: { technicianId?: string; technicianName?: string } | null | undefined,
+  tech: { id: string; displayName: string } | null | undefined
+): boolean => {
+  if (!s || !tech) return false;
+  if (s.technicianId && s.technicianId === tech.id) return true;
+  if (!s.technicianName || !tech.displayName) return false;
+  const sName = s.technicianName.toLowerCase().replace(/\/.*$/, '').replace(/técnico|supervisor|operador/gi, '').trim();
+  const tName = tech.displayName.toLowerCase().replace(/\/.*$/, '').replace(/técnico|supervisor|operador/gi, '').trim();
+  return sName === tName || s.technicianName.toLowerCase().trim() === tech.displayName.toLowerCase().trim();
+};
+
 const BULK_PATTERNS = [
   { id: '6x1', title: '6x1 Rotativo Quincenal', desc: '6 días trabajo + 1 día descanso rotativo parejo.', icon: '⚡' },
   { id: '5x2', title: '5x2 Diurno Quincenal', desc: 'Lunes a Viernes diurno, fin de semana libre.', icon: '📅' },
@@ -376,7 +437,21 @@ export const TechnicianSchedulesView: React.FC = () => {
   // Interactive Matrix Layout Options
   const [matrixLayoutMode, setMatrixLayoutMode] = useState<'tabla' | 'tarjetas' | 'desglose'>('tabla');
   const [isCompactNames, setIsCompactNames] = useState<boolean>(true);
+  const [showOnlyBolitas, setShowOnlyBolitas] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem('hotel_maint_shifts_only_bolitas');
+      if (saved !== null) return saved === 'true';
+    } catch {}
+    return true; // Predeterminado en true: solo bolitas de iniciales para mayor espacio visual de los horarios
+  });
   const [selectedDayIso, setSelectedDayIso] = useState<string>(() => getHotelCurrentDateIso());
+
+  const handleToggleBolitas = (val: boolean) => {
+    setShowOnlyBolitas(val);
+    try {
+      localStorage.setItem('hotel_maint_shifts_only_bolitas', String(val));
+    } catch {}
+  };
 
   // Custom Futuristic Dropdowns Popover States
   const [isStartTimeOpen, setIsStartTimeOpen] = useState(false);
@@ -653,18 +728,21 @@ export const TechnicianSchedulesView: React.FC = () => {
 
     technicianUsers.forEach(tech => {
       summary += `👤 *${(tech.displayName || tech.email || '').toUpperCase()}*\n`;
+      let techTotalHours = 0;
       displayedDays.forEach(day => {
-        const sch = (schedules || []).find(s => (s.technicianId === tech.id || s.technicianName === tech.displayName) && s.date === day.dateIso);
+        const sch = (schedules || []).find(s => s && s.date === day.dateIso && isScheduleForTech(s, tech));
         if (sch) {
           const preset = SHIFT_PRESETS[sch.shiftType];
           const icon = preset?.icon || '⏰';
           const label = preset?.label || sch.shiftType;
-          summary += `  • ${day.dayName} ${day.dayNum}: ${icon} ${label} (${sch.startTime} - ${sch.endTime})\n`;
+          const shiftHours = getShiftWorkedHours(sch);
+          techTotalHours += shiftHours;
+          summary += `  • ${day.dayName} ${day.dayNum}: ${icon} ${label} (${sch.startTime} - ${sch.endTime}) [${shiftHours}h]\n`;
         } else {
           summary += `  • ${day.dayName} ${day.dayNum}: ⚪ Sin Asignar\n`;
         }
       });
-      summary += `\n`;
+      summary += `  ⏱️ *Total Horas Quincena:* ${Math.round(techTotalHours * 10) / 10}h\n\n`;
     });
 
     summary += `------------------------------------\n`;
@@ -825,6 +903,56 @@ export const TechnicianSchedulesView: React.FC = () => {
     isOnCall: false,
     notes: ''
   });
+
+  const parseTime12h = (time24: string): { hour: string; minute: string; period: 'AM' | 'PM' } => {
+    const [hStr, mStr] = (time24 || '08:00').split(':');
+    const h24 = Math.max(0, Math.min(23, parseInt(hStr || '0', 10) || 0));
+    const m = Math.max(0, Math.min(59, parseInt(mStr || '0', 10) || 0));
+    const period: 'AM' | 'PM' = h24 >= 12 ? 'PM' : 'AM';
+    const h12 = h24 % 12 === 0 ? 12 : h24 % 12;
+    return {
+      hour: String(h12).padStart(2, '0'),
+      minute: String(m).padStart(2, '0'),
+      period
+    };
+  };
+
+  const toTime24h = (hourStr: string, minStr: string, period: 'AM' | 'PM'): string => {
+    let h = parseInt(hourStr || '12', 10);
+    if (isNaN(h) || h < 1) h = 12;
+    if (h > 12) h = h % 12 === 0 ? 12 : h % 12;
+    let m = parseInt(minStr || '0', 10);
+    if (isNaN(m) || m < 0) m = 0;
+    if (m > 59) m = 59;
+    const h24 = period === 'AM' ? (h === 12 ? 0 : h) : (h === 12 ? 12 : h + 12);
+    return `${String(h24).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+  };
+
+  const [customStartHour, setCustomStartHour] = useState('06');
+  const [customStartMin, setCustomStartMin] = useState('00');
+  const [customStartPeriod, setCustomStartPeriod] = useState<'AM' | 'PM'>('AM');
+
+  const [customEndHour, setCustomEndHour] = useState('03');
+  const [customEndMin, setCustomEndMin] = useState('00');
+  const [customEndPeriod, setCustomEndPeriod] = useState<'AM' | 'PM'>('PM');
+
+  useEffect(() => {
+    if (isStartTimeOpen) {
+      const p = parseTime12h(formData.startTime);
+      setCustomStartHour(p.hour);
+      setCustomStartMin(p.minute);
+      setCustomStartPeriod(p.period);
+    }
+  }, [isStartTimeOpen]);
+
+  useEffect(() => {
+    if (isEndTimeOpen) {
+      const p = parseTime12h(formData.endTime);
+      setCustomEndHour(p.hour);
+      setCustomEndMin(p.minute);
+      setCustomEndPeriod(p.period);
+    }
+  }, [isEndTimeOpen]);
 
   // Bulk Generator State
   const [bulkData, setBulkData] = useState<BulkScheduleParams>(() => {
@@ -1675,22 +1803,56 @@ export const TechnicianSchedulesView: React.FC = () => {
               </div>
             </div>
 
-            {/* Selector de Modos de Vista Originales */}
+            {/* Selector de Visualización: Bolitas de Iniciales vs Nombres */}
             <div className="flex flex-wrap items-center gap-2">
               
-              {/* Botón Ancho de Columna de Nombres (Ahorra espacio en móvil) */}
-              <button
-                onClick={() => setIsCompactNames(prev => !prev)}
-                className={`px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all border flex items-center space-x-1.5 cursor-pointer ${
-                  isCompactNames
-                    ? 'bg-amber-50 dark:bg-amber-950/60 border-amber-300 dark:border-amber-700 text-amber-700 dark:text-amber-300 shadow-xs'
-                    : 'bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100'
-                }`}
-                title="Con el modo compacto los nombres ocupan menos espacio para ver todos los días completos"
-              >
-                <SlidersHorizontal className="w-3.5 h-3.5" />
-                <span>{isCompactNames ? '👤 Nombres Compactos' : '📄 Nombres Detallados'}</span>
-              </button>
+              {/* CONTROL SUPERIOR: BOTONES PARA ALTERNAR ENTRE SOLO BOLITAS Y MOSTRAR NOMBRES */}
+              <div className="flex items-center bg-slate-200/80 dark:bg-slate-800 p-1 rounded-xl shadow-inner border border-slate-300/60 dark:border-slate-700 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => handleToggleBolitas(true)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-black transition-all flex items-center space-x-1.5 cursor-pointer ${
+                    showOnlyBolitas
+                      ? 'bg-gradient-to-r from-indigo-600 to-indigo-700 text-white shadow-sm ring-1 ring-indigo-400'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                  }`}
+                  title="Ocultar los nombres y dejar únicamente las bolitas de iniciales para que se vean más los horarios"
+                >
+                  <span className={`w-2 h-2 rounded-full ${showOnlyBolitas ? 'bg-emerald-400 ring-2 ring-emerald-300/40 animate-pulse' : 'bg-slate-400'}`}></span>
+                  <span>🔘 Solo Bolitas</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleToggleBolitas(false)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-black transition-all flex items-center space-x-1.5 cursor-pointer ${
+                    !showOnlyBolitas
+                      ? 'bg-gradient-to-r from-indigo-600 to-indigo-700 text-white shadow-sm ring-1 ring-indigo-400'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                  }`}
+                  title="Mostrar los nombres del personal"
+                >
+                  <Users className="w-3.5 h-3.5" />
+                  <span>👤 Mostrar Nombres</span>
+                </button>
+              </div>
+
+              {/* Si los nombres están visibles, permitir alternar entre nombres cortos y completos */}
+              {!showOnlyBolitas && (
+                <button
+                  type="button"
+                  onClick={() => setIsCompactNames(prev => !prev)}
+                  className={`px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all border flex items-center space-x-1.5 cursor-pointer ${
+                    isCompactNames
+                      ? 'bg-amber-50 dark:bg-amber-950/60 border-amber-300 dark:border-amber-700 text-amber-700 dark:text-amber-300 shadow-xs'
+                      : 'bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100'
+                  }`}
+                  title="Alternar entre nombres reducidos o completos"
+                >
+                  <SlidersHorizontal className="w-3.5 h-3.5" />
+                  <span>{isCompactNames ? 'Cortos' : 'Detallados'}</span>
+                </button>
+              )}
 
               {/* Layout Switcher Pills */}
               <div className="flex items-center space-x-1 bg-slate-200/70 dark:bg-slate-800 p-1 rounded-xl shrink-0">
@@ -1781,6 +1943,40 @@ export const TechnicianSchedulesView: React.FC = () => {
             </div>
           </div>
 
+          {/* BARRA RESUMEN DE HORAS TRABAJADAS POR TÉCNICO EN LA QUINCENA */}
+          <div className="px-3.5 py-2.5 bg-indigo-50/80 dark:bg-indigo-950/40 rounded-xl border border-indigo-200/80 dark:border-indigo-800/80 flex items-center justify-between gap-3 flex-wrap">
+            <div className="flex items-center gap-1.5 text-xs font-black text-indigo-900 dark:text-indigo-200">
+              <Clock className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+              <span>Totales Quincena ({matrixPeriodMode === 'quincena1' ? '1ª Quincena' : matrixPeriodMode === 'quincena2' ? '2ª Quincena' : 'Semana'}):</span>
+            </div>
+            <div className="flex items-center gap-2 overflow-x-auto py-0.5 scrollbar-thin">
+              {technicianUsers.map(tech => {
+                const totalHours = displayedDays.reduce((acc, day) => {
+                  const s = (schedules || []).find(sched => sched && sched.date === day.dateIso && isScheduleForTech(sched, tech));
+                  return acc + getShiftWorkedHours(s);
+                }, 0);
+                const rounded = Math.round(totalHours * 10) / 10;
+                return (
+                  <div 
+                    key={tech.id} 
+                    className="flex items-center gap-1.5 bg-white dark:bg-slate-900 px-2.5 py-1 rounded-lg border border-indigo-200/70 dark:border-indigo-800/70 shadow-2xs shrink-0"
+                    title={`${tech.displayName}: ${rounded} horas trabajadas`}
+                  >
+                    <div className="w-5 h-5 rounded-full bg-indigo-600 text-white font-extrabold flex items-center justify-center text-[9px] shrink-0">
+                      {tech.displayName.substring(0, 2).toUpperCase()}
+                    </div>
+                    <span className="text-[11px] font-bold text-slate-800 dark:text-slate-200 truncate max-w-[90px]">
+                      {tech.displayName.split(' ')[0]}
+                    </span>
+                    <span className="text-[11px] font-black text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950 px-1.5 py-0.2 rounded-md">
+                      {rounded}h
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
           {/* ========================================================================= */}
           {/* OPCIÓN A: TABLA FLUYENTE (CON COLUMNA STICKY ADAPTABLE Y DIAS VISIBLES) */}
           {/* ========================================================================= */}
@@ -1792,24 +1988,56 @@ export const TechnicianSchedulesView: React.FC = () => {
                     
                     {/* COLUMNA FIXA DE TÉCNICOS (STICKY LEFT) */}
                     <th 
-                      className={`p-2.5 sticky left-0 bg-slate-100 dark:bg-slate-800 z-20 border-r border-slate-200 dark:border-slate-700 shadow-xs transition-all ${
-                        isCompactNames ? 'w-20 sm:w-28 min-w-[80px]' : 'w-56 sm:w-64 min-w-[200px]'
+                      className={`sticky left-0 bg-slate-100 dark:bg-slate-800 z-20 border-r border-slate-200 dark:border-slate-700 shadow-xs transition-all ${
+                        showOnlyBolitas 
+                          ? 'w-12 sm:w-14 min-w-[46px] max-w-[56px] p-1.5 text-center' 
+                          : isCompactNames 
+                          ? 'w-24 sm:w-32 min-w-[90px] p-2.5' 
+                          : 'w-56 sm:w-64 min-w-[200px] p-2.5'
                       }`}
                     >
-                      <div className="flex items-center justify-between gap-1">
-                        <span className="truncate text-[11px] font-extrabold uppercase tracking-tight text-slate-700 dark:text-slate-200">
-                          {isCompactNames ? 'Personal' : 'Técnico de Turno'}
-                        </span>
-                        {isAdmin && (
-                          <button
-                            onClick={() => setIsAddPersonModalOpen(true)}
-                            className="p-1 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-100 dark:hover:bg-emerald-950/50 rounded-lg transition-colors cursor-pointer shrink-0"
-                            title="Agregar nuevo personal"
+                      {showOnlyBolitas ? (
+                        <div 
+                          className="flex flex-col items-center justify-center cursor-pointer group py-0.5"
+                          onClick={() => handleToggleBolitas(false)}
+                          title="Toca para mostrar nombres del personal"
+                        >
+                          <span className="text-[10px] font-black uppercase tracking-tight text-indigo-600 dark:text-indigo-400 group-hover:scale-105 transition-transform">
+                            TÉC
+                          </span>
+                          {isAdmin && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setIsAddPersonModalOpen(true);
+                              }}
+                              className="mt-0.5 p-0.5 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-100 dark:hover:bg-emerald-950/50 rounded transition-colors cursor-pointer"
+                              title="Agregar nuevo personal"
+                            >
+                              <UserPlus className="w-3 h-3" />
+                            </button>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="flex items-center justify-between gap-1">
+                          <span 
+                            onClick={() => handleToggleBolitas(true)}
+                            className="truncate text-[11px] font-extrabold uppercase tracking-tight text-slate-700 dark:text-slate-200 cursor-pointer hover:text-indigo-600"
+                            title="Toca para dejar solo las bolitas de iniciales"
                           >
-                            <UserPlus className="w-3.5 h-3.5" />
-                          </button>
-                        )}
-                      </div>
+                            {isCompactNames ? 'Personal' : 'Técnico de Turno'}
+                          </span>
+                          {isAdmin && (
+                            <button
+                              onClick={() => setIsAddPersonModalOpen(true)}
+                              className="p-1 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-100 dark:hover:bg-emerald-950/50 rounded-lg transition-colors cursor-pointer shrink-0"
+                              title="Agregar nuevo personal"
+                            >
+                              <UserPlus className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
+                      )}
                     </th>
 
                     {/* ENCABEZADOS DE DÍAS (1 AL 15 / 16 AL 31) */}
@@ -1846,6 +2074,16 @@ export const TechnicianSchedulesView: React.FC = () => {
                         </th>
                       );
                     })}
+
+                    {/* COLUMNA DE HORAS TOTALES TRABAJADAS EN LA QUINCENA - FIJA A LA DERECHA */}
+                    <th className="sticky right-0 z-30 p-2 text-center border-l border-slate-200 dark:border-slate-700 min-w-[78px] sm:min-w-[92px] bg-indigo-100/95 dark:bg-indigo-950/95 text-indigo-950 dark:text-indigo-200 font-black shadow-[-4px_0_6px_-1px_rgba(0,0,0,0.08)]">
+                      <div className="text-[10px] uppercase font-black tracking-wider text-indigo-700 dark:text-indigo-300">
+                        Total Horas
+                      </div>
+                      <div className="text-[10px] font-bold mt-0.5 text-indigo-900 dark:text-indigo-200">
+                        {matrixPeriodMode === 'quincena1' ? '1ª Quincena' : matrixPeriodMode === 'quincena2' ? '2ª Quincena' : 'Semana'}
+                      </div>
+                    </th>
                   </tr>
                 </thead>
 
@@ -1857,8 +2095,12 @@ export const TechnicianSchedulesView: React.FC = () => {
                         
                         {/* CELDA DE INFORMACIÓN DEL TÉCNICO CON ORDENACIÓN Y BORRADO */}
                         <td 
-                          className={`p-2 sticky left-0 bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 z-10 shadow-xs transition-all ${
-                            isCompactNames ? 'w-20 sm:w-28 min-w-[80px]' : 'w-56 sm:w-64 min-w-[200px]'
+                          className={`sticky left-0 bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 z-10 shadow-xs transition-all ${
+                            showOnlyBolitas 
+                              ? 'w-12 sm:w-14 min-w-[46px] max-w-[56px] p-1 text-center' 
+                              : isCompactNames 
+                              ? 'w-24 sm:w-32 min-w-[90px] p-2' 
+                              : 'w-56 sm:w-64 min-w-[200px] p-2'
                           }`}
                         >
                           {editingTechId === tech.id ? (
@@ -1889,6 +2131,55 @@ export const TechnicianSchedulesView: React.FC = () => {
                                 ✕
                               </button>
                             </div>
+                          ) : showOnlyBolitas ? (
+                            /* MODO SOLO BOLITAS: ÚNICAMENTE EL CÍRCULO CON LAS INICIALES, SIN NINGÚN TEXTO */
+                            <div 
+                              className="flex flex-col items-center justify-center py-1 group/avatar" 
+                              title={`${tech.displayName} - ${tech.role || 'Técnico'} (Toca para ver nombres)`}
+                            >
+                              <div 
+                                className="w-8 h-8 rounded-full bg-gradient-to-tr from-indigo-600 to-indigo-700 text-white font-black flex items-center justify-center shrink-0 text-[11px] shadow-sm ring-2 ring-indigo-400/40 hover:scale-110 transition-transform cursor-pointer"
+                                title={`${tech.displayName} (Toca para ver nombres)`}
+                                onClick={() => handleToggleBolitas(false)}
+                              >
+                                {tech.displayName.substring(0, 2).toUpperCase()}
+                              </div>
+
+                              {(() => {
+                                const totalTechHours = displayedDays.reduce((acc, day) => {
+                                  const daySched = (schedules || []).find(s => s && s.date === day.dateIso && isScheduleForTech(s, tech));
+                                  return acc + getShiftWorkedHours(daySched);
+                                }, 0);
+                                const rounded = Math.round(totalTechHours * 10) / 10;
+                                return (
+                                  <span 
+                                    className="text-[9px] font-black text-indigo-700 dark:text-indigo-300 mt-1 bg-indigo-50 dark:bg-indigo-950/80 px-1 py-0.5 rounded border border-indigo-200/60 dark:border-indigo-800/60 tracking-tighter shadow-2xs"
+                                    title={`Total acumulado para ${tech.displayName}: ${rounded} horas`}
+                                  >
+                                    {rounded}h
+                                  </span>
+                                );
+                              })()}
+
+                              {isAdmin && (
+                                <div className="opacity-0 group-hover/avatar:opacity-100 flex items-center gap-0.5 mt-0.5 transition-opacity">
+                                  <button
+                                    onClick={() => handleMoveTechnician(tech.id, 'up')}
+                                    className="p-0.5 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 hover:text-indigo-600 rounded cursor-pointer"
+                                    title="Subir"
+                                  >
+                                    <ArrowUp className="w-2.5 h-2.5" />
+                                  </button>
+                                  <button
+                                    onClick={() => handleMoveTechnician(tech.id, 'down')}
+                                    className="p-0.5 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 hover:text-indigo-600 rounded cursor-pointer"
+                                    title="Abajo"
+                                  >
+                                    <ArrowDown className="w-2.5 h-2.5" />
+                                  </button>
+                                </div>
+                              )}
+                            </div>
                           ) : isCompactNames ? (
                             /* MODO COMPACTO: AVATAR + NOMBRE CORTO PARA DEJAR MÁXIMO ESPACIO A LOS DÍAS */
                             <div className="flex items-center justify-between gap-1 group relative">
@@ -1896,9 +2187,23 @@ export const TechnicianSchedulesView: React.FC = () => {
                                 <div className="w-7 h-7 rounded-full bg-indigo-600 text-white font-bold flex items-center justify-center shrink-0 text-[10px] shadow-xs">
                                   {tech.displayName.substring(0, 2).toUpperCase()}
                                 </div>
-                                <span className="font-bold text-slate-800 dark:text-slate-100 text-[11px] truncate max-w-[80px] sm:max-w-[100px]" title={tech.displayName}>
-                                  {tech.displayName}
-                                </span>
+                                <div className="min-w-0">
+                                  <span className="font-bold text-slate-800 dark:text-slate-100 text-[11px] truncate block max-w-[80px] sm:max-w-[100px]" title={tech.displayName}>
+                                    {tech.displayName}
+                                  </span>
+                                  {(() => {
+                                    const totalTechHours = displayedDays.reduce((acc, day) => {
+                                      const daySched = (schedules || []).find(s => s && s.date === day.dateIso && isScheduleForTech(s, tech));
+                                      return acc + getShiftWorkedHours(daySched);
+                                    }, 0);
+                                    const rounded = Math.round(totalTechHours * 10) / 10;
+                                    return (
+                                      <span className="text-[9px] font-black text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950 px-1 py-0.2 rounded border border-indigo-200/50">
+                                        ⏱️ {rounded}h
+                                      </span>
+                                    );
+                                  })()}
+                                </div>
                               </div>
 
                               {isAdmin && (
@@ -1941,8 +2246,20 @@ export const TechnicianSchedulesView: React.FC = () => {
                                   <div className="font-bold text-slate-800 dark:text-slate-100 truncate text-xs flex items-center gap-1">
                                     <span title={tech.displayName}>{tech.displayName}</span>
                                   </div>
-                                  <div className="text-[10px] text-slate-500 dark:text-slate-400 truncate">
-                                    {tech.role || 'Técnico'}
+                                  <div className="text-[10px] text-slate-500 dark:text-slate-400 truncate flex items-center gap-1.5 mt-0.5">
+                                    <span>{tech.role || 'Técnico'}</span>
+                                    {(() => {
+                                      const totalTechHours = displayedDays.reduce((acc, day) => {
+                                        const daySched = (schedules || []).find(s => s && s.date === day.dateIso && isScheduleForTech(s, tech));
+                                        return acc + getShiftWorkedHours(daySched);
+                                      }, 0);
+                                      const rounded = Math.round(totalTechHours * 10) / 10;
+                                      return (
+                                        <span className="text-[9px] font-black text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950 px-1.5 py-0.2 rounded border border-indigo-200/60 dark:border-indigo-800/60 shrink-0">
+                                          ⏱️ {rounded}h
+                                        </span>
+                                      );
+                                    })()}
                                   </div>
                                 </div>
                               </div>
@@ -1989,9 +2306,7 @@ export const TechnicianSchedulesView: React.FC = () => {
                         {/* CELDAS DE TURNOS PARA CADA DÍA */}
                         {displayedDays.map(day => {
                           const daySched = (schedules || []).find(s => 
-                            (s.technicianId === tech.id || 
-                             (!s.technicianId && Boolean(s.technicianName) && Boolean(tech.displayName) && s.technicianName.toLowerCase().trim() === tech.displayName.toLowerCase().trim())) && 
-                            s.date === day.dateIso
+                            s && s.date === day.dateIso && isScheduleForTech(s, tech)
                           );
                           const preset = daySched ? SHIFT_PRESETS[daySched.shiftType] : null;
 
@@ -2037,9 +2352,16 @@ export const TechnicianSchedulesView: React.FC = () => {
                                     </span>
                                   </div>
 
-                                  {daySched.shiftType !== 'descanso' && (
-                                    <div className="text-[9px] font-semibold opacity-90 mt-0.5 tracking-tighter">
-                                      {daySched.startTime}
+                                  {daySched.shiftType !== 'descanso' ? (
+                                    <div className="flex items-center justify-center gap-1 text-[9px] font-semibold opacity-90 mt-0.5 tracking-tighter">
+                                      <span>{daySched.startTime}</span>
+                                      <span className="font-black px-1 py-0.2 bg-black/10 dark:bg-white/10 rounded text-[8px] text-slate-700 dark:text-slate-200">
+                                        {getShiftWorkedHours(daySched)}h
+                                      </span>
+                                    </div>
+                                  ) : (
+                                    <div className="text-[8px] font-bold text-slate-400 dark:text-slate-500 mt-0.5">
+                                      0h
                                     </div>
                                   )}
 
@@ -2088,9 +2410,72 @@ export const TechnicianSchedulesView: React.FC = () => {
                           );
                         })}
 
+                        {/* CELDA TOTAL HORAS DE LA QUINCENA - STICKY A LA DERECHA */}
+                        {(() => {
+                          const totalHours = displayedDays.reduce((acc, day) => {
+                            const daySched = (schedules || []).find(s => 
+                              s && s.date === day.dateIso && isScheduleForTech(s, tech)
+                            );
+                            return acc + getShiftWorkedHours(daySched);
+                          }, 0);
+
+                          const roundedHours = Math.round(totalHours * 10) / 10;
+
+                          return (
+                            <td className="sticky right-0 z-10 p-1.5 border-l border-slate-200 dark:border-slate-800 text-center align-middle bg-indigo-50/95 dark:bg-slate-900/95 shadow-[-4px_0_6px_-1px_rgba(0,0,0,0.08)]">
+                              <div 
+                                className="inline-flex flex-col items-center justify-center px-2 py-1.5 rounded-xl bg-indigo-100/90 dark:bg-indigo-950/90 border border-indigo-200 dark:border-indigo-800 shadow-2xs group cursor-default transition-transform hover:scale-105"
+                                title={`Total acumulado para ${tech.displayName}: ${roundedHours} horas trabajadas en esta quincena (${displayedDays.length} días, descansos excluidos)`}
+                              >
+                                <span className="text-xs font-black text-indigo-700 dark:text-indigo-300">
+                                  {roundedHours}h
+                                </span>
+                                <span className="text-[8px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-tighter">
+                                  {matrixPeriodMode === 'quincena1' ? '1ª Quin' : matrixPeriodMode === 'quincena2' ? '2ª Quin' : 'Sem'}
+                                </span>
+                              </div>
+                            </td>
+                          );
+                        })()}
+
                       </tr>
                     ))}
                 </tbody>
+
+                {/* PIE DE TABLA: TOTALES DE HORAS POR DÍA Y GRAN TOTAL QUINCENAL */}
+                <tfoot className="bg-slate-100 dark:bg-slate-800/95 font-bold text-xs border-t-2 border-indigo-300 dark:border-indigo-700">
+                  <tr>
+                    <td className="sticky left-0 bg-slate-100 dark:bg-slate-800 p-2 border-r border-slate-200 dark:border-slate-700 z-10 text-slate-800 dark:text-slate-200 font-extrabold text-[11px] uppercase tracking-wider text-center shadow-xs">
+                      Total Horas
+                    </td>
+                    {displayedDays.map(day => {
+                      const dayTotalHours = technicianUsers.reduce((sum, tech) => {
+                        const s = (schedules || []).find(sched => sched && sched.date === day.dateIso && isScheduleForTech(sched, tech));
+                        return sum + getShiftWorkedHours(s);
+                      }, 0);
+                      const roundedDay = Math.round(dayTotalHours * 10) / 10;
+                      return (
+                        <td key={day.dateIso} className="p-1.5 text-center border-l border-slate-200 dark:border-slate-700 font-extrabold text-slate-700 dark:text-slate-300">
+                          <div className="text-[11px] font-black text-slate-800 dark:text-slate-200">
+                            {roundedDay > 0 ? `${roundedDay}h` : '-'}
+                          </div>
+                        </td>
+                      );
+                    })}
+                    <td className="sticky right-0 z-30 p-2 text-center border-l border-slate-200 dark:border-slate-700 bg-indigo-100 dark:bg-indigo-950 font-black text-indigo-900 dark:text-indigo-200 shadow-[-4px_0_6px_-1px_rgba(0,0,0,0.08)]">
+                      {(() => {
+                        const grandTotal = technicianUsers.reduce((acc, tech) => {
+                          const techHours = displayedDays.reduce((sum, day) => {
+                            const s = (schedules || []).find(sched => sched && sched.date === day.dateIso && isScheduleForTech(sched, tech));
+                            return sum + getShiftWorkedHours(s);
+                          }, 0);
+                          return acc + techHours;
+                        }, 0);
+                        return `${Math.round(grandTotal * 10) / 10}h`;
+                      })()}
+                    </td>
+                  </tr>
+                </tfoot>
               </table>
             </div>
           )}
@@ -2103,10 +2488,7 @@ export const TechnicianSchedulesView: React.FC = () => {
               {technicianUsers
                 .filter(u => !searchTerm || u.displayName.toLowerCase().includes(searchTerm.toLowerCase()))
                 .map(tech => {
-                  const techScheds = (schedules || []).filter(s => 
-                    s.technicianId === tech.id || 
-                    (!s.technicianId && Boolean(s.technicianName) && Boolean(tech.displayName) && s.technicianName.toLowerCase().trim() === tech.displayName.toLowerCase().trim())
-                  );
+                  const techScheds = (schedules || []).filter(s => isScheduleForTech(s, tech));
                   const activeCount = displayedDays.filter(d => {
                     const s = techScheds.find(sched => sched.date === d.dateIso);
                     return s && s.shiftType !== 'descanso';
@@ -2130,8 +2512,18 @@ export const TechnicianSchedulesView: React.FC = () => {
                                 {tech.role || 'Técnico'}
                               </span>
                             </h4>
-                            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                              {activeCount} días con turno asignado de {displayedDays.length} días de la quincena
+                            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 flex items-center gap-1.5 flex-wrap">
+                              <span>{activeCount} días con turno de {displayedDays.length} días</span>
+                              <span>•</span>
+                              <span className="font-extrabold text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/70 px-2 py-0.5 rounded-md border border-indigo-200 dark:border-indigo-800">
+                                ⏱️ {(() => {
+                                  const totalHours = displayedDays.reduce((acc, day) => {
+                                    const s = techScheds.find(sched => sched.date === day.dateIso);
+                                    return acc + getShiftWorkedHours(s);
+                                  }, 0);
+                                  return Math.round(totalHours * 10) / 10;
+                                })()} horas trabajadas en la quincena
+                              </span>
                             </p>
                           </div>
                         </div>
@@ -2197,9 +2589,16 @@ export const TechnicianSchedulesView: React.FC = () => {
                                     <span>{preset?.icon}</span>
                                     <span className="truncate">{preset?.label.replace('Turno ', '')}</span>
                                   </div>
-                                  {daySched.shiftType !== 'descanso' && (
-                                    <div className="text-[10px] font-medium opacity-90">
-                                      {daySched.startTime} - {daySched.endTime}
+                                  {daySched.shiftType !== 'descanso' ? (
+                                    <div className="text-[10px] font-medium opacity-90 flex items-center justify-center gap-1">
+                                      <span>{daySched.startTime} - {daySched.endTime}</span>
+                                      <span className="font-extrabold px-1 rounded bg-black/10 dark:bg-white/10 text-[9px]">
+                                        {getShiftWorkedHours(daySched)}h
+                                      </span>
+                                    </div>
+                                  ) : (
+                                    <div className="text-[9px] font-bold text-slate-400 dark:text-slate-500">
+                                      0h (Descanso)
                                     </div>
                                   )}
                                 </div>
@@ -2212,6 +2611,31 @@ export const TechnicianSchedulesView: React.FC = () => {
                             </div>
                           );
                         })}
+
+                        {/* TARJETA TOTAL HORAS AL FINAL DE LA CINTA */}
+                        {(() => {
+                          const totalHours = displayedDays.reduce((acc, day) => {
+                            const s = techScheds.find(sched => sched.date === day.dateIso);
+                            return acc + getShiftWorkedHours(s);
+                          }, 0);
+                          const roundedHours = Math.round(totalHours * 10) / 10;
+                          return (
+                            <div 
+                              className="flex-1 min-w-[95px] max-w-[125px] p-2.5 rounded-xl border border-indigo-200 dark:border-indigo-800 bg-indigo-50/95 dark:bg-indigo-950/85 text-center shadow-xs flex flex-col items-center justify-center shrink-0 cursor-default"
+                              title={`Total horas de la quincena para ${tech.displayName}: ${roundedHours}h`}
+                            >
+                              <div className="text-[10px] font-black uppercase tracking-tight text-indigo-700 dark:text-indigo-300">
+                                Total Horas
+                              </div>
+                              <div className="text-sm font-black text-indigo-800 dark:text-indigo-200 mt-0.5">
+                                {roundedHours}h
+                              </div>
+                              <div className="text-[8px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-tighter">
+                                {matrixPeriodMode === 'quincena1' ? '1ª Quin' : matrixPeriodMode === 'quincena2' ? '2ª Quin' : 'Sem'}
+                              </div>
+                            </div>
+                          );
+                        })()}
                       </div>
                     </div>
                   );
@@ -2340,6 +2764,39 @@ export const TechnicianSchedulesView: React.FC = () => {
 
             </div>
           )}
+
+          {/* RESUMEN FINAL DE HORAS AL PIE DEL CUADRO DE TURNOS */}
+          <div className="px-4 py-3 bg-indigo-50/70 dark:bg-slate-900/90 border-t border-indigo-200/70 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <Clock className="w-4 h-4 text-indigo-600 dark:text-indigo-400 shrink-0" />
+              <span className="text-xs font-black uppercase tracking-wider text-indigo-950 dark:text-indigo-200">
+                Total Horas al Final ({matrixPeriodMode === 'quincena1' ? '1ª Quincena' : matrixPeriodMode === 'quincena2' ? '2ª Quincena' : 'Semana'}):
+              </span>
+            </div>
+            <div className="flex items-center gap-2 flex-wrap">
+              {technicianUsers
+                .filter(u => !searchTerm || u.displayName.toLowerCase().includes(searchTerm.toLowerCase()))
+                .map(tech => {
+                  const totalHours = displayedDays.reduce((acc, day) => {
+                    const daySched = (schedules || []).find(s => s && s.date === day.dateIso && isScheduleForTech(s, tech));
+                    return acc + getShiftWorkedHours(daySched);
+                  }, 0);
+                  const roundedHours = Math.round(totalHours * 10) / 10;
+                  const shortName = tech.displayName.split('/')[0].trim();
+                  return (
+                    <div
+                      key={`footer-total-${tech.id}`}
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-white dark:bg-slate-800 border border-indigo-200 dark:border-indigo-800/80 shadow-2xs"
+                    >
+                      <span className="text-xs font-bold text-slate-700 dark:text-slate-200">{shortName}:</span>
+                      <span className="text-xs font-black text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/80 px-1.5 py-0.5 rounded-lg border border-indigo-200/60 dark:border-indigo-800/60">
+                        {roundedHours}h
+                      </span>
+                    </div>
+                  );
+                })}
+            </div>
+          </div>
 
           </div>
         </div>
@@ -2938,7 +3395,8 @@ export const TechnicianSchedulesView: React.FC = () => {
                           { time: '08:00', label: '🏢 08:00 a.m. (Jornada Diurna)' },
                           { time: '10:00', label: '👔 10:00 a.m. (Horario Supervisor)' },
                           { time: '13:00', label: '☀️ 01:00 p.m. (Turno Tarde)' },
-                          { time: '22:00', label: '🌙 10:00 p.m. (Turno Noche)' },
+                          { time: '21:00', label: '🌙 09:00 p.m. (Turno Noche)' },
+                          { time: '22:00', label: '🌙 10:00 p.m. (Turno Noche 22h)' },
                           { time: '00:00', label: '🏢 00:00 a.m. (Turno Intermedio)' }
                         ].map(opt => (
                           <button
@@ -2960,74 +3418,112 @@ export const TechnicianSchedulesView: React.FC = () => {
                         ))}
                       </div>
 
-                      {/* Custom Glassmorphic Hour & Minute Quick Selector (NO native OS clock) */}
-                      <div className="pt-2.5 border-t border-slate-800 space-y-2">
+                      {/* Horario Personalizado a Gusto del Usuario con AM / PM */}
+                      <div className="pt-2.5 border-t border-slate-800 space-y-2.5">
                         <div className="text-[10px] font-bold text-amber-400 flex items-center justify-between">
-                          <span>Selector Digital de Hora Exacta:</span>
+                          <span>Colocar Horario a tu Gusto:</span>
                           <span className="text-amber-200 font-mono text-xs font-extrabold px-2 py-0.5 bg-amber-500/20 rounded-lg border border-amber-500/40 shadow-2xs">
-                            {formData.startTime}
+                            {`${customStartHour || '12'}:${(customStartMin || '00').padStart(2, '0')} ${customStartPeriod === 'AM' ? 'a.m.' : 'p.m.'}`}
                           </span>
                         </div>
 
-                        {/* Grid de Horas Comunes */}
-                        <div className="grid grid-cols-5 gap-1">
-                          {[
-                            { h: '06', label: '6 am' },
-                            { h: '07', label: '7 am' },
-                            { h: '08', label: '8 am' },
-                            { h: '09', label: '9 am' },
-                            { h: '10', label: '10 am' },
-                            { h: '12', label: '12 pm' },
-                            { h: '13', label: '1 pm' },
-                            { h: '14', label: '2 pm' },
-                            { h: '15', label: '3 pm' },
-                            { h: '22', label: '10 pm' },
-                          ].map(item => {
-                            const isCurrentH = formData.startTime.startsWith(item.h + ':');
-                            return (
-                              <button
-                                type="button"
-                                key={item.h}
-                                onClick={() => {
-                                  const curM = formData.startTime.split(':')[1] || '00';
-                                  setFormData(prev => ({ ...prev, startTime: `${item.h}:${curM}` }));
-                                }}
-                                className={`py-1 rounded-xl text-[10px] font-bold transition-all cursor-pointer ${
-                                  isCurrentH
-                                    ? 'bg-amber-500 text-slate-950 font-black ring-1 ring-amber-300 scale-105 shadow-sm'
-                                    : 'bg-slate-950/80 text-slate-300 border border-slate-800 hover:bg-slate-800 hover:border-amber-500/40'
-                                }`}
-                              >
-                                {item.label}
-                              </button>
-                            );
-                          })}
+                        <div className="flex items-center gap-2">
+                          {/* Hora (1 - 12) */}
+                          <div className="flex-1">
+                            <span className="block text-[9px] text-slate-400 font-bold mb-1 text-center">Hora (1-12)</span>
+                            <input
+                              type="text"
+                              inputMode="numeric"
+                              placeholder="HH"
+                              value={customStartHour}
+                              onFocus={(e) => e.target.select()}
+                              onChange={(e) => {
+                                const raw = e.target.value.replace(/\D/g, '').slice(0, 2);
+                                setCustomStartHour(raw);
+                                if (raw !== '') {
+                                  let num = parseInt(raw, 10);
+                                  let nextPer = customStartPeriod;
+                                  if (num === 0) num = 12;
+                                  else if (num > 12 && num <= 23) {
+                                    num = num - 12;
+                                    nextPer = 'PM';
+                                    setCustomStartPeriod('PM');
+                                  } else if (num > 23) {
+                                    num = 12;
+                                  }
+                                  const new24 = toTime24h(String(num), customStartMin || '00', nextPer);
+                                  setFormData(prev => ({ ...prev, startTime: new24 }));
+                                }
+                              }}
+                              onBlur={() => {
+                                const p = parseTime12h(formData.startTime);
+                                setCustomStartHour(p.hour);
+                              }}
+                              className="w-full py-2 px-2 bg-slate-950 border border-amber-500/40 focus:border-amber-400 rounded-xl text-center text-sm font-mono font-black text-amber-200 focus:outline-hidden focus:ring-1 focus:ring-amber-400"
+                            />
+                          </div>
+
+                          <span className="text-lg font-black text-amber-400 pt-4">:</span>
+
+                          {/* Minutos (00 - 59) */}
+                          <div className="flex-1">
+                            <span className="block text-[9px] text-slate-400 font-bold mb-1 text-center">Minutos (00-59)</span>
+                            <input
+                              type="text"
+                              inputMode="numeric"
+                              placeholder="MM"
+                              value={customStartMin}
+                              onFocus={(e) => e.target.select()}
+                              onChange={(e) => {
+                                const raw = e.target.value.replace(/\D/g, '').slice(0, 2);
+                                setCustomStartMin(raw);
+                                if (raw !== '') {
+                                  const num = Math.min(59, Math.max(0, parseInt(raw, 10) || 0));
+                                  const new24 = toTime24h(customStartHour || '12', String(num), customStartPeriod);
+                                  setFormData(prev => ({ ...prev, startTime: new24 }));
+                                }
+                              }}
+                              onBlur={() => {
+                                const p = parseTime12h(formData.startTime);
+                                setCustomStartMin(p.minute);
+                              }}
+                              className="w-full py-2 px-2 bg-slate-950 border border-amber-500/40 focus:border-amber-400 rounded-xl text-center text-sm font-mono font-black text-amber-200 focus:outline-hidden focus:ring-1 focus:ring-amber-400"
+                            />
+                          </div>
+
+                          {/* Selector AM / PM */}
+                          <div className="flex-1">
+                            <span className="block text-[9px] text-slate-400 font-bold mb-1 text-center">A.M. / P.M.</span>
+                            <div className="grid grid-cols-2 gap-1 bg-slate-950 p-1 rounded-xl border border-slate-800">
+                              {(['AM', 'PM'] as const).map(per => (
+                                <button
+                                  type="button"
+                                  key={per}
+                                  onClick={() => {
+                                    setCustomStartPeriod(per);
+                                    const new24 = toTime24h(customStartHour || '12', customStartMin || '00', per);
+                                    setFormData(prev => ({ ...prev, startTime: new24 }));
+                                  }}
+                                  className={`py-1.5 rounded-lg text-[11px] font-black transition-all cursor-pointer ${
+                                    customStartPeriod === per
+                                      ? 'bg-amber-500 text-slate-950 shadow-sm ring-1 ring-amber-300'
+                                      : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                                  }`}
+                                >
+                                  {per}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
                         </div>
 
-                        {/* Selector de Minutos */}
-                        <div className="flex items-center space-x-1 pt-1">
-                          <span className="text-[9px] text-slate-400 font-bold mr-1">Min:</span>
-                          {['00', '15', '30', '45'].map(m => {
-                            const curH = formData.startTime.split(':')[0] || '08';
-                            const isCurrentM = formData.startTime.endsWith(':' + m);
-                            return (
-                              <button
-                                type="button"
-                                key={m}
-                                onClick={() => {
-                                  setFormData(prev => ({ ...prev, startTime: `${curH}:${m}` }));
-                                }}
-                                className={`flex-1 py-1 rounded-lg text-[10px] font-bold transition-all cursor-pointer ${
-                                  isCurrentM
-                                    ? 'bg-cyan-500 text-slate-950 font-black shadow-xs ring-1 ring-cyan-300'
-                                    : 'bg-slate-950/80 text-slate-300 border border-slate-800 hover:bg-slate-800 hover:border-cyan-500/40'
-                                }`}
-                              >
-                                :{m}
-                              </button>
-                            );
-                          })}
-                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setIsStartTimeOpen(false)}
+                          className="w-full py-1.5 bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-200 rounded-xl text-[11px] font-bold transition-all cursor-pointer"
+                        >
+                          ✓ Listo
+                        </button>
                       </div>
                     </div>
                   )}
@@ -3074,8 +3570,8 @@ export const TechnicianSchedulesView: React.FC = () => {
                       {/* Lista de Horarios Fin Frecuentes */}
                       <div className="space-y-1 max-h-48 overflow-y-auto pr-1 scrollbar-thin">
                         {[
-                          { time: '14:00', label: '🌅 02:00 p.m. (Fin Mañana)' },
-                          { time: '15:00', label: '⚙️ 03:00 p.m. (Fin Personalizado)' },
+                          { time: '15:00', label: '🌅 03:00 p.m. (Fin Mañana - 9 Horas)' },
+                          { time: '14:00', label: '🌅 02:00 p.m. (Fin Mañana 8 Horas)' },
                           { time: '17:00', label: '🏢 05:00 p.m. (Fin Diurno)' },
                           { time: '19:00', label: '👔 07:00 p.m. (Fin Supervisor)' },
                           { time: '21:00', label: '☀️ 09:00 p.m. (Fin Tarde)' },
@@ -3102,74 +3598,112 @@ export const TechnicianSchedulesView: React.FC = () => {
                         ))}
                       </div>
 
-                      {/* Custom Glassmorphic Hour & Minute Quick Selector (NO native OS clock) */}
-                      <div className="pt-2.5 border-t border-slate-800 space-y-2">
+                      {/* Horario Personalizado a Gusto del Usuario con AM / PM */}
+                      <div className="pt-2.5 border-t border-slate-800 space-y-2.5">
                         <div className="text-[10px] font-bold text-blue-400 flex items-center justify-between">
-                          <span>Selector Digital de Hora Exacta:</span>
+                          <span>Colocar Horario a tu Gusto:</span>
                           <span className="text-blue-200 font-mono text-xs font-extrabold px-2 py-0.5 bg-blue-500/20 rounded-lg border border-blue-500/40 shadow-2xs">
-                            {formData.endTime}
+                            {`${customEndHour || '12'}:${(customEndMin || '00').padStart(2, '0')} ${customEndPeriod === 'AM' ? 'a.m.' : 'p.m.'}`}
                           </span>
                         </div>
 
-                        {/* Grid de Horas Comunes Fin */}
-                        <div className="grid grid-cols-5 gap-1">
-                          {[
-                            { h: '14', label: '2 pm' },
-                            { h: '15', label: '3 pm' },
-                            { h: '17', label: '5 pm' },
-                            { h: '19', label: '7 pm' },
-                            { h: '21', label: '9 pm' },
-                            { h: '22', label: '10 pm' },
-                            { h: '23', label: '11 pm' },
-                            { h: '00', label: '12 am' },
-                            { h: '06', label: '6 am' },
-                            { h: '07', label: '7 am' },
-                          ].map(item => {
-                            const isCurrentH = formData.endTime.startsWith(item.h + ':');
-                            return (
-                              <button
-                                type="button"
-                                key={item.h}
-                                onClick={() => {
-                                  const curM = formData.endTime.split(':')[1] || '00';
-                                  setFormData(prev => ({ ...prev, endTime: `${item.h}:${curM}` }));
-                                }}
-                                className={`py-1 rounded-xl text-[10px] font-bold transition-all cursor-pointer ${
-                                  isCurrentH
-                                    ? 'bg-blue-500 text-slate-950 font-black ring-1 ring-blue-300 scale-105 shadow-sm'
-                                    : 'bg-slate-950/80 text-slate-300 border border-slate-800 hover:bg-slate-800 hover:border-blue-500/40'
-                                }`}
-                              >
-                                {item.label}
-                              </button>
-                            );
-                          })}
+                        <div className="flex items-center gap-2">
+                          {/* Hora (1 - 12) */}
+                          <div className="flex-1">
+                            <span className="block text-[9px] text-slate-400 font-bold mb-1 text-center">Hora (1-12)</span>
+                            <input
+                              type="text"
+                              inputMode="numeric"
+                              placeholder="HH"
+                              value={customEndHour}
+                              onFocus={(e) => e.target.select()}
+                              onChange={(e) => {
+                                const raw = e.target.value.replace(/\D/g, '').slice(0, 2);
+                                setCustomEndHour(raw);
+                                if (raw !== '') {
+                                  let num = parseInt(raw, 10);
+                                  let nextPer = customEndPeriod;
+                                  if (num === 0) num = 12;
+                                  else if (num > 12 && num <= 23) {
+                                    num = num - 12;
+                                    nextPer = 'PM';
+                                    setCustomEndPeriod('PM');
+                                  } else if (num > 23) {
+                                    num = 12;
+                                  }
+                                  const new24 = toTime24h(String(num), customEndMin || '00', nextPer);
+                                  setFormData(prev => ({ ...prev, endTime: new24 }));
+                                }
+                              }}
+                              onBlur={() => {
+                                const p = parseTime12h(formData.endTime);
+                                setCustomEndHour(p.hour);
+                              }}
+                              className="w-full py-2 px-2 bg-slate-950 border border-blue-500/40 focus:border-blue-400 rounded-xl text-center text-sm font-mono font-black text-blue-200 focus:outline-hidden focus:ring-1 focus:ring-blue-400"
+                            />
+                          </div>
+
+                          <span className="text-lg font-black text-blue-400 pt-4">:</span>
+
+                          {/* Minutos (00 - 59) */}
+                          <div className="flex-1">
+                            <span className="block text-[9px] text-slate-400 font-bold mb-1 text-center">Minutos (00-59)</span>
+                            <input
+                              type="text"
+                              inputMode="numeric"
+                              placeholder="MM"
+                              value={customEndMin}
+                              onFocus={(e) => e.target.select()}
+                              onChange={(e) => {
+                                const raw = e.target.value.replace(/\D/g, '').slice(0, 2);
+                                setCustomEndMin(raw);
+                                if (raw !== '') {
+                                  const num = Math.min(59, Math.max(0, parseInt(raw, 10) || 0));
+                                  const new24 = toTime24h(customEndHour || '12', String(num), customEndPeriod);
+                                  setFormData(prev => ({ ...prev, endTime: new24 }));
+                                }
+                              }}
+                              onBlur={() => {
+                                const p = parseTime12h(formData.endTime);
+                                setCustomEndMin(p.minute);
+                              }}
+                              className="w-full py-2 px-2 bg-slate-950 border border-blue-500/40 focus:border-blue-400 rounded-xl text-center text-sm font-mono font-black text-blue-200 focus:outline-hidden focus:ring-1 focus:ring-blue-400"
+                            />
+                          </div>
+
+                          {/* Selector AM / PM */}
+                          <div className="flex-1">
+                            <span className="block text-[9px] text-slate-400 font-bold mb-1 text-center">A.M. / P.M.</span>
+                            <div className="grid grid-cols-2 gap-1 bg-slate-950 p-1 rounded-xl border border-slate-800">
+                              {(['AM', 'PM'] as const).map(per => (
+                                <button
+                                  type="button"
+                                  key={per}
+                                  onClick={() => {
+                                    setCustomEndPeriod(per);
+                                    const new24 = toTime24h(customEndHour || '12', customEndMin || '00', per);
+                                    setFormData(prev => ({ ...prev, endTime: new24 }));
+                                  }}
+                                  className={`py-1.5 rounded-lg text-[11px] font-black transition-all cursor-pointer ${
+                                    customEndPeriod === per
+                                      ? 'bg-blue-500 text-slate-950 shadow-sm ring-1 ring-blue-300'
+                                      : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                                  }`}
+                                >
+                                  {per}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
                         </div>
 
-                        {/* Selector de Minutos */}
-                        <div className="flex items-center space-x-1 pt-1">
-                          <span className="text-[9px] text-slate-400 font-bold mr-1">Min:</span>
-                          {['00', '15', '30', '45', '59'].map(m => {
-                            const curH = formData.endTime.split(':')[0] || '17';
-                            const isCurrentM = formData.endTime.endsWith(':' + m);
-                            return (
-                              <button
-                                type="button"
-                                key={m}
-                                onClick={() => {
-                                  setFormData(prev => ({ ...prev, endTime: `${curH}:${m}` }));
-                                }}
-                                className={`flex-1 py-1 rounded-lg text-[10px] font-bold transition-all cursor-pointer ${
-                                  isCurrentM
-                                    ? 'bg-cyan-500 text-slate-950 font-black shadow-xs ring-1 ring-cyan-300'
-                                    : 'bg-slate-950/80 text-slate-300 border border-slate-800 hover:bg-slate-800 hover:border-cyan-500/40'
-                                }`}
-                              >
-                                :{m}
-                              </button>
-                            );
-                          })}
-                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setIsEndTimeOpen(false)}
+                          className="w-full py-1.5 bg-blue-500/20 hover:bg-blue-500/30 border border-blue-500/40 text-blue-200 rounded-xl text-[11px] font-bold transition-all cursor-pointer"
+                        >
+                          ✓ Listo
+                        </button>
                       </div>
                     </div>
                   )}

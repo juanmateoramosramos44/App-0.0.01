@@ -20,6 +20,7 @@ import {
   ChevronRight,
   Gauge,
   Phone,
+  Smartphone,
   Plus,
   AlertTriangle,
   Radio,
@@ -104,7 +105,19 @@ export const Navbar: React.FC = () => {
       });
 
   const pendingRequestsCount = userAllowedRequests.filter(r => r.status === 'pendiente').length;
-  const pendingTasksCount = (tasks || []).filter(t => t.status !== 'completada').length;
+  const userAllowedTasks = isUserAdmin
+    ? (tasks || [])
+    : (tasks || []).filter(t => {
+        if (!t) return false;
+        if (!activeDisplayUser) return true;
+        const currentName = (activeDisplayUser.displayName || activeDisplayUser.name || '').toLowerCase().trim();
+        const assignedName = (t.assignedToName || '').toLowerCase().trim();
+        const isAssigned = (t.assignedToId && t.assignedToId === activeDisplayUser.id) ||
+                           (currentName && assignedName && (assignedName === currentName || assignedName.includes(currentName) || currentName.includes(assignedName))) ||
+                           (t.createdById && t.createdById === activeDisplayUser.id);
+        return isAssigned;
+      });
+  const pendingTasksCount = userAllowedTasks.filter(t => t.status !== 'completada').length;
 
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isUserMenuModalOpen, setIsUserMenuModalOpen] = useState(false);
@@ -325,9 +338,9 @@ export const Navbar: React.FC = () => {
                 <Menu className="w-6 h-6" />
               </button>
 
-              {settings?.hotelInfo?.logoUrl ? (
+              {settings?.hotelInfo?.logoUrl || '/wake-bio-logo.jpg' ? (
                 <img 
-                  src={settings.hotelInfo.logoUrl} 
+                  src={settings?.hotelInfo?.logoUrl || '/wake-bio-logo.jpg'} 
                   alt="Logo del Hotel" 
                   className="h-10 w-10 rounded-xl object-cover shrink-0 bg-slate-900 border border-slate-700 shadow-md shadow-slate-900/20"
                   onError={(e) => {
@@ -349,11 +362,13 @@ export const Navbar: React.FC = () => {
               <div>
                 <div className="flex items-center space-x-2">
                   <h1 className="text-base font-bold tracking-tight text-white line-clamp-1">
-                    {settings?.hotelInfo?.hotelName || 'Grand Horizon Luxury Resort & Spa'}
+                    {settings?.hotelInfo?.hotelName && !settings.hotelInfo.hotelName.includes('Grand Horizon') ? settings.hotelInfo.hotelName : 'WAKE BIO HOTEL'}
                   </h1>
-                  <span className="text-xs px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 font-mono hidden sm:inline-block">
-                    {settings?.hotelInfo?.propertyCode || 'GHLR-041'}
-                  </span>
+                  {settings?.hotelInfo?.propertyCode && settings.hotelInfo.propertyCode !== 'GHLR-041' && (
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 font-mono hidden sm:inline-block">
+                      {settings.hotelInfo.propertyCode}
+                    </span>
+                  )}
                 </div>
                 <div className="flex items-center space-x-2">
                   <p className="text-xs text-slate-400 hidden sm:block">
@@ -511,9 +526,9 @@ export const Navbar: React.FC = () => {
             {/* Cabecera del Menú Lateral */}
             <div className="p-4 border-b border-slate-800 flex items-center justify-between bg-slate-950/60">
               <div className="flex items-center space-x-3">
-                {settings?.hotelInfo?.logoUrl ? (
+                {settings?.hotelInfo?.logoUrl || '/wake-bio-logo.jpg' ? (
                   <img 
-                    src={settings.hotelInfo.logoUrl} 
+                    src={settings?.hotelInfo?.logoUrl || '/wake-bio-logo.jpg'} 
                     alt="Logo del Hotel" 
                     className="h-9 w-9 rounded-xl object-cover shrink-0 bg-slate-900 border border-slate-700 shadow-md"
                     onError={(e) => {
@@ -534,10 +549,10 @@ export const Navbar: React.FC = () => {
                 )}
                 <div>
                   <h2 className="text-sm font-bold text-white leading-tight">
-                    {settings?.hotelInfo?.hotelName || 'Grand Horizon Luxury Resort & Spa'}
+                    {settings?.hotelInfo?.hotelName && !settings.hotelInfo.hotelName.includes('Grand Horizon') ? settings.hotelInfo.hotelName : 'WAKE BIO HOTEL'}
                   </h2>
                   <p className="text-[11px] text-slate-400 font-mono">
-                    {settings?.hotelInfo?.propertyCode || 'GHLR-041'} • Mant. Hotel
+                    {settings?.hotelInfo?.propertyCode && settings.hotelInfo.propertyCode !== 'GHLR-041' ? `${settings.hotelInfo.propertyCode} • ` : ''}Mant. Hotel
                   </p>
                 </div>
               </div>
@@ -609,8 +624,8 @@ export const Navbar: React.FC = () => {
               })}
             </div>
 
-            {/* Pie del Menú Lateral: Perfil de Usuario Activo con Despliegue de Mini Ventana */}
-            <div className="p-3.5 border-t border-slate-800 bg-slate-950/90">
+            {/* Pie del Menú Lateral: Perfil de Usuario Activo */}
+            <div className="p-3.5 border-t border-slate-800 bg-slate-950/90 space-y-2.5">
               <div 
                 onClick={() => {
                   const target = activeDisplayUser;
@@ -721,6 +736,36 @@ export const Navbar: React.FC = () => {
                 >
                   <Settings className="w-3.5 h-3.5 text-amber-400" />
                   <span>Ajustes rápidos de este usuario</span>
+                </button>
+
+                {/* Botón: Compartir enlace a otro teléfono (Pide su propio usuario) */}
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const shareUrl = `${window.location.origin}/?solicitar_usuario=1`;
+                    try {
+                      if (navigator.share) {
+                        await navigator.share({
+                          title: settings?.hotelInfo?.hotelName || 'Sistema de Mantenimiento',
+                          text: 'Ingresa con tu usuario personal al sistema de mantenimiento:',
+                          url: shareUrl
+                        });
+                      } else {
+                        await navigator.clipboard.writeText(shareUrl);
+                      }
+                      notify('📋 Enlace copiado. Al abrirlo en otro teléfono pedirá usuario automáticamente.');
+                    } catch {
+                      try {
+                        await navigator.clipboard.writeText(shareUrl);
+                        notify('📋 Enlace copiado. Al abrirlo en otro teléfono pedirá usuario automáticamente.');
+                      } catch {}
+                    }
+                    setIsUserMenuModalOpen(false);
+                  }}
+                  className="w-full py-2 px-3.5 bg-indigo-600/20 hover:bg-indigo-600/30 border border-indigo-500/40 text-indigo-300 hover:text-indigo-200 rounded-xl text-xs font-bold flex items-center justify-center space-x-2 transition-all cursor-pointer"
+                >
+                  <Smartphone className="w-3.5 h-3.5 text-indigo-400" />
+                  <span>Compartir Link para otro Teléfono (Pide Usuario)</span>
                 </button>
 
                 {/* Lista rápida de cambio de usuario: ÚNICA Y EXCLUSIVAMENTE para Juan Mateo / Administrador */}

@@ -87,6 +87,23 @@ export class ErrorBoundary extends Component<Props, State> {
                 <span>Recargar</span>
               </button>
             </div>
+
+            <div className="pt-1">
+              <button
+                type="button"
+                onClick={() => {
+                  try {
+                    localStorage.removeItem('hotel_maint_explicit_logout');
+                    localStorage.removeItem('hotel_maint_current_user');
+                    sessionStorage.clear();
+                  } catch {}
+                  window.location.href = '/';
+                }}
+                className="text-[11px] text-slate-400 hover:text-cyan-400 underline transition-colors cursor-pointer"
+              >
+                Restablecer sesión y entrar al sistema
+              </button>
+            </div>
           </div>
         </div>
       );

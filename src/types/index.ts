@@ -230,6 +230,7 @@ export interface DailyRound {
   technicianSignature?: string;
   signatureName?: string;
   userId?: string;
+  technicianId?: string;
   userEmail?: string;
   status: 'completada' | 'en_progreso' | 'incompleta';
   checkpoints: RoundCheckpoint[];

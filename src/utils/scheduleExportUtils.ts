@@ -120,6 +120,47 @@ export function getShiftCellInfo(schedule?: TechnicianSchedule | null): {
   }
 }
 
+export function getExportShiftHours(schedule?: TechnicianSchedule | null): number {
+  if (!schedule || !schedule.shiftType || schedule.shiftType === 'descanso') return 0;
+  let start = schedule.startTime;
+  let end = schedule.endTime;
+  if (schedule.shiftType === 'manana') {
+    if (!start) start = '06:00';
+    if (!end || end === '14:00') end = '15:00';
+  } else if (schedule.shiftType === 'noche') {
+    if (!start || start === '09:00' || start === '9:00') start = '21:00';
+    if (!end) end = '06:00';
+  } else if (!start || !end) {
+    if (schedule.shiftType === 'tarde') { start = '13:00'; end = '22:00'; }
+    else if (schedule.shiftType === 'supervisor') { start = '10:00'; end = '19:00'; }
+    else if (schedule.shiftType === 'diurno' || schedule.shiftType === 'guardia_24h') { start = '08:00'; end = '17:00'; }
+    else { start = '08:00'; end = '17:00'; }
+  }
+  const [startH, startM = 0] = start.split(':').map(Number);
+  const [endH, endM = 0] = end.split(':').map(Number);
+  if (isNaN(startH) || isNaN(endH)) return 0;
+  let normStartH = startH;
+  if (schedule.shiftType === 'noche' && normStartH < 12) normStartH += 12;
+  const startMins = normStartH * 60 + startM;
+  let endMins = endH * 60 + endM;
+  if (endMins <= startMins) endMins += 24 * 60;
+  let diff = (endMins - startMins) / 60;
+  if (diff > 14) diff = 9;
+  return Math.round(diff * 10) / 10;
+}
+
+export function isScheduleForTechExport(
+  s: TechnicianSchedule | null | undefined,
+  tech: { id: string; displayName?: string; email?: string } | null | undefined
+): boolean {
+  if (!s || !tech) return false;
+  if (s.technicianId && s.technicianId === tech.id) return true;
+  if (!s.technicianName || !tech.displayName) return false;
+  const sName = s.technicianName.toLowerCase().replace(/\/.*$/, '').replace(/técnico|supervisor|operador/gi, '').trim();
+  const tName = tech.displayName.toLowerCase().replace(/\/.*$/, '').replace(/técnico|supervisor|operador/gi, '').trim();
+  return sName === tName || s.technicianName.toLowerCase().trim() === tech.displayName.toLowerCase().trim();
+}
+
 /**
  * Generates and downloads the official institutional hotel shift schedule PDF
  */
@@ -271,11 +312,7 @@ export function downloadSchedulePdf(params: ScheduleExportParams): void {
 
     displayedDays.forEach((day, dayIdx) => {
       // Find shift matching technician id or exact display name
-      const sched = schedules.find(s => 
-        (s.technicianId === tech.id || 
-         (!s.technicianId && s.technicianName && tech.displayName && s.technicianName.toLowerCase().trim() === tech.displayName.toLowerCase().trim())
-        ) && s.date === day.dateIso
-      );
+      const sched = schedules.find(s => s && s.date === day.dateIso && isScheduleForTechExport(s, tech));
 
       const cellInfo = getShiftCellInfo(sched);
       if (cellInfo.isOff) restCount++;
@@ -349,11 +386,7 @@ export function downloadSchedulePdf(params: ScheduleExportParams): void {
 
   displayedDays.forEach(day => {
     const activeTechs = technicians.filter(tech => {
-      const s = schedules.find(x => 
-        (x.technicianId === tech.id || 
-         (!x.technicianId && x.technicianName && tech.displayName && x.technicianName.toLowerCase().trim() === tech.displayName.toLowerCase().trim())
-        ) && x.date === day.dateIso
-      );
+      const s = schedules.find(x => x && x.date === day.dateIso && isScheduleForTechExport(x, tech));
       return s && s.shiftType !== 'descanso';
     }).length;
 
@@ -516,6 +549,7 @@ export async function downloadScheduleExcel(params: ScheduleExportParams): Promi
     'Cargo',
     ...displayedDays.map(d => `${d.dayName} ${d.dayNum}${d.isHoliday ? ' (Festivo)' : ''}`),
     'Total Turnos',
+    'Total Horas',
     'Total Descansos'
   ];
   sheetData.push(headerRow);
@@ -524,6 +558,7 @@ export async function downloadScheduleExcel(params: ScheduleExportParams): Promi
   technicians.forEach((tech, idx) => {
     let workedCount = 0;
     let restCount = 0;
+    let totalHours = 0;
 
     const row = [
       idx + 1,
@@ -540,12 +575,16 @@ export async function downloadScheduleExcel(params: ScheduleExportParams): Promi
 
       const cellInfo = getShiftCellInfo(sched);
       if (cellInfo.isOff) restCount++;
-      else workedCount++;
+      else {
+        workedCount++;
+        totalHours += getExportShiftHours(sched);
+      }
 
       row.push(cellInfo.code);
     });
 
     row.push(workedCount);
+    row.push(Math.round(totalHours * 10) / 10);
     row.push(restCount);
     sheetData.push(row);
   });
@@ -565,6 +604,7 @@ export async function downloadScheduleExcel(params: ScheduleExportParams): Promi
   });
   coverageRow.push('-');
   coverageRow.push('-');
+  coverageRow.push('-');
   sheetData.push(coverageRow);
 
   sheetData.push([]);
@@ -580,6 +620,7 @@ export async function downloadScheduleExcel(params: ScheduleExportParams): Promi
     { wch: 28 }, // Técnico
     { wch: 20 }, // Cargo
     ...displayedDays.map(() => ({ wch: 14 })),
+    { wch: 14 },
     { wch: 14 },
     { wch: 14 }
   ];
@@ -611,6 +652,7 @@ export function downloadScheduleCsv(params: ScheduleExportParams): void {
     'Cargo',
     ...displayedDays.map(d => `"${d.dayName} ${d.dayNum}${d.isHoliday ? ' (Festivo)' : ''}"`),
     'Total Turnos',
+    'Total Horas',
     'Total Descansos'
   ];
   lines.push(headers.join(';'));
@@ -618,6 +660,7 @@ export function downloadScheduleCsv(params: ScheduleExportParams): void {
   technicians.forEach((tech, idx) => {
     let worked = 0;
     let rest = 0;
+    let totalHours = 0;
     
     const row = [
       `${idx + 1}`,
@@ -626,20 +669,20 @@ export function downloadScheduleCsv(params: ScheduleExportParams): void {
     ];
 
     displayedDays.forEach(day => {
-      const sched = schedules.find(s => 
-        (s.technicianId === tech.id || 
-         (!s.technicianId && s.technicianName && tech.displayName && s.technicianName.toLowerCase().trim() === tech.displayName.toLowerCase().trim())
-        ) && s.date === day.dateIso
-      );
+      const sched = schedules.find(s => s && s.date === day.dateIso && isScheduleForTechExport(s, tech));
 
       const cellInfo = getShiftCellInfo(sched);
       if (cellInfo.isOff) rest++;
-      else worked++;
+      else {
+        worked++;
+        totalHours += getExportShiftHours(sched);
+      }
 
       row.push(`"${cellInfo.code}"`);
     });
 
     row.push(`${worked}`);
+    row.push(`${Math.round(totalHours * 10) / 10}h`);
     row.push(`${rest}`);
     lines.push(row.join(';'));
   });

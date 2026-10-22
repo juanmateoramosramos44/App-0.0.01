@@ -76,30 +76,47 @@ if (typeof window !== 'undefined') {
       reason?.code === 'resource-exhausted' ||
       msg.includes('Quota limit exceeded') ||
       msg.includes('resource-exhausted') ||
-      msg.includes('Free daily write units')
+      msg.includes('Free daily write units') ||
+      msg.includes('Free daily read units')
     ) {
+      markFirestoreQuotaExceeded();
       event.preventDefault();
     }
   });
 
-  // Intercept console.error to filter out Firestore SDK internal retry/backoff messages
-  const rawConsoleError = console.error;
-  console.error = function (...args: any[]) {
+  const isQuotaLog = (args: any[]): boolean => {
     const firstStr = String(args[0] || '');
     const fullStr = args.map(a => String(a?.message || a || '')).join(' ');
-    if (
+    return (
       firstStr.includes('@firebase/firestore') ||
       fullStr.includes('resource-exhausted') ||
       fullStr.includes('Quota limit exceeded') ||
       fullStr.includes('Free daily write units') ||
+      fullStr.includes('Free daily read units') ||
       fullStr.includes('Using maximum backoff delay') ||
       fullStr.includes('GrpcConnection RPC') ||
       fullStr.includes('Disconnecting idle stream') ||
       fullStr.includes('Timed out waiting for new targets')
-    ) {
+    );
+  };
+
+  // Intercept console.error and console.warn to filter out Firestore SDK internal retry/backoff messages
+  const rawConsoleError = console.error;
+  console.error = function (...args: any[]) {
+    if (isQuotaLog(args)) {
+      markFirestoreQuotaExceeded();
       return;
     }
     rawConsoleError.apply(console, args);
+  };
+
+  const rawConsoleWarn = console.warn;
+  console.warn = function (...args: any[]) {
+    if (isQuotaLog(args)) {
+      markFirestoreQuotaExceeded();
+      return;
+    }
+    rawConsoleWarn.apply(console, args);
   };
 }
 

@@ -23,6 +23,7 @@ import { CronogramaView } from './components/cronograma/CronogramaView';
 import { MetersView } from './components/contadores/MetersView';
 
 import { NotificationPermissionBanner } from './components/notifications/NotificationPermissionBanner';
+import { PWAAutoPrompt } from './components/common/PWAAutoPrompt';
 
 function AppContent() {
   const { 
@@ -42,7 +43,11 @@ function AppContent() {
 
 
   if (!currentUser) {
-    return <LoginView />;
+    return (
+      <ErrorBoundary sectionTitle="el Inicio de Sesión">
+        <LoginView />
+      </ErrorBoundary>
+    );
   }
 
   const handleUpdateClick = () => {
@@ -69,6 +74,9 @@ function AppContent() {
 
       {/* Banner para activar alertas en dispositivos donde aún no se hayan concedido permisos */}
       <NotificationPermissionBanner />
+
+      {/* Promoción automática de instalación en navegador móvil */}
+      <PWAAutoPrompt />
 
       {/* Floating Instant Update Notification Banner */}
       {hasNewAppVersion && (
@@ -198,7 +206,7 @@ function AppContent() {
       <footer className="bg-slate-900 border-t border-slate-800 text-slate-400 text-xs py-4">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-2">
           <p>
-            {settings?.hotelInfo?.hotelName || 'Grand Horizon Luxury Resort & Spa'} — Departamento de Ingeniería y Mantenimiento Hotelero.
+            {settings?.hotelInfo?.hotelName && !settings.hotelInfo.hotelName.includes('Grand Horizon') ? settings.hotelInfo.hotelName : 'WAKE BIO HOTEL'} — Departamento de Ingeniería y Mantenimiento Hotelero.
           </p>
           <div className="flex items-center space-x-4 text-slate-500">
             <span>Rondas Técnicas Diarias</span>

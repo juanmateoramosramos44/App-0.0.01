@@ -25,21 +25,72 @@ try {
   });
 } catch {}
 
-// Limpieza de Service Workers y cachés obsoletas
+// Disparo y captura automática del evento de instalación PWA (beforeinstallprompt) para descargar al teléfono
 if (typeof window !== 'undefined') {
+  let hasAutoPrompted = false;
+
+  const isStandalone = () => {
+    return (
+      window.matchMedia('(display-mode: standalone)').matches ||
+      (window.navigator as any).standalone === true ||
+      document.referrer.includes('android-app://')
+    );
+  };
+
+  const triggerAutoPrompt = async (promptEvt: any) => {
+    if (hasAutoPrompted || isStandalone()) return;
+    try {
+      if (promptEvt && typeof promptEvt.prompt === 'function') {
+        hasAutoPrompted = true;
+        await promptEvt.prompt();
+      }
+    } catch (err) {
+      console.warn('Auto install prompt warning:', err);
+    }
+  };
+
+  window.addEventListener('beforeinstallprompt', (e) => {
+    (window as any).__deferredPwaPrompt = e;
+    window.dispatchEvent(new CustomEvent('pwa-install-ready'));
+
+    if (!isStandalone()) {
+      // Disparo automático después de que cargue la interfaz
+      setTimeout(() => {
+        triggerAutoPrompt((window as any).__deferredPwaPrompt || e);
+      }, 1000);
+
+      // Si el navegador móvil exige interacción previa para mostrar el modal nativo, se lanza en el primer toque
+      const onUserTouch = () => {
+        triggerAutoPrompt((window as any).__deferredPwaPrompt || e);
+        window.removeEventListener('touchstart', onUserTouch);
+        window.removeEventListener('click', onUserTouch);
+      };
+      window.addEventListener('touchstart', onUserTouch, { passive: true, once: true });
+      window.addEventListener('click', onUserTouch, { once: true });
+    }
+  });
+
+  window.addEventListener('appinstalled', () => {
+    (window as any).__deferredPwaPrompt = null;
+  });
+
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.getRegistrations().then((registrations) => {
-      for (const registration of registrations) {
-        registration.unregister().catch(() => {});
-      }
-    }).catch(() => {});
-  }
-  if ('caches' in window) {
-    caches.keys().then((names) => {
-      for (const name of names) {
-        caches.delete(name);
-      }
-    }).catch(() => {});
+    const registerSW = () => {
+      navigator.serviceWorker
+        .register('/sw.js', { scope: '/' })
+        .then((registration) => {
+          registration.update().catch(() => {});
+        })
+        .catch((err) => {
+          console.warn('SW registration info:', err);
+        });
+    };
+
+    if (document.readyState === 'complete') {
+      registerSW();
+    } else {
+      window.addEventListener('load', registerSW);
+    }
   }
 }
 

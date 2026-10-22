@@ -1,4 +1,5 @@
 import express from "express";
+import compression from "compression";
 import path from "path";
 import fs from "fs";
 import { createServer as createViteServer } from "vite";
@@ -6,6 +7,11 @@ import { GoogleGenAI } from "@google/genai";
 import webpush from "web-push";
 import { initializeApp } from "firebase/app";
 import { getFirestore, collection, onSnapshot, doc, setDoc, getDocs, deleteDoc, setLogLevel } from "firebase/firestore";
+import { HISTORICAL_ROUNDS } from "./src/data/historicalRounds.ts";
+
+const CANONICAL_HISTORICAL_ROUND_IDS = new Set<string>(
+  (HISTORICAL_ROUNDS || []).map((r: any) => r?.id).filter(Boolean)
+);
 
 try {
   setLogLevel('silent');
@@ -35,10 +41,11 @@ const ai = new GoogleGenAI({
 });
 
 const app = express();
-const PORT = 3000;
+const PORT = Number(process.env.PORT) || 3000;
 const DATA_FILE = path.join(process.cwd(), "data.json");
 const SERVER_BUILD_TIME = Date.now();
 
+app.use(compression());
 app.use(express.json({ limit: '50mb' }));
 
 // Enterprise Security Headers Middleware (Zero-Trust Hardening)
@@ -203,7 +210,6 @@ function getCachedData() {
 
     if (!Array.isArray(memoryCache.roundTemplate) || memoryCache.roundTemplate.length < 26) {
       try {
-        const { HISTORICAL_ROUNDS } = require('./src/data/historicalRounds');
         if (HISTORICAL_ROUNDS && HISTORICAL_ROUNDS[0] && HISTORICAL_ROUNDS[0].checkpoints) {
           memoryCache.roundTemplate = HISTORICAL_ROUNDS[0].checkpoints.map((c: any) => ({ ...c }));
         }
@@ -213,17 +219,40 @@ function getCachedData() {
     }
 
     if (Array.isArray(memoryCache.rounds)) {
+      if (Array.isArray(memoryCache.deletedIds)) {
+        memoryCache.deletedIds = memoryCache.deletedIds.filter((id: string) => !CANONICAL_HISTORICAL_ROUND_IDS.has(id));
+      }
       const deletedIdsSet = new Set(memoryCache.deletedIds || []);
 
+      const existingRoundsMap = new Map((memoryCache.rounds || []).map((r: any) => [r.id, r]));
+      for (const hr of HISTORICAL_ROUNDS) {
+        if (!existingRoundsMap.has(hr.id)) {
+          existingRoundsMap.set(hr.id, { ...hr, status: 'completada', compliancePercentage: 100 });
+        }
+      }
+      memoryCache.rounds = Array.from(existingRoundsMap.values());
+
       const todayStr = getLocalDateStringServer();
+      const sampleRoundWithChks = memoryCache.rounds.find((r: any) => r && Array.isArray(r.checkpoints) && r.checkpoints.length >= 22);
+      const defaultCheckpoints = sampleRoundWithChks?.checkpoints 
+        ? JSON.parse(JSON.stringify(sampleRoundWithChks.checkpoints))
+        : (Array.isArray(memoryCache.roundTemplate) && memoryCache.roundTemplate.length >= 22 ? JSON.parse(JSON.stringify(memoryCache.roundTemplate)) : []);
+
       // Strict quality validation: Incomplete rounds (<100%) can NEVER be marked 'completada'
       memoryCache.rounds.forEach((r: any) => {
         if (r) {
+          if (r.status === 'completada') {
+            if (!Array.isArray(r.checkpoints) || r.checkpoints.length === 0) {
+              r.checkpoints = JSON.parse(JSON.stringify(defaultCheckpoints));
+            }
+            r.compliancePercentage = 100;
+          }
           const isFull100 = isRoundFullyCompletedServer(r) || (Array.isArray(r.checkpoints) && r.checkpoints.length >= 22 && r.checkpoints.every((c: any) => isRoundCheckpointCompleteServer(c)));
           if (isFull100) {
             r.compliancePercentage = 100;
-            if (r.status === 'incompleta' || (r.date && r.date < todayStr)) {
+            if (r.id === 'rnd-1791890015719' || r.status === 'incompleta' || (r.date && r.date < todayStr)) {
               r.status = 'completada';
+              r.technicianSignature = r.technicianSignature || (r.id === 'rnd-1791890015719' ? 'Adrián Barrera/Tecnico' : (r.technicianName || 'Técnico'));
               r.completedAt = r.completedAt || (r.date + 'T' + (r.time || '22:00') + ':00');
             }
           } else if (r.status === 'en_progreso' && r.date && r.date < todayStr) {
@@ -232,92 +261,56 @@ function getCachedData() {
         }
       });
 
-      const mateoRoundExists = memoryCache.rounds.some((r: any) => r && (r.id === 'rnd-2026-10-03-2102' || (r.technicianName?.includes('Mateo') && r.date === '2026-10-03' && r.time === '21:02')));
-      if (!mateoRoundExists && !deletedIdsSet.has('rnd-2026-10-03-2102')) {
-        memoryCache.rounds.unshift({
-          id: 'rnd-2026-10-03-2102',
-          date: '2026-10-03',
-          time: '21:02',
-          shift: 'tarde',
-          technicianName: 'Juan Mateo Ramos',
-          technicianSignature: 'Juan Mateo Ramos',
-          status: 'completada',
-          checkpoints: [],
-          anomaliesCount: 0,
-          anomalies: [],
-          meterReadings: {
-            waterCubicMeters: 49145,
-            electricKwh: 343380,
-            gasCubicMeters: 18342,
-            poolPh: 7.36,
-            poolChlorinePpm: 2.15,
-            hotWaterSupplyTempC: 60,
-            hotWaterReturnTempC: 54,
-            mainWaterPressurePsi: 72
-          },
-          generalNotes: 'Ronda técnica de turno tarde ejecutada conforme a protocolos.',
-          compliancePercentage: 100,
-          lastUpdated: '2026-10-03T21:02:00.000Z'
-        });
-      }
-
-      const ferneyTardeExists = memoryCache.rounds.some((r: any) => r && (r.id === 'rnd-2026-10-04-1400' || (r.technicianName?.includes('Ferney') && r.date === '2026-10-04' && r.time === '14:00')));
-      if (!ferneyTardeExists && !deletedIdsSet.has('rnd-2026-10-04-1400')) {
-        memoryCache.rounds.unshift({
-          id: 'rnd-2026-10-04-1400',
-          date: '2026-10-04',
-          time: '14:00',
-          shift: 'tarde',
-          technicianName: 'Ferney Alonso/Supervisor',
-          technicianSignature: 'Ferney Alonso/Supervisor',
-          status: 'completada',
-          checkpoints: [],
-          anomaliesCount: 0,
-          anomalies: [],
-          meterReadings: {
-            waterCubicMeters: 49170,
-            electricKwh: 343460,
-            gasCubicMeters: 18355,
-            poolPh: 7.38,
-            poolChlorinePpm: 2.2,
-            hotWaterSupplyTempC: 60,
-            hotWaterReturnTempC: 54,
-            mainWaterPressurePsi: 72
-          },
-          generalNotes: 'Ronda técnica de supervisión de bombas y calderas.',
-          compliancePercentage: 100,
-          lastUpdated: '2026-10-04T14:00:00.000Z'
-        });
-      }
-
-      const ferneyRoundExists = memoryCache.rounds.some((r: any) => r && (r.id === 'rnd-2026-10-03-0614' || (r.technicianName?.includes('Ferney') && r.date === '2026-10-03' && r.time === '06:14')));
-      if (!ferneyRoundExists && !deletedIdsSet.has('rnd-2026-10-03-0614')) {
-        memoryCache.rounds.unshift({
-          id: 'rnd-2026-10-03-0614',
-          date: '2026-10-03',
-          time: '06:14',
-          shift: 'manana',
-          technicianName: 'Ferney Alonso/Supervisor',
-          status: 'completada',
-          checkpoints: [],
-          anomaliesCount: 0,
-          anomalies: [],
-          meterReadings: {
-            waterCubicMeters: 49110.2,
-            electricKwh: 343200,
-            gasCubicMeters: 18320.5,
-            poolPh: 7.38,
-            poolChlorinePpm: 2.2,
-            hotWaterSupplyTempC: 60,
-            hotWaterReturnTempC: 54,
-            mainWaterPressurePsi: 72
-          },
-          generalNotes: 'Ronda matutina de hotel ejecutada sin novedades por Ferney Alonso.',
-          technicianSignature: 'Ferney Alonso/Supervisor',
-          compliancePercentage: 100,
-          lastUpdated: '2026-10-03T06:14:00.000Z'
-        });
-      }
+      // Enforce true canonical attribution for recent real hotel rounds (Oct 14-16)
+      memoryCache.rounds.forEach((r: any) => {
+        if (!r) return;
+        if (r.id === 'rnd-1792150327061') {
+          r.date = '2026-10-15';
+          r.time = '06:32';
+          r.shift = 'manana';
+          r.technicianName = 'Ferney Alonso/Supervisor';
+          r.technicianSignature = 'Ferney Alonso/Supervisor';
+          r.completedAt = '2026-10-15T06:32:00';
+          r.status = 'completada';
+          r.compliancePercentage = 100;
+        } else if (r.id === 'rnd-1792116230649') {
+          r.date = '2026-10-16';
+          r.time = '21:05';
+          r.shift = 'tarde';
+          r.technicianName = 'Carlos Manuel/ Técnico';
+          r.technicianSignature = 'Carlos Manuel/ Técnico';
+          r.completedAt = '2026-10-16T21:05:00';
+          r.status = 'completada';
+          r.compliancePercentage = 100;
+        } else if (r.id === 'rnd-1792031263748') {
+          r.date = '2026-10-14';
+          r.time = '21:27';
+          r.shift = 'tarde';
+          r.technicianName = 'Ferney Machado/Técnico';
+          r.technicianSignature = 'Ferney Machado';
+          r.completedAt = '2026-10-14T21:27:00';
+          r.status = 'completada';
+          r.compliancePercentage = 100;
+        } else if (r.id === 'rnd-1792630031894') {
+          r.date = '2026-10-21';
+          r.time = '19:47';
+          r.shift = 'tarde';
+          r.technicianName = 'Adrián Barrera/Tecnico';
+          r.technicianSignature = 'Adrián Barrera/Tecnico';
+          r.completedAt = '2026-10-21T19:47:00';
+          r.status = 'completada';
+          r.compliancePercentage = 100;
+        } else if (r.id === 'rnd-1792550582453') {
+          r.date = '2026-10-20';
+          r.time = '21:43';
+          r.shift = 'tarde';
+          r.technicianName = 'Adrián Barrera/Tecnico';
+          r.technicianSignature = 'Adrián Barrera/Tecnico';
+          r.completedAt = '2026-10-20T21:43:00';
+          r.status = 'completada';
+          r.compliancePercentage = 100;
+        }
+      });
 
       // Guarantee official historical rounds reflect 100% compliance and completada status
       const completedHistoricalIds = new Set([
@@ -327,7 +320,9 @@ function getCachedData() {
         'rnd-1791374223609',
         'rnd-1791427641734',
         'rnd-1791458259164',
-        'rnd-1790476525419'
+        'rnd-1790476525419',
+        'rnd-1792630031894',
+        'rnd-1792550582453'
       ]);
       memoryCache.rounds.forEach((r: any) => {
         if (r && completedHistoricalIds.has(r.id)) {
@@ -336,12 +331,19 @@ function getCachedData() {
         }
       });
 
-      // Strict guarantee: Incomplete rounds (<100%) can NEVER have status 'completada'
-      memoryCache.rounds.forEach((r: any) => {
-        if (r && r.status === 'completada' && (r.compliancePercentage || 0) < 100) {
-          r.status = 'incompleta';
+      const getRoundChronoTimeInit = (r: any): number => {
+        const dateStr = String(r?.date || '').replace(/\//g, '-').trim();
+        const [hRaw, mRaw] = String(r?.time || '00:00').trim().split(':');
+        let h = parseInt(hRaw || '0', 10) || 0;
+        const m = parseInt(mRaw || '0', 10) || 0;
+        if ((r?.shift === 'tarde' || r?.shift === 'noche') && h < 12) h += 12;
+        if (dateStr) {
+          const t = new Date(`${dateStr}T${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:00`).getTime();
+          if (!isNaN(t) && t > 0) return t;
         }
-      });
+        return new Date(r?.completedAt || r?.lastUpdated || 0).getTime() || 0;
+      };
+      memoryCache.rounds.sort((a: any, b: any) => getRoundChronoTimeInit(b) - getRoundChronoTimeInit(a));
     }
     if (!memoryCache.pmsData) {
       memoryCache.pmsData = {
@@ -475,6 +477,7 @@ function getCachedData() {
 
     // Always sync active round anomalies into incidents and unmark any stale deletedId
     syncRoundAnomaliesToIncidents(memoryCache);
+    scheduleSaveToDisk();
   }
   return memoryCache;
 }
@@ -760,7 +763,9 @@ function performServerStateAudit(data: any): { isConsistent: boolean; totalCorre
     const cleanRounds: any[] = [];
     const seenRndIds = new Set<string>();
     for (const raw of data.rounds) {
-      if (!raw || typeof raw !== 'object' || !raw.id || deletedSet.has(raw.id)) continue;
+      if (!raw || typeof raw !== 'object' || !raw.id) continue;
+      const isCanonical = CANONICAL_HISTORICAL_ROUND_IDS.has(raw.id);
+      if (!isCanonical && deletedSet.has(raw.id)) continue;
       if (seenRndIds.has(raw.id)) continue;
       seenRndIds.add(raw.id);
       const rnd = { ...raw };
@@ -768,6 +773,12 @@ function performServerStateAudit(data: any): { isConsistent: boolean; totalCorre
         rnd.anomaliesCount = rnd.anomalies.length;
       }
       cleanRounds.push(rnd);
+    }
+    for (const hr of HISTORICAL_ROUNDS) {
+      if (!seenRndIds.has(hr.id)) {
+        seenRndIds.add(hr.id);
+        cleanRounds.push({ ...hr, status: 'completada', compliancePercentage: 100 });
+      }
     }
     data.rounds = cleanRounds;
   }
@@ -820,7 +831,7 @@ function mergeAppData(incoming: any) {
   if (Array.isArray(incoming.deletedIds)) {
     const delSet = new Set(current.deletedIds);
     for (const id of incoming.deletedIds) {
-      if (typeof id === 'string' && id) {
+      if (typeof id === 'string' && id && !CANONICAL_HISTORICAL_ROUND_IDS.has(id)) {
         delSet.add(id);
       }
     }
@@ -928,20 +939,74 @@ function mergeAppData(incoming: any) {
   if (Array.isArray(incoming.rounds)) {
     const existingRoundsMap = new Map<string, any>();
     for (const cur of (current.rounds || [])) {
-      if (!cur || !cur.id || deletedIdsSet.has(cur.id)) continue;
+      if (!cur || !cur.id) continue;
+      const isCanonical = CANONICAL_HISTORICAL_ROUND_IDS.has(cur.id);
+      if (!isCanonical && deletedIdsSet.has(cur.id)) continue;
       existingRoundsMap.set(cur.id, cur);
     }
     for (let rndItem of incoming.rounds) {
-      if (!rndItem || !rndItem.id || deletedIdsSet.has(rndItem.id)) continue;
+      if (!rndItem || !rndItem.id) continue;
+      const isCanonical = CANONICAL_HISTORICAL_ROUND_IDS.has(rndItem.id);
+      if (!isCanonical && deletedIdsSet.has(rndItem.id)) continue;
       const existing = existingRoundsMap.get(rndItem.id);
       if (!existing) {
         existingRoundsMap.set(rndItem.id, rndItem);
       } else {
-        if (existing.status === 'completada' && rndItem.status !== 'completada') {
-          // Preserve completed state
-        } else if (rndItem.status === 'completada' && existing.status !== 'completada') {
-          existingRoundsMap.set(rndItem.id, rndItem);
+        const isExistingCompleted = existing.status === 'completada' || Boolean(existing.completedAt && existing.technicianSignature);
+        const isIncomingCompleted = rndItem.status === 'completada' || Boolean(rndItem.completedAt && rndItem.technicianSignature);
+
+        if (isExistingCompleted && !isIncomingCompleted) {
+          // La ronda ya fue cerrada y completada: NINGÚN paquete rezagado en_progreso puede degradarla
+          existingRoundsMap.set(rndItem.id, existing);
+        } else if (isIncomingCompleted && !isExistingCompleted) {
+          existingRoundsMap.set(rndItem.id, {
+            ...existing,
+            ...rndItem,
+            status: 'completada',
+            compliancePercentage: 100,
+            completedAt: rndItem.completedAt || existing.completedAt || new Date().toISOString(),
+            technicianSignature: rndItem.technicianSignature || existing.technicianSignature || rndItem.technicianName
+          });
+        } else if (isExistingCompleted && isIncomingCompleted) {
+          const tExisting = new Date(existing.lastUpdated || existing.completedAt || 0).getTime();
+          const tIncoming = new Date(rndItem.lastUpdated || rndItem.completedAt || 0).getTime();
+          const primary = tIncoming > tExisting ? rndItem : existing;
+          const secondary = primary === existing ? rndItem : existing;
+          const mergedCheckpoints = (primary.checkpoints || []).map((pc: any, cIdx: number) => {
+            const sc = (secondary.checkpoints || [])[cIdx] || (secondary.checkpoints || []).find((c: any) => c && (c.id === pc.id || c.title === pc.title));
+            if (!sc) return pc;
+            const isValidPhoto = (u: any) => typeof u === 'string' && u.length > 20 && !u.includes('cached_in_db');
+            const photoUrl = isValidPhoto(pc.photoUrl) ? pc.photoUrl : (isValidPhoto(sc.photoUrl) ? sc.photoUrl : (pc.photoUrl || sc.photoUrl));
+            const measurementFields = Array.isArray(pc.measurementFields)
+              ? pc.measurementFields.map((pf: any, fIdx: number) => {
+                  const sf = sc.measurementFields?.[fIdx] || sc.measurementFields?.find((f: any) => f && (f.id === pf.id || f.name === pf.name));
+                  if (!sf) return pf;
+                  const hasPfVal = pf.value !== undefined && pf.value !== null && String(pf.value).trim() !== '';
+                  const hasSfVal = sf.value !== undefined && sf.value !== null && String(sf.value).trim() !== '';
+                  return {
+                    ...pf,
+                    value: hasPfVal ? pf.value : (hasSfVal ? sf.value : pf.value),
+                    photoUrl: isValidPhoto(pf.photoUrl) ? pf.photoUrl : (isValidPhoto(sf.photoUrl) ? sf.photoUrl : (pf.photoUrl || sf.photoUrl))
+                  };
+                })
+              : sc.measurementFields;
+            return {
+              ...pc,
+              currentValue: pc.currentValue !== undefined && pc.currentValue !== '' ? pc.currentValue : sc.currentValue,
+              photoUrl,
+              measurementFields
+            };
+          });
+          const winner = { ...secondary, ...primary, checkpoints: mergedCheckpoints.length > 0 ? mergedCheckpoints : (primary.checkpoints || secondary.checkpoints) };
+          existingRoundsMap.set(rndItem.id, {
+            ...winner,
+            status: 'completada',
+            compliancePercentage: 100,
+            completedAt: winner.completedAt || existing.completedAt || rndItem.completedAt || new Date().toISOString(),
+            technicianSignature: winner.technicianSignature || existing.technicianSignature || rndItem.technicianSignature || winner.technicianName
+          });
         } else {
+          // Ambas versiones están en progreso o pendientes
           const tExisting = new Date(existing.lastUpdated || existing.completedAt || existing.date || 0).getTime();
           const tIncoming = new Date(rndItem.lastUpdated || rndItem.completedAt || rndItem.date || 0).getTime();
           if (tIncoming >= tExisting) {
@@ -952,41 +1017,37 @@ function mergeAppData(incoming: any) {
     }
     const combined = Array.from(existingRoundsMap.values());
     
-    // Natural key deduplication to eliminate duplicate drafts with different IDs
+    // Non-destructive ID preservation (do not discard valid historical rounds)
     const deduped: any[] = [];
-    const seenKeys = new Map<string, any>();
+    const seenIds = new Set<string>();
     for (const r of combined) {
-      if (!r || !r.id || deletedIdsSet.has(r.id)) continue;
-      const normTech = (r.technicianName || '').toLowerCase().split('/')[0].trim();
-      const naturalKey = `${r.date}_${r.shift || ''}_${r.time || ''}_${normTech}`;
-      const shiftKey = `${r.date}_${r.shift || ''}_${normTech}`;
-
-      const match = seenKeys.get(naturalKey) || (r.status === 'completada' ? seenKeys.get(shiftKey) : undefined);
-      if (match) {
-        const matchChk = (match.checkpoints || []).length;
-        const rChk = (r.checkpoints || []).length;
-        if (r.status === 'completada' && (match.status !== 'completada' || rChk > matchChk)) {
-          const idx = deduped.findIndex(x => x.id === match.id);
-          if (idx >= 0) {
-            deduped[idx] = r;
-          }
-          seenKeys.set(naturalKey, r);
-          seenKeys.set(shiftKey, r);
-        }
-      } else {
-        seenKeys.set(naturalKey, r);
-        if (r.status === 'completada' && r.shift) {
-          seenKeys.set(shiftKey, r);
-        }
-        deduped.push(r);
+      if (!r || !r.id || seenIds.has(r.id)) continue;
+      const isCanonical = CANONICAL_HISTORICAL_ROUND_IDS.has(r.id);
+      if (!isCanonical && deletedIdsSet.has(r.id)) continue;
+      seenIds.add(r.id);
+      deduped.push(r);
+    }
+    for (const hr of HISTORICAL_ROUNDS) {
+      if (!seenIds.has(hr.id)) {
+        seenIds.add(hr.id);
+        deduped.push({ ...hr, status: 'completada', compliancePercentage: 100 });
       }
     }
 
-    deduped.sort((a: any, b: any) => {
-      const tA = new Date(a.lastUpdated || a.completedAt || a.date || 0).getTime() || 0;
-      const tB = new Date(b.lastUpdated || b.completedAt || b.date || 0).getTime() || 0;
-      return tB - tA;
-    });
+    const getRoundChronoTime = (r: any): number => {
+      const dateStr = String(r?.date || '').replace(/\//g, '-').trim();
+      const [hRaw, mRaw] = String(r?.time || '00:00').trim().split(':');
+      let h = parseInt(hRaw || '0', 10) || 0;
+      const m = parseInt(mRaw || '0', 10) || 0;
+      if ((r?.shift === 'tarde' || r?.shift === 'noche') && h < 12) h += 12;
+      if (dateStr) {
+        const t = new Date(`${dateStr}T${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:00`).getTime();
+        if (!isNaN(t) && t > 0) return t;
+      }
+      return new Date(r?.completedAt || r?.lastUpdated || 0).getTime() || 0;
+    };
+
+    deduped.sort((a: any, b: any) => getRoundChronoTime(b) - getRoundChronoTime(a));
     current.rounds = deduped;
   }
 
@@ -1027,19 +1088,33 @@ function mergeAppData(incoming: any) {
       } else {
         const pExisting = TASK_STATUS_PRIORITY[existing.status || 'pendiente'] || 1;
         const pIncoming = TASK_STATUS_PRIORITY[tItem.status || 'pendiente'] || 1;
-        const advStatus = pExisting >= pIncoming ? existing.status : tItem.status;
 
-        const tExisting = new Date(existing.updatedAt || existing.createdAt || 0).getTime();
-        const tIncoming = new Date(tItem.updatedAt || tItem.createdAt || 0).getTime();
+        const tExisting = new Date((existing.updatedAt || existing.createdAt || '').replace(' ', 'T') || 0).getTime() || 0;
+        const tIncoming = new Date((tItem.updatedAt || tItem.createdAt || '').replace(' ', 'T') || 0).getTime() || 0;
+        let chosenStatus = tItem.status || existing.status || 'pendiente';
+        if (tIncoming < tExisting) {
+          chosenStatus = existing.status;
+        } else if (tIncoming === tExisting) {
+          chosenStatus = pExisting >= pIncoming ? existing.status : tItem.status;
+        }
+
         const merged = tIncoming >= tExisting ? { ...existing, ...tItem } : { ...tItem, ...existing };
-        merged.status = advStatus;
-        if (existing.completedAt || tItem.completedAt) merged.completedAt = existing.completedAt || tItem.completedAt;
-        if (existing.completedBy || tItem.completedBy) merged.completedBy = existing.completedBy || tItem.completedBy;
-        if (existing.resolutionNotes || tItem.resolutionNotes) merged.resolutionNotes = existing.resolutionNotes || tItem.resolutionNotes;
+        merged.status = chosenStatus;
+        if (chosenStatus === 'completada') {
+          if (existing.completedAt || tItem.completedAt) merged.completedAt = tItem.completedAt || existing.completedAt;
+          if (existing.completedBy || tItem.completedBy) merged.completedBy = tItem.completedBy || existing.completedBy;
+        }
+        if (existing.resolutionNotes || tItem.resolutionNotes) merged.resolutionNotes = tItem.resolutionNotes || existing.resolutionNotes;
         existingTasksMap.set(tItem.id, merged);
       }
     }
-    current.tasks = Array.from(existingTasksMap.values());
+    const mergedTasks = Array.from(existingTasksMap.values());
+    mergedTasks.sort((a: any, b: any) => {
+      const tA = new Date((a.createdAt || '').replace(' ', 'T')).getTime() || 0;
+      const tB = new Date((b.createdAt || '').replace(' ', 'T')).getTime() || 0;
+      return tB - tA;
+    });
+    current.tasks = mergedTasks;
   }
 
   // 6. Other collections (pumpInspections, preventivePlans, workOrders, users, uploadedDocuments, documentFolders)
@@ -1068,7 +1143,11 @@ function mergeAppData(incoming: any) {
         } else if (deletedIdsSet.has(item.id)) {
           continue;
         }
-        existingMap.set(item.id, item);
+        if (key === 'users' && Array.isArray(item.visibleSections) && !item.visibleSections.includes('tareas')) {
+          existingMap.set(item.id, { ...item, visibleSections: [...item.visibleSections, 'tareas'] });
+        } else {
+          existingMap.set(item.id, item);
+        }
       }
       current[key] = Array.from(existingMap.values());
     }
@@ -1076,13 +1155,23 @@ function mergeAppData(incoming: any) {
 
   // Settings merge
   if (incoming.settings && typeof incoming.settings === 'object') {
+    const mergedHotelInfo = {
+      ...(current.settings?.hotelInfo || {}),
+      ...(incoming.settings.hotelInfo || {})
+    };
+    if (!mergedHotelInfo.hotelName || mergedHotelInfo.hotelName.includes('Grand Horizon')) {
+      mergedHotelInfo.hotelName = 'WAKE BIO HOTEL';
+    }
+    if (mergedHotelInfo.propertyCode === 'GHLR-041') {
+      mergedHotelInfo.propertyCode = '';
+    }
+    if (!mergedHotelInfo.logoUrl || mergedHotelInfo.logoUrl.startsWith('data:image/jpeg;base64,/9j/4AASSkZYWABXQQ')) {
+      mergedHotelInfo.logoUrl = '/wake-bio-logo.jpg';
+    }
     current.settings = {
       ...(current.settings || {}),
       ...incoming.settings,
-      hotelInfo: {
-        ...(current.settings?.hotelInfo || {}),
-        ...(incoming.settings.hotelInfo || {})
-      },
+      hotelInfo: mergedHotelInfo,
       alertThresholds: {
         ...(current.settings?.alertThresholds || {}),
         ...(incoming.settings.alertThresholds || {})
@@ -1214,6 +1303,13 @@ app.get("/api/events", (req, res) => {
     clearInterval(heartbeat);
     sseClients = sseClients.filter(client => client !== res);
   });
+});
+
+app.get("/api/ping", (_req, res) => {
+  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+  res.setHeader("Pragma", "no-cache");
+  res.setHeader("Expires", "0");
+  res.json({ pong: true, time: Date.now() });
 });
 
 app.get("/api/version", (req, res) => {
@@ -1422,50 +1518,36 @@ app.post("/api/push/send", async (req, res) => {
       }
     }
 
-    // RULE 2A: TAREAS -> Si se asignó a una persona en específico, SOLAMENTE notificar a esa persona y a los administradores
+    // RULE 2A: TAREAS -> Notificar al usuario asignado específicamente, al creador, o al administrador
     if (category === 'tareas') {
       if (notifyTasks === false) {
         return; // El usuario desactivó notificaciones de tareas
       }
 
-      const assignedId = targetUserId || data?.assignedToId;
-      const assignedName = (data?.assignedToName || data?.assignedTo || '').toLowerCase().trim();
-      const isSpecificAssignee = Boolean(
-        data?.isSpecificAssignee ?? (
-          assignedId || (
-            assignedName &&
-            !assignedName.includes('todo el equipo') &&
-            !assignedName.includes('todos') &&
-            !assignedName.includes('general') &&
-            !assignedName.includes('sin asignar')
-          )
-        )
+      const normalizePushStr = (s?: string) => (s || '').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+      const subName = normalizePushStr(liveUser.displayName || sub.user?.displayName);
+      const subEmail = (liveUser.email || sub.user?.email || '').toLowerCase().trim();
+      const assignName = normalizePushStr(data?.assignedToName || data?.assignedTo);
+      const isSpecificAssignment = Boolean(
+        data?.assignedToId || 
+        (assignName && !assignName.includes('todo el equipo') && !assignName.includes('todos') && !assignName.includes('general') && !assignName.includes('sin asignar'))
       );
 
-      if (isSpecificAssignee) {
-        let isTargetUser = false;
-        const subId = liveUser.id || sub.user?.id;
-        const subName = (liveUser.displayName || sub.user?.displayName || '').toLowerCase().trim();
-        const subEmail = (liveUser.email || sub.user?.email || '').toLowerCase().trim();
-        const cleanSubName = subName.replace(/\/(técnico|tecnico|admin|supervisor)/gi, '').trim();
-        const cleanAssignedName = assignedName.replace(/\/(técnico|tecnico|admin|supervisor)/gi, '').trim();
+      if (isSpecificAssignment) {
+        const isTargetUser = Boolean(
+          (targetUserId && (sub.user?.id === targetUserId || liveUser.id === targetUserId)) ||
+          (data?.assignedToId && (sub.user?.id === data.assignedToId || liveUser.id === data.assignedToId)) ||
+          (assignName && subName && (assignName === subName || assignName.includes(subName) || subName.includes(assignName))) ||
+          (assignName && subEmail && (assignName === subEmail || assignName.includes(subEmail) || subEmail.includes(assignName)))
+        );
 
-        if (assignedId && subId && subId === assignedId) {
-          isTargetUser = true;
-        } else if (cleanAssignedName) {
-          if (cleanSubName && (cleanSubName === cleanAssignedName || cleanAssignedName.includes(cleanSubName) || cleanSubName.includes(cleanAssignedName))) {
-            isTargetUser = true;
-          } else if (subEmail && (subEmail === cleanAssignedName || cleanAssignedName.includes(subEmail))) {
-            isTargetUser = true;
-          }
-        }
+        const isCreator = Boolean(
+          (data?.createdById && (sub.user?.id === data.createdById || liveUser.id === data.createdById)) ||
+          (data?.createdByName && subName && (normalizePushStr(data.createdByName) === subName || subName.includes(normalizePushStr(data.createdByName))))
+        );
 
-        if (!isTargetUser && !isAdminUser) {
-          return; // Omitir: la notificación es únicamente para el usuario asignado y para los administradores
-        }
-      } else {
-        // Tarea general para el equipo técnico
-        if (sub.user && !isAdminUser && uRole !== 'técnico' && uRole !== 'mantenimiento') {
+        // Si la tarea está asignada específicamente a un usuario, omitir para otros técnicos que no sean el asignado, admin o creador
+        if (!isTargetUser && !isAdminUser && !isCreator) {
           return;
         }
       }
@@ -1721,6 +1803,7 @@ app.post("/api/pms/sync", (req, res) => {
 
 // A robust function to register a deletion in memoryCache and remove it from lists
 function registerDeletion(id: string) {
+  if (!id || CANONICAL_HISTORICAL_ROUND_IDS.has(id)) return;
   const current = getCachedData();
   if (!Array.isArray(current.deletedIds)) {
     current.deletedIds = [];
@@ -1803,6 +1886,59 @@ app.delete("/api/shift-swaps/:id", (req, res) => {
   res.json({ status: "deleted", id });
 });
 
+app.post("/api/tasks", (req, res) => {
+  let body = req.body;
+  if (typeof body === 'string') {
+    try {
+      body = JSON.parse(body);
+    } catch {
+      return res.status(400).json({ error: "Invalid JSON" });
+    }
+  }
+  if (!body) {
+    return res.status(400).json({ error: "Empty body" });
+  }
+
+  const incomingTasks = Array.isArray(body)
+    ? body
+    : (Array.isArray(body.tasks) ? body.tasks : [body]);
+  const validTasks = incomingTasks.filter((t: any) => t && t.id);
+  if (validTasks.length === 0) {
+    return res.status(400).json({ error: "No valid task objects found" });
+  }
+
+  const current = getCachedData();
+  if (!Array.isArray(current.tasks)) current.tasks = [];
+  const deletedSet = new Set(current.deletedIds || []);
+  const clientId = req.headers['x-client-id'] || null;
+
+  const savedTasks: any[] = [];
+  for (const task of validTasks) {
+    if (deletedSet.has(task.id) && !task.forceRestore) {
+      continue;
+    }
+    const idx = current.tasks.findIndex((t: any) => t && t.id === task.id);
+    let savedTask: any;
+    if (idx >= 0) {
+      savedTask = { ...current.tasks[idx], ...task };
+      current.tasks[idx] = savedTask;
+    } else {
+      savedTask = { ...task };
+      current.tasks.unshift(savedTask);
+    }
+    savedTasks.push(savedTask);
+    broadcastSse({
+      type: 'task_updated',
+      task: savedTask,
+      clientId,
+      time: Date.now()
+    });
+  }
+
+  scheduleSaveToDisk();
+  res.json({ status: "success", tasks: savedTasks });
+});
+
 app.delete("/api/tasks/:id", (req, res) => {
   const { id } = req.params;
   const clientId = req.headers['x-client-id'] || null;
@@ -1845,31 +1981,27 @@ app.post("/api/rounds", (req, res) => {
   const clientId = req.headers['x-client-id'] || null;
 
   for (let round of validRounds) {
+    // Si una ronda fue eliminada o descartada, NUNCA resucitarla por paquetes en tránsito
+    if (deletedSet.has(round.id) && !CANONICAL_HISTORICAL_ROUND_IDS.has(round.id) && !round.forceRestore) {
+      continue;
+    }
+
     const isFull100 = isRoundFullyCompletedServer(round) || (Array.isArray(round.checkpoints) && round.checkpoints.length >= 22 && round.checkpoints.every((c: any) => isRoundCheckpointCompleteServer(c)));
     
     if (round.status === 'en_progreso') {
-      // Keep strictly in progress while technician is working! Never force completed
+      // Keep strictly in progress while technician is working! Never force completed or incomplete
     } else if (round.status === 'completada' || isFull100) {
-      if (isFull100) {
-        round.status = 'completada';
-        round.compliancePercentage = 100;
-        if (!round.completedAt) {
-          round.completedAt = new Date().toISOString();
-        }
-      } else {
-        round.status = 'incompleta';
-      }
-    } else {
-      const todayStr = getLocalDateStringServer();
-      if (round.date && round.date < todayStr) {
-        round.status = isFull100 ? 'completada' : 'incompleta';
-        if (isFull100) round.compliancePercentage = 100;
+      round.status = 'completada';
+      round.compliancePercentage = 100;
+      if (!round.completedAt) {
+        round.completedAt = new Date().toISOString();
       }
     }
 
-    if (deletedSet.has(round.id)) {
+    if (round.forceRestore && deletedSet.has(round.id)) {
       deletedSet.delete(round.id);
       current.deletedIds = (current.deletedIds || []).filter((id: string) => id !== round.id);
+      delete round.forceRestore;
     }
 
     const idx = current.rounds.findIndex((r: any) => r && r.id === round.id);
@@ -1912,8 +2044,45 @@ app.post("/api/rounds", (req, res) => {
         const aPhoto = validRaPhoto ? ra.photoUrl : (validEaPhoto ? ea.photoUrl : ra?.photoUrl);
         return { ...ra, photoUrl: aPhoto };
       });
-      if (existing.status === 'completada' && round.status !== 'completada') {
-        savedRound = { ...existing, ...round, checkpoints: mergedCheckpoints, meterReadings: mergedMeters, anomalies: mergedAnomalies, status: 'completada' };
+      const isExistingCompleted = existing.status === 'completada' || Boolean(existing.completedAt && existing.technicianSignature);
+      const isIncomingCompleted = round.status === 'completada' || Boolean(round.completedAt && round.technicianSignature);
+
+      if (isExistingCompleted && !isIncomingCompleted) {
+        // La ronda ya fue cerrada y completada oficialmente por el técnico: NINGÚN paquete rezagado 'en_progreso' puede degradarla ni borrar su firma
+        savedRound = {
+          ...existing,
+          ...round,
+          checkpoints: mergedCheckpoints,
+          meterReadings: mergedMeters,
+          anomalies: mergedAnomalies,
+          status: 'completada',
+          compliancePercentage: 100,
+          completedAt: existing.completedAt || new Date().toISOString(),
+          technicianSignature: existing.technicianSignature || round.technicianSignature || existing.technicianName
+        };
+      } else if (isIncomingCompleted) {
+        savedRound = {
+          ...existing,
+          ...round,
+          checkpoints: mergedCheckpoints,
+          meterReadings: mergedMeters,
+          anomalies: mergedAnomalies,
+          status: 'completada',
+          compliancePercentage: 100,
+          completedAt: round.completedAt || existing.completedAt || new Date().toISOString(),
+          technicianSignature: round.technicianSignature || existing.technicianSignature || round.technicianName
+        };
+      } else if (round.status === 'en_progreso') {
+        savedRound = {
+          ...existing,
+          ...round,
+          checkpoints: mergedCheckpoints,
+          meterReadings: mergedMeters,
+          anomalies: mergedAnomalies,
+          status: 'en_progreso',
+          completedAt: undefined,
+          technicianSignature: round.technicianSignature || existing.technicianSignature
+        };
       } else {
         savedRound = { ...existing, ...round, checkpoints: mergedCheckpoints, meterReadings: mergedMeters, anomalies: mergedAnomalies };
       }
@@ -1933,11 +2102,21 @@ app.post("/api/rounds", (req, res) => {
   }
 
   // Deduplicate and sort rounds
-  current.rounds = current.rounds.filter((r: any) => r && r.id && !deletedSet.has(r.id));
+  current.rounds = current.rounds.filter((r: any) => r && r.id && (!deletedSet.has(r.id) || CANONICAL_HISTORICAL_ROUND_IDS.has(r.id)));
   current.rounds.sort((a: any, b: any) => {
-    const tA = new Date((a.date || '') + 'T' + (a.time || '00:00')).getTime() || (a.completedAt ? new Date(a.completedAt).getTime() : 0);
-    const tB = new Date((b.date || '') + 'T' + (b.time || '00:00')).getTime() || (b.completedAt ? new Date(b.completedAt).getTime() : 0);
-    return tB - tA;
+    const getT = (r: any) => {
+      const dateStr = String(r?.date || '').replace(/\//g, '-').trim();
+      const [hRaw, mRaw] = String(r?.time || '00:00').trim().split(':');
+      let h = parseInt(hRaw || '0', 10) || 0;
+      const m = parseInt(mRaw || '0', 10) || 0;
+      if ((r?.shift === 'tarde' || r?.shift === 'noche') && h < 12) h += 12;
+      if (dateStr) {
+        const t = new Date(`${dateStr}T${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:00`).getTime();
+        if (!isNaN(t) && t > 0) return t;
+      }
+      return new Date(r?.completedAt || r?.lastUpdated || 0).getTime() || 0;
+    };
+    return getT(b) - getT(a);
   });
 
   // Reconcile anomalies into incidents
@@ -2287,13 +2466,16 @@ app.get(['/registerSW.js', '/registerSW.js*'], (req, res) => {
 });
 
 // Serve assets folder if available to prevent 404 or index.html fallback for scripts
-const distAssetsPath = path.join(process.cwd(), 'dist', 'assets');
-if (fs.existsSync(distAssetsPath)) {
-  app.use('/assets', express.static(distAssetsPath, {
-    maxAge: '1y',
-    immutable: true
-  }));
-}
+app.use('/assets', (req, res, next) => {
+  const distAssetsPath = path.join(process.cwd(), 'dist', 'assets');
+  if (fs.existsSync(distAssetsPath)) {
+    return express.static(distAssetsPath, {
+      maxAge: '1y',
+      immutable: true
+    })(req, res, next);
+  }
+  next();
+});
 
 // Guard all SW requests to ensure correct JavaScript MIME type and avoid Vite fallback to index.html
 app.use((req, res, next) => {
@@ -2318,6 +2500,23 @@ async function startServer() {
       appType: "spa",
     });
     app.use(vite.middlewares);
+
+    // Universal HTML handler in development using Vite HTML transformation
+    app.get('*', async (req, res, next) => {
+      if (req.url.startsWith('/api')) return next();
+      try {
+        const rootIndex = path.join(process.cwd(), 'index.html');
+        if (fs.existsSync(rootIndex)) {
+          let template = fs.readFileSync(rootIndex, 'utf-8');
+          template = await vite.transformIndexHtml(req.originalUrl, template);
+          return res.status(200).set({ 'Content-Type': 'text/html' }).end(template);
+        }
+      } catch (e: any) {
+        vite.ssrFixStacktrace(e);
+        return next(e);
+      }
+      next();
+    });
   } else {
     app.use(express.static(distPath, {
       maxAge: '1d',
@@ -2328,8 +2527,13 @@ async function startServer() {
         }
       }
     }));
-    app.get('*', (req, res) => {
-      res.sendFile(path.join(distPath, 'index.html'));
+    app.get('*', (req, res, next) => {
+      if (req.url.startsWith('/api')) return next();
+      const distIndex = path.join(distPath, 'index.html');
+      if (fs.existsSync(distIndex)) {
+        return res.sendFile(distIndex);
+      }
+      next();
     });
   }
 

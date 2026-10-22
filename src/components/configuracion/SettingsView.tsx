@@ -767,7 +767,7 @@ export const SettingsView: React.FC = () => {
           <div className="flex items-center space-x-2 pb-3 border-b border-slate-100">
             <Shield className="w-4 h-4 text-blue-600" />
             <h3 className="text-sm font-bold text-slate-900">
-              Configuración & Copias de Respaldo
+              Copias de Respaldo & Auditoría
             </h3>
           </div>
 

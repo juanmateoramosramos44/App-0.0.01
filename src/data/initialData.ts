@@ -8,9 +8,21 @@ import {
   RoundCheckpoint,
   RoundAnomaly,
   MeterDefinition,
-  MeterReadingRecord
+  MeterReadingRecord,
+  TechnicianSchedule,
+  HotelRequest,
+  User
 } from '../types';
 import { HISTORICAL_ROUNDS } from './historicalRounds';
+import {
+  SNAPSHOT_SCHEDULES,
+  SNAPSHOT_REQUESTS,
+  SNAPSHOT_INCIDENTS,
+  SNAPSHOT_METERS,
+  SNAPSHOT_METER_READINGS,
+  SNAPSHOT_USERS,
+  SNAPSHOT_ROUND_TEMPLATE
+} from './systemDataSnapshot';
 
 export const INITIAL_EQUIPMENT: Equipment[] = [
   {
@@ -449,11 +461,16 @@ export const DEFAULT_SAUNA_COLD_PLUNGE_CHECKPOINT: RoundCheckpoint = {
   ]
 };
 
-export const STANDARD_ROUND_CHECKPOINTS: RoundCheckpoint[] = HISTORICAL_ROUNDS[0]?.checkpoints?.length 
-  ? HISTORICAL_ROUNDS[0].checkpoints.map(c => ({ ...c })) 
-  : [DEFAULT_SAUNA_COLD_PLUNGE_CHECKPOINT];
+export const STANDARD_ROUND_CHECKPOINTS: RoundCheckpoint[] = SNAPSHOT_ROUND_TEMPLATE.length > 0
+  ? SNAPSHOT_ROUND_TEMPLATE
+  : (HISTORICAL_ROUNDS[0]?.checkpoints?.length 
+      ? HISTORICAL_ROUNDS[0].checkpoints.map(c => ({ ...c })) 
+      : [DEFAULT_SAUNA_COLD_PLUNGE_CHECKPOINT]);
 
 export const INITIAL_ROUNDS: DailyRound[] = HISTORICAL_ROUNDS;
+export const INITIAL_SCHEDULES: TechnicianSchedule[] = SNAPSHOT_SCHEDULES;
+export const INITIAL_REQUESTS: HotelRequest[] = SNAPSHOT_REQUESTS;
+export const INITIAL_USERS_SNAPSHOT: User[] = SNAPSHOT_USERS;
 
 export const INITIAL_PUMP_INSPECTIONS: PumpInspection[] = [
   {
@@ -705,14 +722,24 @@ export const INITIAL_WORK_ORDERS: PreventiveWorkOrder[] = [
 
 export const INITIAL_SETTINGS: SystemSettings = {
   hotelInfo: {
-    hotelName: 'Grand Horizon Luxury Resort & Spa',
-    propertyCode: 'GHLR-041',
-    totalRooms: 280,
-    chiefEngineer: 'Mauricio Marín',
-    city: 'Cancún, Q. Roo / Santo Domingo',
+    hotelName: 'WAKE BIO HOTEL',
+    propertyCode: '',
+    totalRooms: 149,
+    chiefEngineer: 'Juan Mateo Ramos Ramos ',
+    city: 'Medellin ',
     address: 'Av. Costera Blvd. Kukulcán Km 14.5',
     contactPhone: '+1 (809) 555-0199',
-    emergencyPhone: '+1 (809) 555-9111',
+    emergencyPhone: '3127551592',
+    logoUrl: '/wake-bio-logo.jpg',
+    defaultOccupancyPercentage: 13,
+    apartments: 10,
+    vipRooms: 25,
+    arrivalsTomorrow: 9,
+    juniorSuites: 15,
+    apartmentsWithJacuzzi: 10,
+    departuresToday: 9,
+    arrivalsToday: 3,
+    standardRooms: 89,
   },
   pressureUnit: 'psi',
   tempUnit: 'c',
@@ -739,160 +766,9 @@ export const INITIAL_SETTINGS: SystemSettings = {
   ]
 };
 
-export const INITIAL_INCIDENTS: RoundAnomaly[] = [
-  {
-    id: 'inc-01',
-    area: 'Sótano 1 - Sala de Calderas',
-    equipmentId: 'eq-5',
-    equipmentTag: 'BOM-ACS-02',
-    title: 'Leve exudación en empaquetadura BOM-ACS-02',
-    description: 'Se observa pequeña humedad en la brida de succión. Se procedió a limpieza y se programa ajuste de par de apriete en la tarde.',
-    severity: 'baja',
-    status: 'en_atencion',
-    registeredBy: 'Mateo Ramos (Mecánico & Bombas)',
-    timestamp: '2026-09-06 08:15',
-  },
-  {
-    id: 'inc-02',
-    area: 'Piscina Principal & Jacuzzis',
-    equipmentId: 'eq-7',
-    equipmentTag: 'BOM-PISC-01',
-    title: 'Alerta de presión diferencial en filtro de arena',
-    description: 'El manómetro indica 24 PSI. Se requiere retrolavado (backwash) del filtro de arena antes del mediodía.',
-    severity: 'media',
-    status: 'pendiente',
-    registeredBy: 'Luis Peña (Fontanería & Piscinas)',
-    timestamp: '2026-09-07 07:45',
-  }
-];
+export const INITIAL_INCIDENTS: RoundAnomaly[] = SNAPSHOT_INCIDENTS;
 
-export const INITIAL_METERS: MeterDefinition[] = [
-  {
-    id: "med-agua-general",
-    code: "MED-AGUA-01",
-    name: "Contador General de Agua Fría",
-    type: "agua",
-    unit: "m³",
-    location: "Acometida Principal / Cuarto de Bombas",
-    brandModel: "Elster Woltmann WPD 3\"",
-    serialNumber: "WPD-782910-CO",
-    initialReading: 12450.8,
-    currentReading: 12845.2,
-    lastReadingDate: "2026-10-05",
-    lastReadingTime: "06:00",
-    alertThresholdPerDay: 45,
-    status: "activo",
-    isMainMeter: true,
-    notes: "Medidor de acometida principal de la red de acueducto hacia el hotel.",
-    createdAt: "2026-09-01T00:00:00.000Z",
-    updatedAt: "2026-10-05T06:00:00.000Z"
-  },
-  {
-    id: "med-agua-cocina",
-    code: "MED-AGUA-02",
-    name: "Subcontador Agua Cocina & Restaurante",
-    type: "agua",
-    unit: "m³",
-    location: "Cocina Principal S4",
-    brandModel: "Zenner Flodis 1\"",
-    serialNumber: "ZEN-99412-CO",
-    initialReading: 3120.4,
-    currentReading: 3260.7,
-    lastReadingDate: "2026-10-05",
-    lastReadingTime: "06:00",
-    alertThresholdPerDay: 15,
-    status: "activo",
-    isMainMeter: false,
-    parentMeterId: "med-agua-general",
-    parentMeterName: "Contador General de Agua Fría",
-    notes: "Monitorea el consumo de agua en lavavajillas, preparación y cuartos fríos.",
-    createdAt: "2026-09-01T00:00:00.000Z",
-    updatedAt: "2026-10-05T06:00:00.000Z"
-  },
-  {
-    id: "med-agua-piscina",
-    code: "MED-AGUA-03",
-    name: "Subcontador Agua Piscinas & Zonas Húmedas",
-    type: "agua",
-    unit: "m³",
-    location: "Cuarto Técnico Piscinas",
-    brandModel: "Itron Woltex M 1.5\"",
-    serialNumber: "ITR-44102-CO",
-    initialReading: 1890.0,
-    currentReading: 1945.3,
-    lastReadingDate: "2026-10-05",
-    lastReadingTime: "06:00",
-    alertThresholdPerDay: 12,
-    status: "activo",
-    isMainMeter: false,
-    parentMeterId: "med-agua-general",
-    parentMeterName: "Contador General de Agua Fría",
-    notes: "Monitorea la reposición de agua de piscinas, jacuzzi y turco.",
-    createdAt: "2026-09-01T00:00:00.000Z",
-    updatedAt: "2026-10-05T06:00:00.000Z"
-  },
-  {
-    id: "med-energia-principal",
-    code: "MED-ELEC-01",
-    name: "Contador de Energía Eléctrica Principal",
-    type: "energia",
-    unit: "kWh",
-    location: "Subestación Eléctrica Principal",
-    brandModel: "Schneider Electric PowerLogic ION9000",
-    serialNumber: "ION-884291-TX",
-    initialReading: 85200.0,
-    currentReading: 89640.5,
-    lastReadingDate: "2026-10-05",
-    lastReadingTime: "06:00",
-    alertThresholdPerDay: 600,
-    status: "activo",
-    isMainMeter: true,
-    notes: "Medidor general de energía eléctrica total del hotel.",
-    createdAt: "2026-09-01T00:00:00.000Z",
-    updatedAt: "2026-10-05T06:00:00.000Z"
-  },
-  {
-    id: "med-energia-chiller",
-    code: "MED-ELEC-02",
-    name: "Subcontador Energía Climatización & Chiller",
-    type: "energia",
-    unit: "kWh",
-    location: "Cuarto de Máquinas HVAC / Techo",
-    brandModel: "ABB M2M Network Analyser",
-    serialNumber: "ABB-10924-HV",
-    initialReading: 34100.0,
-    currentReading: 36240.0,
-    lastReadingDate: "2026-10-05",
-    lastReadingTime: "06:00",
-    alertThresholdPerDay: 280,
-    status: "activo",
-    isMainMeter: false,
-    parentMeterId: "med-energia-principal",
-    parentMeterName: "Contador de Energía Eléctrica Principal",
-    notes: "Consumo de unidades manejadoras, bombas de agua helada y compresores.",
-    createdAt: "2026-09-01T00:00:00.000Z",
-    updatedAt: "2026-10-05T06:00:00.000Z"
-  },
-  {
-    id: "med-gas-principal",
-    code: "MED-GAS-01",
-    name: "Contador General de Gas Natural / GLP",
-    type: "gas",
-    unit: "m³",
-    location: "Caseta de Medición de Gas Exterior",
-    brandModel: "Itron Gallus 2000 G4",
-    serialNumber: "GAS-39184-CO",
-    initialReading: 5410.0,
-    currentReading: 5690.4,
-    lastReadingDate: "2026-10-05",
-    lastReadingTime: "06:00",
-    alertThresholdPerDay: 40,
-    status: "activo",
-    isMainMeter: true,
-    notes: "Medición de consumo de gas para calderas de agua caliente sanitaria y cocina.",
-    createdAt: "2026-09-01T00:00:00.000Z",
-    updatedAt: "2026-10-05T06:00:00.000Z"
-  }
-];
+export const INITIAL_METERS: MeterDefinition[] = SNAPSHOT_METERS;
 
-export const INITIAL_METER_READINGS: MeterReadingRecord[] = [];
+export const INITIAL_METER_READINGS: MeterReadingRecord[] = SNAPSHOT_METER_READINGS;
+

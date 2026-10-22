@@ -46,6 +46,9 @@ export default defineConfig(() => {
       rollupOptions: {
         output: {
           manualChunks(id) {
+            if (id.includes('historicalRounds')) {
+              return 'data-historical-rounds';
+            }
             if (id.includes('node_modules')) {
               if (id.includes('xlsx')) {
                 return 'vendor-xlsx';

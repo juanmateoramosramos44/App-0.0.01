@@ -11,7 +11,7 @@ export interface DecimalInputProps {
   autoSelectOnZero?: boolean;
 }
 
-export const DecimalInput: React.FC<DecimalInputProps> = ({
+export const DecimalInputComponent: React.FC<DecimalInputProps> = ({
   value,
   onChange,
   onBlur,
@@ -30,6 +30,7 @@ export const DecimalInput: React.FC<DecimalInputProps> = ({
   const isFocused = useRef(false);
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
   const pendingValueRef = useRef<string | null>(null);
+  const lastEmittedValueRef = useRef<string>(String(value ?? ''));
 
   // Clean timer on unmount
   useEffect(() => {
@@ -44,6 +45,7 @@ export const DecimalInput: React.FC<DecimalInputProps> = ({
   useEffect(() => {
     if (disabled) {
       setText('0');
+      lastEmittedValueRef.current = '0';
       return;
     }
 
@@ -59,6 +61,7 @@ export const DecimalInput: React.FC<DecimalInputProps> = ({
 
       const formatted = value === undefined || value === null || value === '' ? '' : String(value);
       setText(formatted);
+      lastEmittedValueRef.current = formatted;
     }
   }, [value, disabled]);
 
@@ -67,12 +70,15 @@ export const DecimalInput: React.FC<DecimalInputProps> = ({
     if (debounceTimerRef.current) {
       clearTimeout(debounceTimerRef.current);
     }
-    // 130ms debounce: ultra-fast for zero perceived lag while avoiding parent context thrashing
+    // 280ms debounce: allows user to type multi-digit numbers smoothly without triggering heavy React tree re-renders
     debounceTimerRef.current = setTimeout(() => {
       debounceTimerRef.current = null;
       pendingValueRef.current = null;
-      onChange(rawVal);
-    }, 130);
+      if (lastEmittedValueRef.current !== rawVal) {
+        lastEmittedValueRef.current = rawVal;
+        onChange(rawVal);
+      }
+    }, 280);
   };
 
   const flushParentUpdate = () => {
@@ -83,7 +89,10 @@ export const DecimalInput: React.FC<DecimalInputProps> = ({
     if (pendingValueRef.current !== null) {
       const pending = pendingValueRef.current;
       pendingValueRef.current = null;
-      onChange(pending);
+      if (lastEmittedValueRef.current !== pending) {
+        lastEmittedValueRef.current = pending;
+        onChange(pending);
+      }
     }
   };
 
@@ -135,7 +144,10 @@ export const DecimalInput: React.FC<DecimalInputProps> = ({
 
     if (clean === '' || clean === '-') {
       setText('');
-      onChange('');
+      if (lastEmittedValueRef.current !== '') {
+        lastEmittedValueRef.current = '';
+        onChange('');
+      }
       if (onBlur) onBlur('');
       return;
     }
@@ -143,11 +155,17 @@ export const DecimalInput: React.FC<DecimalInputProps> = ({
     const parsed = parseFloat(clean.replace(',', '.'));
     if (!isNaN(parsed)) {
       setText(clean);
-      onChange(clean);
+      if (lastEmittedValueRef.current !== clean) {
+        lastEmittedValueRef.current = clean;
+        onChange(clean);
+      }
       if (onBlur) onBlur(clean);
     } else {
       setText('');
-      onChange('');
+      if (lastEmittedValueRef.current !== '') {
+        lastEmittedValueRef.current = '';
+        onChange('');
+      }
       if (onBlur) onBlur('');
     }
   };
@@ -167,3 +185,5 @@ export const DecimalInput: React.FC<DecimalInputProps> = ({
     />
   );
 };
+
+export const DecimalInput = React.memo(DecimalInputComponent);

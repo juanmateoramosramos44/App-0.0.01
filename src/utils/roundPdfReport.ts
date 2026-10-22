@@ -1428,7 +1428,7 @@ export function shareRoundViaWhatsApp(round: DailyRound, hotelInfo?: HotelInfo):
  */
 export function shareRoundViaFacebook(round: DailyRound, hotelInfo?: HotelInfo): void {
   const text = generateRoundSummaryText(round, hotelInfo);
-  const currentUrl = window.location.href;
+  const currentUrl = `${window.location.origin}/?solicitar_usuario=1`;
   const encodedText = encodeURIComponent(text);
   const fbAppScheme = `fb://facewebmodal/f?href=${encodeURIComponent(currentUrl)}`;
   const fbWebUrl = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(currentUrl)}&quote=${encodedText}`;
@@ -1474,7 +1474,7 @@ export async function shareRoundNative(
         await navigator.share({
           title,
           text,
-          url: window.location.href
+          url: `${window.location.origin}/?solicitar_usuario=1`
         });
         if (onPdfShared) onPdfShared();
         return true;

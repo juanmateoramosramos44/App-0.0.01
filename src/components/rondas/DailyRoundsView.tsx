@@ -53,7 +53,10 @@ import {
   Image as ImageIcon,
   Zap,
   ArrowRight,
-  Filter
+  Filter,
+  CheckCircle,
+  WifiOff,
+  Wifi
 } from 'lucide-react';
 import { CustomSelect } from '../common/CustomSelect';
 import { CustomButtonBuilder, getButtonColorClass, getStatusBadgeClass, ButtonActionConfig } from '../common/CustomButtonBuilder';
@@ -125,6 +128,7 @@ export const DailyRoundsView: React.FC = () => {
     cancelActiveRound, 
     deleteRound, 
     resumeRound,
+    updateRound,
     settings,
     currentUser,
     users,
@@ -384,8 +388,7 @@ export const DailyRoundsView: React.FC = () => {
   const getCurrentShift = (): RoundShift => {
     const hours = new Date().getHours();
     if (hours >= 6 && hours < 14) return 'manana';
-    if (hours >= 14 && hours < 22) return 'tarde';
-    return 'noche';
+    return 'tarde';
   };
 
   const [selectedShift, setSelectedShift] = useState<RoundShift>(getCurrentShift);
@@ -407,6 +410,23 @@ export const DailyRoundsView: React.FC = () => {
 
   const [isStartingRound, setIsStartingRound] = useState(false);
   const [isSubmittingRound, setIsSubmittingRound] = useState(false);
+  const [showOfflineModal, setShowOfflineModal] = useState(false);
+  const [isNetworkOnline, setIsNetworkOnline] = useState<boolean>(() => typeof navigator !== 'undefined' ? navigator.onLine : true);
+
+  useEffect(() => {
+    const handleOnline = () => {
+      setIsNetworkOnline(true);
+    };
+    const handleOffline = () => {
+      setIsNetworkOnline(false);
+    };
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
 
   useEffect(() => {
     if (isStartingRound) {
@@ -795,11 +815,24 @@ export const DailyRoundsView: React.FC = () => {
 
     if (!is100Strict || (activeRound.compliancePercentage !== undefined && activeRound.compliancePercentage < 100)) {
       setShowIncompleteCheckpointsModal(true);
-      notify(`⚠️ Bloqueo estricto: La ronda está al ${activeRound.compliancePercentage || 0}%. No se puede cerrar hasta cargar el 100% de los puntos obligatorios.`);
+      notify(`⚠️ Bloqueo de seguridad: La ronda está al ${activeRound.compliancePercentage || 0}%. Debes registrar el 100% de los puntos obligatorios (${incompleteCheckpoints.length} pendientes) para poder finalizar y cerrar la ronda.`);
       return;
     }
 
-    if (!signatureName.trim()) {
+    // VERIFICACIÓN ESTRICTA DE INTERNET O WI-FI:
+    // La ronda solo puede cargarse y cerrarse con internet. Si no hay señal, NO se puede cargar ni cerrar, y no se borran datos.
+    setIsSubmittingRound(true);
+    const isRealOnline = navigator.onLine && (await checkRealInternetConnection());
+    if (!isRealOnline) {
+      setIsSubmittingRound(false);
+      setShowOfflineModal(true);
+      notify('⚠️ Sin conexión a Internet: No es posible cargar la ronda en el sistema. Por favor busca señal Wi-Fi o datos móviles para cerrar la ronda.');
+      return;
+    }
+
+    const finalSignature = (signatureName && signatureName.trim()) || activeRound.technicianName || currentUser?.displayName || 'Técnico';
+    if (!finalSignature.trim()) {
+      setIsSubmittingRound(false);
       notify('⚠️ Por favor ingresa el nombre del técnico firmante para validar la ronda.');
       const sigEl = document.getElementById('signature-name-input') as HTMLInputElement | null;
       if (sigEl) {
@@ -810,10 +843,12 @@ export const DailyRoundsView: React.FC = () => {
     }
 
     try {
-      setIsSubmittingRound(true);
-      await completeActiveRound(meterReadings, generalNotes, signatureName, false);
+      await completeActiveRound(meterReadings, generalNotes, finalSignature, false);
+      setShowOfflineModal(false);
     } catch (err) {
       console.error('Error saving round to cloud:', err);
+      setShowOfflineModal(true);
+      notify('⚠️ Inconveniente de conexión al cargar en el sistema. Por favor verifica tu acceso a Internet e intenta de nuevo. Tu ronda y datos siguen 100% intactos.');
     } finally {
       setIsSubmittingRound(false);
     }
@@ -844,9 +879,10 @@ export const DailyRoundsView: React.FC = () => {
     setShowAnomalyModal(false);
   };
 
-  // Helper to verify if a round is genuinely completed at 100%
+  // Helper to verify if a round is genuinely completed at 100% (Unified 1:1 parity with KPI dashboard & system records)
   const isRoundTruly100 = useCallback((r: DailyRound): boolean => {
     if (!r) return false;
+    if (r.status === 'completada' || Boolean(r.completedAt && r.technicianSignature) || r.compliancePercentage === 100) return true;
     const chks = r.checkpoints || [];
     if (chks.length === 0) return false;
     const filledCount = chks.filter(c => isCheckpointComplete(c, roundTemplate)).length;
@@ -855,18 +891,33 @@ export const DailyRoundsView: React.FC = () => {
 
   // Filtered rounds list (memoized to prevent expensive re-filtering while typing in checkpoints) - strictly completed history rounds (100% compliance)
   const filteredRounds = useMemo(() => {
-    return (rounds || []).filter(r => {
-      if (!r) return false;
-      // En el historial oficial de rondas realizadas se muestran las rondas cerradas al 100%
-      if (!isRoundTruly100(r)) {
-        return false;
+    const getRoundSortTime = (r: DailyRound): number => {
+      const dateStr = (r.date || '').replace(/\//g, '-').trim();
+      const [hRaw, mRaw] = (r.time || '00:00').trim().split(':');
+      let h = parseInt(hRaw || '0', 10) || 0;
+      const m = parseInt(mRaw || '0', 10) || 0;
+      if ((r.shift === 'tarde' || r.shift === 'noche') && h < 12) h += 12;
+      if (dateStr) {
+        const t = new Date(`${dateStr}T${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:00`).getTime();
+        if (!isNaN(t) && t > 0) return t;
       }
-      const matchesSearch = (r.technicianName || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-                            (r.date || '').includes(searchTerm) ||
-                            (r.generalNotes || '').toLowerCase().includes(searchTerm.toLowerCase());
-      const matchesShift = filterShift === 'todos' || r.shift === filterShift;
-      return matchesSearch && matchesShift;
-    });
+      return new Date(r.completedAt || r.lastUpdated || 0).getTime() || 0;
+    };
+
+    return (rounds || [])
+      .filter(r => {
+        if (!r) return false;
+        // En el historial oficial de rondas realizadas se muestran las rondas cerradas al 100%
+        if (!isRoundTruly100(r)) {
+          return false;
+        }
+        const matchesSearch = (r.technicianName || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+                              (r.date || '').includes(searchTerm) ||
+                              (r.generalNotes || '').toLowerCase().includes(searchTerm.toLowerCase());
+        const matchesShift = filterShift === 'todos' || r.shift === filterShift;
+        return matchesSearch && matchesShift;
+      })
+      .sort((a, b) => getRoundSortTime(b) - getRoundSortTime(a));
   }, [rounds, searchTerm, filterShift, isRoundTruly100]);
 
   // Rondas en progreso o que quedaron incompletas pendientes de cargar al 100%
@@ -874,16 +925,23 @@ export const DailyRoundsView: React.FC = () => {
     return (rounds || []).filter(r => {
       if (!r || !r.id) return false;
       if (r.id === activeRound?.id) return false;
+      if (r.status === 'completada' || Boolean(r.completedAt && r.technicianSignature)) return false;
       return r.status === 'incompleta' || r.status === 'en_progreso';
     });
-  }, [rounds, activeRound?.id, isRoundTruly100]);
+  }, [rounds, activeRound?.id]);
 
   // Other technicians' rounds currently in progress (synced in real time across devices)
   const isMyRound = useMemo(() => {
     return isUserOwnRound(activeRound, currentUser);
   }, [activeRound, currentUser]);
 
-  const canShowActiveRound = Boolean(activeRound && isMyRound);
+  const isCompletedRound = useMemo(() => {
+    if (!activeRound) return false;
+    return activeRound.status === 'completada' && Boolean(activeRound.completedAt && activeRound.technicianSignature);
+  }, [activeRound]);
+
+  // Si la ronda está en curso en este dispositivo, NUNCA sacarlo de la pantalla de la ronda (incluso si entra al ascensor, cambia de red o pierde señal temporalmente)
+  const canShowActiveRound = Boolean(activeRound && activeRound.status === 'en_progreso' && !isCompletedRound);
 
   // Group active round checkpoints by area (memoized for instantaneous UI rendering)
   const checkpointsByArea = useMemo(() => {
@@ -940,6 +998,52 @@ export const DailyRoundsView: React.FC = () => {
         )}
       </div>
 
+      {/* BANNER DE RONDA EN CURSO POR COMPAÑERO (Visible para todos los usuarios en tiempo real) */}
+      {!canShowActiveRound && inProgressRounds && inProgressRounds.length > 0 && (
+        <div className="bg-gradient-to-r from-blue-900 via-indigo-900 to-slate-900 rounded-2xl p-4 sm:p-5 text-white border-2 border-blue-500/40 shadow-lg">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+            <div className="flex items-center space-x-3">
+              <div className="w-10 h-10 rounded-xl bg-blue-500/20 border border-blue-400/30 flex items-center justify-center text-blue-300 shrink-0">
+                <span className="w-3 h-3 rounded-full bg-emerald-400 animate-ping" />
+              </div>
+              <div>
+                <div className="flex items-center space-x-2">
+                  <span className="text-xs font-black uppercase tracking-wider text-blue-300">Ronda Técnica en Curso</span>
+                  <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 text-[10px] font-black border border-emerald-500/30">
+                    En Vivo
+                  </span>
+                </div>
+                <h4 className="text-sm font-black text-white mt-0.5">
+                  {inProgressRounds[0].technicianName} • Turno {formatShiftName(inProgressRounds[0].shift)}
+                </h4>
+                <p className="text-xs text-slate-300 mt-0.5">
+                  Avance actual: <strong className="text-emerald-400">{inProgressRounds[0].compliancePercentage || 0}% de 100%</strong> ({inProgressRounds[0].checkpoints ? inProgressRounds[0].checkpoints.filter(c => isCheckpointComplete(c, roundTemplate)).length : 0} puntos registrados)
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center space-x-2 w-full sm:w-auto">
+              <button
+                type="button"
+                onClick={() => setSelectedRoundDetail(inProgressRounds[0])}
+                className="flex-1 sm:flex-none px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs rounded-xl transition-all shadow-sm flex items-center justify-center space-x-1.5 cursor-pointer"
+              >
+                <Eye className="w-3.5 h-3.5" />
+                <span>Ver Avance en Tiempo Real</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setRoundToDelete(inProgressRounds[0])}
+                className="px-3.5 py-2 bg-rose-600/90 hover:bg-rose-600 text-white font-bold text-xs rounded-xl transition-all shadow-sm flex items-center justify-center space-x-1.5 cursor-pointer border border-rose-400/30"
+                title="Descartar esta ronda en curso"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Descartar Ronda</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ACTIVE ROUND INTERFACE (When a round is running and belongs to this user) */}
       {canShowActiveRound && activeRound && (
         <div className="bg-white rounded-2xl border-2 border-blue-500 shadow-md p-6 relative">
@@ -956,6 +1060,24 @@ export const DailyRoundsView: React.FC = () => {
               >
                 <X className="w-4 h-4" />
               </button>
+            </div>
+          )}
+          {!isNetworkOnline && (
+            <div className="mb-4 p-3.5 bg-amber-500/10 border-2 border-amber-500/40 rounded-xl flex items-start sm:items-center space-x-3 text-amber-900 text-xs shadow-xs">
+              <div className="w-8 h-8 rounded-lg bg-amber-500/20 text-amber-700 flex items-center justify-center shrink-0">
+                <WifiOff className="w-4 h-4" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="font-extrabold flex items-center gap-1.5 flex-wrap">
+                  <span>Modo Sin Conexión / Ascensor (Señal no disponible)</span>
+                  <span className="px-1.5 py-0.5 rounded-full bg-amber-200 text-amber-900 text-[10px] font-black uppercase tracking-wider">
+                    Guardado Local Seguro
+                  </span>
+                </div>
+                <p className="text-amber-800 mt-0.5 leading-relaxed">
+                  Puedes continuar llenando todos los puntos, cifras y observaciones con total tranquilidad. Tus datos se guardan al instante en tu equipo. Cuando termines, el sistema solicitará conexión a Internet para cargar la ronda al 100% en el servidor.
+                </p>
+              </div>
             </div>
           )}
           <div className="flex flex-wrap items-center justify-between gap-4 pb-4 border-b border-slate-200">
@@ -1843,14 +1965,32 @@ export const DailyRoundsView: React.FC = () => {
 
                 <div>
                   {activeRoundIncompleteCheckpoints.length > 0 || (activeRound.checkpoints?.length || 0) < (roundTemplate?.length || 0) || (activeRound.compliancePercentage !== undefined && activeRound.compliancePercentage < 100) ? (
-                    <button
-                      type="button"
-                      onClick={() => setShowIncompleteCheckpointsModal(true)}
-                      className="w-full py-3 px-4 bg-gradient-to-r from-amber-500 via-amber-400 to-amber-500 hover:from-amber-400 hover:to-amber-300 text-slate-950 font-black text-xs rounded-xl border-2 border-amber-600 shadow-md transition-all flex items-center justify-center space-x-2 cursor-pointer active:scale-98"
-                    >
-                      <AlertTriangle className="w-4 h-4 text-slate-950 animate-bounce shrink-0" />
-                      <span>🔒 Cierre Bloqueado: Ronda al {activeRound.compliancePercentage || 0}% ({Math.max(activeRoundIncompleteCheckpoints.length, (roundTemplate?.length || 0) - (activeRound.checkpoints?.length || 0))} {Math.max(activeRoundIncompleteCheckpoints.length, (roundTemplate?.length || 0) - (activeRound.checkpoints?.length || 0)) === 1 ? 'punto pendiente' : 'puntos pendientes'} para llegar al 100%)</span>
-                    </button>
+                    <div className="space-y-2">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        <button
+                          type="submit"
+                          disabled={isSubmittingRound}
+                          className="w-full py-3 px-4 font-bold text-xs rounded-xl shadow-sm transition-all flex items-center justify-center space-x-2 bg-slate-300 hover:bg-slate-400 text-slate-700 cursor-pointer"
+                          title="Debes completar el 100% de los puntos para poder cerrar la ronda"
+                        >
+                          <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                          <span>Finalizar Ronda ({activeRound.compliancePercentage || 0}% - Incompleta)</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => setShowIncompleteCheckpointsModal(true)}
+                          className="w-full py-2.5 px-3 bg-amber-50 hover:bg-amber-100 text-amber-900 font-bold text-xs rounded-xl border border-amber-300 transition-all flex items-center justify-center space-x-1.5 cursor-pointer active:scale-98"
+                        >
+                          <AlertTriangle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                          <span>Revisar {activeRoundIncompleteCheckpoints.length} Puntos Pendientes</span>
+                        </button>
+                      </div>
+
+                      <p className="text-[11px] text-amber-700 font-semibold text-center flex items-center justify-center gap-1.5">
+                        <span>🔒 El sistema exige el 100% de los puntos registrados para permitir el cierre de la ronda.</span>
+                      </p>
+                    </div>
                   ) : (
                     <button
                       type="submit"
@@ -1874,12 +2014,7 @@ export const DailyRoundsView: React.FC = () => {
                       )}
                     </button>
                   )}
-                  {activeRoundIncompleteCheckpoints.length > 0 || (activeRound.compliancePercentage !== undefined && activeRound.compliancePercentage < 100) ? (
-                    <p className="text-[11px] text-amber-900 font-bold text-center mt-2 flex items-center justify-center gap-1.5 bg-amber-50 py-1.5 px-3 rounded-lg border border-amber-200">
-                      <AlertTriangle className="w-3.5 h-3.5 shrink-0 text-amber-600" />
-                      <span>El sistema no permite cerrar la ronda hasta cargar el 100%. Haz clic en el botón para ver qué puntos faltan.</span>
-                    </p>
-                  ) : (
+                  {(!activeRoundIncompleteCheckpoints.length && (activeRound.checkpoints?.length || 0) >= (roundTemplate?.length || 0) && (activeRound.compliancePercentage === 100)) && (
                     <p className="text-[10px] text-emerald-600 font-semibold text-center mt-1.5 flex items-center justify-center gap-1">
                       <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
                       <span>100% de puntos auditados. Lista para firma, cierre oficial y sincronización en la nube.</span>
@@ -1914,11 +2049,10 @@ export const DailyRoundsView: React.FC = () => {
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
                   Seleccione Turno Operativo
                 </label>
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-2 gap-2">
                   {[
                     { id: 'manana', label: 'Mañana', desc: '06:00 - 15:00' },
                     { id: 'tarde', label: 'Tarde', desc: '14:00 - 22:00' },
-                    { id: 'noche', label: 'Noche', desc: '21:00 - 06:00' },
                   ].map(shift => (
                     <button
                       key={shift.id}
@@ -2189,94 +2323,7 @@ export const DailyRoundsView: React.FC = () => {
         </div>
       )}
 
-      {/* SECCIÓN DE RONDAS PENDIENTES / INCOMPLETAS (QUE NO SE HAN PODIDO CERRAR AL 100%) */}
-      {pendingIncompleteRounds.length > 0 && (
-        <div className="bg-amber-50/90 rounded-2xl p-5 border-2 border-amber-300 shadow-xs">
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-3.5">
-            <div className="flex items-center space-x-2.5">
-              <span className="w-9 h-9 rounded-xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-800 shrink-0">
-                <AlertTriangle className="w-5 h-5 text-amber-700 animate-pulse" />
-              </span>
-              <div>
-                <h4 className="text-sm font-black text-amber-950 flex items-center gap-2">
-                  <span>Rondas Pendientes de Cargar al 100%</span>
-                  <span className="px-2.5 py-0.5 rounded-full bg-amber-200 text-amber-900 text-[10px] font-black border border-amber-300">
-                    {pendingIncompleteRounds.length} pendiente{pendingIncompleteRounds.length > 1 ? 's' : ''}
-                  </span>
-                </h4>
-                <p className="text-[11px] text-amber-800 mt-0.5">
-                  El sistema bloquea el cierre oficial hasta que se completen todos los puntos al 100%. Los técnicos pueden retomarlas aquí.
-                </p>
-              </div>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-            {pendingIncompleteRounds.map(rnd => (
-              <div key={rnd.id} className="bg-white p-3.5 rounded-xl border border-amber-200 shadow-2xs flex flex-col justify-between">
-                <div>
-                  <div className="flex items-center justify-between mb-1.5">
-                    <span className="text-xs font-bold text-slate-900 truncate">
-                      {rnd.technicianName}
-                    </span>
-                    <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-md bg-amber-100 text-amber-900 border border-amber-300">
-                      Turno {formatShiftName(rnd.shift)}
-                    </span>
-                  </div>
-                  <div className="text-[11px] text-slate-500 flex items-center gap-2 mb-2">
-                    <span>📅 {rnd.date}</span>
-                    <span>⏰ {rnd.time || '00:00'} hs</span>
-                  </div>
-                  <div className="space-y-1">
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="text-slate-600 font-medium">Avance actual:</span>
-                      <span className="font-extrabold text-amber-700">{rnd.compliancePercentage || 0}% de 100%</span>
-                    </div>
-                    <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
-                      <div 
-                        className="h-full bg-gradient-to-r from-amber-500 to-amber-600 rounded-full"
-                        style={{ width: `${Math.max(rnd.compliancePercentage || 0, 5)}%` }}
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                <div className="mt-3 pt-2.5 border-t border-slate-100 flex items-center justify-between gap-2">
-                  <button
-                    type="button"
-                    onClick={() => resumeRound(rnd)}
-                    className="flex-1 py-1.5 px-3 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs rounded-lg transition-colors flex items-center justify-center space-x-1.5 cursor-pointer shadow-xs"
-                    title="Continuar llenando esta ronda hasta llegar al 100%"
-                  >
-                    <Play className="w-3.5 h-3.5" />
-                    <span>Reanudar y Completar</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setSelectedRoundDetail(rnd)}
-                    className="p-1.5 text-slate-500 hover:text-slate-700 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg transition-colors cursor-pointer"
-                    title="Ver detalle"
-                  >
-                    <Eye className="w-3.5 h-3.5" />
-                  </button>
-                  {canDeleteRecords && (
-                    <button
-                      type="button"
-                      onClick={() => setRoundToDelete(rnd)}
-                      className="p-1.5 text-rose-500 hover:text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-lg transition-colors cursor-pointer"
-                      title="Descartar borrador incompleto"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* HISTORIAL DE RONDAS DIARIAS */}
+      {/* HISTORIAL DE RONDAS DIARIAS (Estricto 100% de cumplimiento oficial) */}
       <div className="bg-white rounded-2xl p-6 border border-slate-200/90 shadow-xs">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-5">
           <div>
@@ -2286,7 +2333,12 @@ export const DailyRoundsView: React.FC = () => {
               </h3>
               <span className="inline-flex items-center space-x-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 shadow-2xs">
                 <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                <span>{filteredRounds.length} cerradas al 100% (En vivo)</span>
+                <span>
+                  {filterShift !== 'todos' || searchTerm.trim() !== ''
+                    ? `${filteredRounds.length} de ${(rounds || []).filter(r => r && r.status === 'completada').length} cerradas al 100% (En vivo)`
+                    : `${filteredRounds.length} cerradas al 100% (En vivo)`
+                  }
+                </span>
               </span>
             </div>
             <p className="text-xs text-slate-500 mt-0.5">
@@ -2316,7 +2368,7 @@ export const DailyRoundsView: React.FC = () => {
                   { value: 'todos', label: 'Todos los Turnos', color: 'slate' },
                   { value: 'manana', label: 'Turno Mañana', color: 'amber' },
                   { value: 'tarde', label: 'Turno Tarde', color: 'blue' },
-                  { value: 'noche', label: 'Turno Noche', color: 'indigo' },
+                  { value: 'noche', label: 'Turno Noche', color: 'purple' },
                 ]}
               />
             </div>
@@ -2390,10 +2442,10 @@ export const DailyRoundsView: React.FC = () => {
                       </div>
                     </td>
                     <td className="py-3.5 px-4">
-                      {rnd.anomalies.length > 0 ? (
+                      {(rnd.anomalies || []).length > 0 ? (
                         <span className="inline-flex items-center text-rose-700 bg-rose-50 px-2 py-0.5 rounded border border-rose-200 font-bold text-[11px]">
                           <AlertTriangle className="w-3.5 h-3.5 mr-1 text-rose-600" />
-                          {rnd.anomalies.length} novedad(es)
+                          {(rnd.anomalies || []).length} novedad(es)
                         </span>
                       ) : (
                         <span className="text-emerald-700 font-bold text-[11px] bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">✓ Sin novedades</span>
@@ -3218,9 +3270,13 @@ export const DailyRoundsView: React.FC = () => {
               </button>
               <button
                 type="button"
-                onClick={() => {
-                  cancelActiveRound();
+                onClick={async () => {
+                  const targetId = activeRound?.id;
                   setShowDiscardActiveConfirm(false);
+                  await cancelActiveRound();
+                  if (targetId) {
+                    await deleteRound(targetId);
+                  }
                 }}
                 className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-xl transition-colors flex items-center space-x-1.5 shadow-sm cursor-pointer"
               >
@@ -3273,12 +3329,12 @@ export const DailyRoundsView: React.FC = () => {
               </div>
               <div className="flex justify-between items-center">
                 <span className="text-slate-500">Puntos Chequeados:</span>
-                <span className="font-mono font-medium text-slate-700">{roundToDelete.checkpoints.length} puntos</span>
+                <span className="font-mono font-medium text-slate-700">{(roundToDelete.checkpoints || []).length} puntos</span>
               </div>
-              {roundToDelete.anomalies.length > 0 && (
+              {(roundToDelete.anomalies || []).length > 0 && (
                 <div className="flex justify-between items-center text-amber-700">
                   <span className="font-medium">Incidencias registradas:</span>
-                  <span className="font-bold">{roundToDelete.anomalies.length}</span>
+                  <span className="font-bold">{(roundToDelete.anomalies || []).length}</span>
                 </div>
               )}
             </div>
@@ -4840,15 +4896,61 @@ export const DailyRoundsView: React.FC = () => {
 
             {/* Modal Footer */}
             <div className="p-4 bg-slate-950 border-t border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-3">
-              <span className="text-[11px] text-slate-400 text-center sm:text-left">
-                🔒 <strong>Regla obligatoria:</strong> Es obligatorio completar el 100% de los puntos para cerrar la ronda.
+              <span className="text-[11px] text-amber-300 font-semibold text-center sm:text-left">
+                🔒 Es obligatorio completar el 100% de los puntos pendientes para poder finalizar y cerrar la ronda.
               </span>
+              <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto justify-end">
+                <button
+                  type="button"
+                  onClick={() => setShowIncompleteCheckpointsModal(false)}
+                  className="w-full sm:w-auto px-5 py-2.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black text-xs rounded-xl shadow-lg transition-all cursor-pointer flex items-center justify-center space-x-2"
+                >
+                  <span>Continuar Llenando Puntos</span>
+                  <Check className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* OFFLINE WARNING MODAL (Cuando el técnico intenta cerrar sin internet o Wi-Fi) */}
+      {showOfflineModal && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in">
+          <div className="bg-slate-900 border-2 border-amber-500/50 rounded-3xl p-6 sm:p-7 max-w-md w-full shadow-2xl space-y-5 text-center">
+            <div className="w-16 h-16 rounded-2xl bg-amber-500/20 text-amber-400 border border-amber-500/30 flex items-center justify-center mx-auto shadow-inner">
+              <WifiOff className="w-8 h-8 animate-pulse" />
+            </div>
+
+            <div className="space-y-1.5">
+              <h3 className="text-lg font-black text-white">
+                Sin Conexión a Internet / Señal Débil
+              </h3>
+              <p className="text-xs text-amber-300 font-bold">
+                No se puede cerrar ni cargar la ronda en el sistema en este momento.
+              </p>
+            </div>
+
+            <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 text-left space-y-2 text-xs text-slate-300 leading-relaxed">
+              <p className="font-semibold text-white flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 inline-block shrink-0"></span>
+                <span>Tus datos y registros están 100% seguros</span>
+              </p>
+              <p>
+                El sistema ha guardado cada punto, cifra y observación de tu ronda localmente en tu dispositivo. Ningún dato se perderá, incluso si entraste al ascensor o perdiste señal temporalmente.
+              </p>
+              <p className="text-amber-300 font-medium pt-1 border-t border-slate-800">
+                👉 Para cerrar y cargar la ronda definitivamente en el servidor, por favor conéctate a una red Wi-Fi o busca señal de datos y vuelve a presionar el botón de finalizar.
+              </p>
+            </div>
+
+            <div className="pt-2">
               <button
                 type="button"
-                onClick={() => setShowIncompleteCheckpointsModal(false)}
-                className="w-full sm:w-auto px-6 py-2.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black text-xs rounded-xl shadow-lg transition-all cursor-pointer flex items-center justify-center space-x-2"
+                onClick={() => setShowOfflineModal(false)}
+                className="w-full py-3 px-5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black text-xs rounded-xl shadow-lg transition-all cursor-pointer flex items-center justify-center space-x-2 active:scale-98"
               >
-                <span>Entendido, Completar Puntos Faltantes</span>
+                <span>Entendido • Continuar Trabajando</span>
                 <Check className="w-4 h-4" />
               </button>
             </div>
