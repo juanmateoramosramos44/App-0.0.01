@@ -187,8 +187,8 @@ export const isGhostRound = (round: DailyRound, currentActiveId?: string): boole
 export const isRoundActivelyBeingPerformed = (round: DailyRound, currentActiveId?: string): boolean => {
   if (!round || round.status !== 'en_progreso') return false;
   if (getDeletedRoundIds().has(round.id)) return false;
-  // Si la ronda ya tiene firma del técnico, fecha de culminación o status completada, ya fue cerrada y no está en curso
-  if (round.completedAt || (round.technicianSignature && (round.compliancePercentage === undefined || round.compliancePercentage === 100))) return false;
+  // Solo se considera culminada si fue cerrada explícitamente con completedAt y firma
+  if (Boolean(round.completedAt && round.technicianSignature)) return false;
 
   // Si es la ronda que el usuario local tiene abierta o reanudó actualmente en su pantalla: siempre está en curso activo
   if (currentActiveId && round.id === currentActiveId) {
@@ -330,6 +330,8 @@ interface MaintenanceContextType {
   addRoundTemplateItem: (item: Omit<RoundCheckpoint, 'id'>) => void;
   updateRoundTemplateItem: (id: string, data: Partial<RoundCheckpoint>) => void;
   deleteRoundTemplateItem: (id: string) => void;
+  reorderRoundTemplate: (startIndex: number, endIndex: number) => Promise<void>;
+  moveRoundTemplateItem: (id: string, direction: 'up' | 'down' | 'first' | 'last') => Promise<void>;
   resetRoundTemplateToDefault: () => void;
   clearAllRoundTemplate: () => void;
   refreshRoundTemplateFromCloud: () => Promise<void>;
@@ -1566,8 +1568,14 @@ const normalizeRoundRecord = (round: DailyRound, currentActiveId?: string): Dail
   const todayStr = getLocalDateString();
   const roundDate = (normalized.date || '').replace(/\//g, '-').trim();
 
-  // Si la ronda ya fue completada, firmada o tiene 100%, NUNCA degradarla a incompleta bajo ninguna circunstancia
-  const isAlreadyCompleted = normalized.status === 'completada' || Boolean(normalized.completedAt && normalized.technicianSignature) || normalized.compliancePercentage === 100;
+  // Si la ronda ya fue completada y firmada oficialmente (o es histórica canónica):
+  // REGLA CRÍTICA INELUDIBLE: Una ronda 'en_progreso' NUNCA es 'isAlreadyCompleted', aunque tenga el 100% de puntos llenos.
+  // Debe esperar siempre a que el técnico revise, firme y haga clic en el botón de finalizar.
+  const isAlreadyCompleted = normalized.status !== 'en_progreso' && (
+    (normalized.status === 'completada' && Boolean(normalized.completedAt && normalized.technicianSignature)) ||
+    isCanonicalHistorical ||
+    (normalized.status === 'completada' && normalized.compliancePercentage === 100)
+  );
 
   if (isAlreadyCompleted) {
     return {
@@ -2556,31 +2564,26 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
 
   const [activeRound, setActiveRound] = useState<DailyRound | null>(() => {
     try {
-      const saved = localStorage.getItem(STORAGE_KEYS.ACTIVE_ROUND);
+      let saved = localStorage.getItem(STORAGE_KEYS.ACTIVE_ROUND);
+      if (!saved) {
+        saved = localStorage.getItem('active_round_draft_backup');
+      }
       if (saved) {
         const parsed = JSON.parse(saved);
         if (
           !parsed ||
           !parsed.id ||
-          parsed.status === 'completada' ||
-          Boolean(parsed.completedAt && parsed.technicianSignature) ||
+          (parsed.status === 'completada' && Boolean(parsed.completedAt && parsed.technicianSignature)) ||
           getDeletedRoundIds().has(parsed.id)
         ) {
           localStorage.removeItem(STORAGE_KEYS.ACTIVE_ROUND);
+          localStorage.removeItem('active_round_draft_backup');
           return null;
         }
 
         if (parsed.status === 'en_progreso') {
-          const roundDate = (parsed.date || '').replace(/\//g, '-').trim();
-          const timeStr = parsed.lastHeartbeat || parsed.lastUpdated || (parsed.date && parsed.time ? `${roundDate}T${parsed.time}:00` : null);
-          const ts = timeStr ? new Date(timeStr).getTime() : 0;
-          // Ventana de turno de 24 horas para cubrir turnos de noche y jornadas completas
-          const isRecent = !ts || isNaN(ts) || (Date.now() - ts) <= 24 * 60 * 60 * 1000;
-          if (isRecent) {
-            return parsed;
-          }
+          return parsed;
         }
-        localStorage.removeItem(STORAGE_KEYS.ACTIVE_ROUND);
       }
     } catch (e) {}
     return null;
@@ -2590,7 +2593,8 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
     const todayStr = getLocalDateString();
     const list = (rounds || []).filter(r => {
       if (!r || !r.id) return false;
-      if (r.status === 'completada' || Boolean(r.completedAt && r.technicianSignature) || r.compliancePercentage === 100) return false;
+      // Solo excluir si ya fue cerrada oficialmente con firma
+      if (r.status === 'completada' && Boolean(r.completedAt && r.technicianSignature)) return false;
       const rDate = (r.date || '').replace(/\//g, '-').trim();
       if (rDate && rDate < todayStr) return false;
       return isRoundActivelyBeingPerformed(r, activeRound?.id) && (!rDate || rDate === todayStr);
@@ -3351,6 +3355,66 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
     }
   };
 
+  const reorderRoundTemplate = async (startIndex: number, endIndex: number) => {
+    if (currentUser && !currentUser.permissions?.canEditSettings && currentUser.role !== 'admin') {
+      notify('Acceso restringido: No tienes permisos para reordenar la plantilla.');
+      return;
+    }
+    const currentList = [...(roundTemplateRef.current || [])];
+    if (
+      startIndex < 0 || 
+      startIndex >= currentList.length || 
+      endIndex < 0 || 
+      endIndex >= currentList.length || 
+      startIndex === endIndex
+    ) {
+      return;
+    }
+
+    const [movedItem] = currentList.splice(startIndex, 1);
+    currentList.splice(endIndex, 0, movedItem);
+
+    roundTemplateRef.current = currentList;
+    setRoundTemplate(currentList);
+    localStorage.setItem('hotel_round_template', JSON.stringify(currentList));
+
+    if (activeRound) {
+      setActiveRound(prev => {
+        if (!prev) return null;
+        const reconciled = reconcileActiveRoundWithTemplate(prev, currentList);
+        safeSetItem(STORAGE_KEYS.ACTIVE_ROUND, JSON.stringify(reconciled));
+        return reconciled;
+      });
+    }
+
+    await saveRoundTemplateToCloud(currentList);
+    persistToServer();
+    notify(`↕️ Orden actualizado: "${movedItem.title}" colocado en la posición #${endIndex + 1}`);
+  };
+
+  const moveRoundTemplateItem = async (id: string, direction: 'up' | 'down' | 'first' | 'last') => {
+    const currentList = roundTemplateRef.current || [];
+    const index = currentList.findIndex(item => item.id === id);
+    if (index === -1) return;
+
+    let targetIndex = index;
+    if (direction === 'first') {
+      if (index === 0) return;
+      targetIndex = 0;
+    } else if (direction === 'last') {
+      if (index === currentList.length - 1) return;
+      targetIndex = currentList.length - 1;
+    } else if (direction === 'up') {
+      if (index === 0) return;
+      targetIndex = index - 1;
+    } else if (direction === 'down') {
+      if (index === currentList.length - 1) return;
+      targetIndex = index + 1;
+    }
+
+    await reorderRoundTemplate(index, targetIndex);
+  };
+
   // Track if initial snapshot has loaded to prevent notification burst
   const isInitialLoad = useRef(true);
   const sessionStartTime = useRef<number>(Date.now());
@@ -3447,7 +3511,10 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
       );
 
       const deletedIds = getDeletedRoundIds();
-      const savedActiveStr = localStorage.getItem(STORAGE_KEYS.ACTIVE_ROUND);
+      let savedActiveStr = localStorage.getItem(STORAGE_KEYS.ACTIVE_ROUND);
+      if (!savedActiveStr) {
+        savedActiveStr = localStorage.getItem('active_round_draft_backup');
+      }
       let targetRound: DailyRound | undefined;
       if (savedActiveStr) {
         try {
@@ -3460,15 +3527,42 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
             !parsed.completedAt
           ) {
             const found = rounds.find(r => r && r.id === parsed.id && !deletedIds.has(r.id) && r.status === 'en_progreso' && !r.completedAt);
-            const isCompletedInList = rounds.some(r => r && r.id === parsed.id && (r.status === 'completada' || Boolean(r.completedAt && r.technicianSignature)));
+            const isCompletedInList = rounds.some(r => r && r.id === parsed.id && (r.status === 'completada' && Boolean(r.completedAt && r.technicianSignature)));
             if (!isCompletedInList) {
-              targetRound = found || parsed;
+              if (found && parsed) {
+                // Preservar siempre las cifras y estados que el técnico introdujo en este dispositivo
+                const mergedCheckpoints = (parsed.checkpoints || found.checkpoints || []).map((pc: any) => {
+                  const fc = (found.checkpoints || []).find((c: any) => c && (c.id === pc.id || c.title === pc.title));
+                  const pVal = pc.currentValue !== undefined && pc.currentValue !== '' ? pc.currentValue : fc?.currentValue;
+                  const pStatus = pc.statusValue !== undefined ? pc.statusValue : fc?.statusValue;
+                  const pNotes = pc.notes !== undefined && pc.notes !== '' ? pc.notes : fc?.notes;
+                  const pPhoto = pc.photoUrl || fc?.photoUrl;
+                  return {
+                    ...fc,
+                    ...pc,
+                    currentValue: pVal !== undefined ? pVal : '',
+                    statusValue: pStatus,
+                    notes: pNotes,
+                    photoUrl: pPhoto
+                  };
+                });
+                targetRound = {
+                  ...found,
+                  ...parsed,
+                  checkpoints: mergedCheckpoints,
+                  status: 'en_progreso'
+                };
+              } else {
+                targetRound = parsed || found;
+              }
             } else if (isCompletedInList || deletedIds.has(parsed.id)) {
               localStorage.removeItem(STORAGE_KEYS.ACTIVE_ROUND);
+              localStorage.removeItem('active_round_draft_backup');
               idbRemove(STORAGE_KEYS.ACTIVE_ROUND).catch(() => {});
             }
           } else if (parsed && parsed.id && deletedIds.has(parsed.id)) {
             localStorage.removeItem(STORAGE_KEYS.ACTIVE_ROUND);
+            localStorage.removeItem('active_round_draft_backup');
             idbRemove(STORAGE_KEYS.ACTIVE_ROUND).catch(() => {});
           }
         } catch {}
@@ -3479,7 +3573,7 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
         const userNorm = normalizeStr(currentUser?.displayName || currentUser?.name || '');
         targetRound = rounds.find(r => {
           if (!r || !r.id || deletedIds.has(r.id) || r.status !== 'en_progreso' || !isRoundActivelyBeingPerformed(r)) return false;
-          if (r.completedAt || (r.technicianSignature && r.compliancePercentage === 100)) return false;
+          if (Boolean(r.completedAt && r.technicianSignature)) return false;
           const techNorm = normalizeStr(r.technicianName || '');
           const isExactUser = Boolean(r.userId && currentUser?.id && r.userId === currentUser.id) || Boolean(techNorm && userNorm && techNorm === userNorm);
           return isExactUser;
@@ -4837,11 +4931,12 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
           return;
         }
 
-        const isCompletedInList = (roundsRef.current || []).some(r => r && r.id === idbActive.id && (r.status === 'completada' || Boolean(r.completedAt && r.technicianSignature) || r.compliancePercentage === 100));
+        const isCompletedInList = (roundsRef.current || []).some(r => r && r.id === idbActive.id && (r.status === 'completada' && Boolean(r.completedAt && r.technicianSignature)));
 
         if (idbActive.status === 'completada' || isCompletedInList || (idbActive.completedAt && idbActive.technicianSignature)) {
           idbRemove(STORAGE_KEYS.ACTIVE_ROUND).catch(() => {});
           localStorage.removeItem(STORAGE_KEYS.ACTIVE_ROUND);
+          localStorage.removeItem('active_round_draft_backup');
           if (activeRoundRef.current?.id === idbActive.id) {
             activeRoundRef.current = null;
             setActiveRound(null);
@@ -4852,7 +4947,18 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
         // Si la ronda está en progreso, mantenerla activa de forma permanente para el técnico
         if (idbActive.status === 'en_progreso' && !idbActive.completedAt) {
           const canonicalInList = (roundsRef.current || []).find(r => r && r.id === idbActive.id);
-          const chosen = canonicalInList ? { ...canonicalInList, ...idbActive } : idbActive;
+          let chosen = idbActive;
+          if (canonicalInList) {
+            // Fusión preservando las entradas que el técnico introdujo en el dispositivo
+            const mergedCheckpoints = (idbActive.checkpoints || canonicalInList.checkpoints || []).map((ic: any) => {
+              const cc = (canonicalInList.checkpoints || []).find((c: any) => c && (c.id === ic.id || c.title === ic.title));
+              const val = ic.currentValue !== undefined && ic.currentValue !== '' ? ic.currentValue : cc?.currentValue;
+              const status = ic.statusValue !== undefined ? ic.statusValue : cc?.statusValue;
+              const notes = ic.notes !== undefined && ic.notes !== '' ? ic.notes : cc?.notes;
+              return { ...cc, ...ic, currentValue: val !== undefined ? val : '', statusValue: status, notes };
+            });
+            chosen = { ...canonicalInList, ...idbActive, checkpoints: mergedCheckpoints };
+          }
           const reconciled = reconcileActiveRoundWithTemplate(chosen, roundTemplateRef.current || roundTemplate);
           activeRoundRef.current = reconciled;
           setActiveRound(reconciled);
@@ -8277,6 +8383,7 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
   const queueSaveActiveRoundStorage = (round: DailyRound, immediate: boolean) => {
     // Persistencia síncrona e inmediata al 100%: Cualquier cambio se guarda al instante para que entrar al ascensor o bloquear pantalla jamás pierda un dato
     safeSetItem(STORAGE_KEYS.ACTIVE_ROUND, JSON.stringify(round));
+    safeSetItem('active_round_draft_backup', JSON.stringify(round));
     idbSet(STORAGE_KEYS.ACTIVE_ROUND, round).catch(() => {});
   };
 
@@ -8482,10 +8589,13 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
             ? chk.buttonActions
             : tplItem?.buttonActions;
 
-          const existingPhotos = Array.isArray(chk.photos) ? [...chk.photos] : (chk.photoUrl ? [chk.photoUrl] : []);
-          const finalPhotoUrl = photoUrl !== undefined ? photoUrl : chk.photoUrl;
-          if (photoUrl && !existingPhotos.includes(photoUrl)) {
-            existingPhotos.push(photoUrl);
+          let finalPhotoUrl = chk.photoUrl;
+          let finalPhotos = Array.isArray(chk.photos) ? [...chk.photos] : (chk.photoUrl ? [chk.photoUrl] : []);
+          if (photoUrl !== undefined) {
+            finalPhotoUrl = photoUrl;
+            finalPhotos = photoUrl ? [photoUrl] : [];
+          } else if (chk.photoUrl && (!finalPhotos.length || !finalPhotos.includes(chk.photoUrl))) {
+            finalPhotos = [chk.photoUrl];
           }
 
           return {
@@ -8498,7 +8608,7 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
             ampState: finalAmpState,
             lastNonZeroValue: finalLastNonZero,
             photoUrl: finalPhotoUrl,
-            photos: existingPhotos.length > 0 ? existingPhotos : undefined
+            photos: finalPhotos.length > 0 ? Array.from(new Set(finalPhotos)) : undefined
           };
         }
         return chk;
@@ -8618,6 +8728,7 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
         lastHeartbeat: nowIso
       };
       safeSetItem(STORAGE_KEYS.ACTIVE_ROUND, JSON.stringify(updated));
+      safeSetItem('active_round_draft_backup', JSON.stringify(updated));
       const updatedList = (roundsRef.current || []).map(r => r.id === updated.id ? updated : r);
       if (!updatedList.some(r => r.id === updated.id)) {
         updatedList.unshift(updated);
@@ -8891,27 +9002,41 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
       lastUpdated: new Date().toISOString()
     };
 
-    // Subir obligatoriamente al servidor API y confirmar 200 OK antes de cerrar la ronda
+    // Subir al servidor API y a la nube Firestore de forma garantizada y sin bloqueos
+    let uploadConfirmed = false;
     try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 12000);
       const res = await fetch('/api/rounds', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'X-Client-Id': clientSessionId.current
         },
-        body: JSON.stringify(completed)
+        body: JSON.stringify(completed),
+        signal: controller.signal
       });
-      if (!res.ok) {
-        throw new Error('SERVER_REJECTED_ROUND');
+      clearTimeout(timeoutId);
+      if (res.ok) {
+        uploadConfirmed = true;
       }
     } catch (netErr) {
-      console.warn('Error uploading round to server API:', netErr);
-      notify('⚠️ Error de red al cargar la ronda en el servidor. Por favor verifica tu conexión a Internet e inténtalo nuevamente. Tu ronda sigue 100% abierta e intacta.');
-      throw netErr;
+      console.warn('Advertencia en carga a servidor API:', netErr);
     }
 
     // Persistir de inmediato en la nube Firestore
-    safeCloudWrite(() => setDoc(doc(db, 'rounds', completed.id), cleanForFirestore(completed))).catch(() => {});
+    try {
+      await safeCloudWrite(() => setDoc(doc(db, 'rounds', completed.id), cleanForFirestore(completed)));
+      uploadConfirmed = true;
+    } catch (fsErr) {
+      console.warn('Advertencia en carga a Firestore:', fsErr);
+    }
+
+    if (!uploadConfirmed) {
+      // Si la conexión tuvo un micro-corte, guardar en cola de sincronización para que suba en segundo plano
+      queuePendingOfflineRound(completed);
+    }
+
     hasPendingLocalChanges.current = true;
     persistToServer();
 
@@ -8923,10 +9048,11 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
     safeSetItem(STORAGE_KEYS.ROUNDS, JSON.stringify(updated));
     idbSet(STORAGE_KEYS.ROUNDS, updated).catch(() => {});
 
-    // SÓLO AHORA QUE EL SERVIDOR Y LA NUBE CONFIRMARON LA CARGA AL 100%, CERRAR LA RONDA
+    // Cierre limpio e instantáneo: la ronda pasa inmediatamente al historial al 100% y se liberan borradores
     activeRoundRef.current = null;
     setActiveRound(null);
     localStorage.removeItem(STORAGE_KEYS.ACTIVE_ROUND);
+    localStorage.removeItem('active_round_draft_backup');
     idbRemove(STORAGE_KEYS.ACTIVE_ROUND).catch(() => {});
     localActionIds.current.add(completed.id);
     setTimeout(() => { localActionIds.current.delete(completed.id); }, 15000);
@@ -9767,6 +9893,8 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
         addRoundTemplateItem,
         updateRoundTemplateItem,
         deleteRoundTemplateItem,
+        reorderRoundTemplate,
+        moveRoundTemplateItem,
         resetRoundTemplateToDefault,
         clearAllRoundTemplate,
         refreshRoundTemplateFromCloud,

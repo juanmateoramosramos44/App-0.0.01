@@ -1,6 +1,6 @@
 {
-  "summary":  "Plan to fix the blank screen issue upon login by safely handling user authentication state restoration and local storage parsing.",
-  "updatedAt":  "2026-10-10T15:40:40.468332224Z",
+  "summary":  "Actualización del módulo de horarios: incorporación de Vacaciones, Stay y Cumpleaños, y eliminación de Intermedio en las plantillas de turnos.",
+  "updatedAt":  "2026-10-28T14:15:48.820326918Z",
   "requestFeedback":  true,
   "userFacing":  true
 }

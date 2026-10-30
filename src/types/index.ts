@@ -526,7 +526,7 @@ export interface AuditLogEntry {
   }[];
 }
 
-export type ShiftType = 'manana' | 'tarde' | 'noche' | 'diurno' | 'supervisor' | 'descanso' | 'guardia_24h' | 'personalizado';
+export type ShiftType = 'manana' | 'tarde' | 'noche' | 'diurno' | 'supervisor' | 'descanso' | 'guardia_24h' | 'personalizado' | 'vacaciones' | 'stay' | 'cumpleanos';
 
 export interface TechnicianSchedule {
   id: string;

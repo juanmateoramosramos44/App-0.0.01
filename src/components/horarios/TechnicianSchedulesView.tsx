@@ -75,7 +75,7 @@ import {
   Loader2
 } from 'lucide-react';
 
-export const SHIFT_PRESETS: Record<ShiftType, {
+export interface ShiftPresetInfo {
   label: string;
   icon: string;
   startTime: string;
@@ -84,7 +84,9 @@ export const SHIFT_PRESETS: Record<ShiftType, {
   badgeBg: string;
   badgeText: string;
   border: string;
-}> = {
+}
+
+export const SHIFT_PRESETS: Record<string, ShiftPresetInfo> = {
   manana: {
     label: 'Turno Mañana',
     icon: '🌅',
@@ -135,15 +137,35 @@ export const SHIFT_PRESETS: Record<ShiftType, {
     badgeText: 'text-teal-700 dark:text-teal-300',
     border: 'border-teal-300 dark:border-teal-700/50'
   },
-  guardia_24h: {
-    label: 'Turno Intermedio',
-    icon: '🏢',
-    startTime: '08:00',
-    endTime: '17:00',
-    color: 'emerald',
-    badgeBg: 'bg-emerald-500/10 dark:bg-emerald-500/20',
-    badgeText: 'text-emerald-700 dark:text-emerald-300',
-    border: 'border-emerald-300 dark:border-emerald-700/50'
+  vacaciones: {
+    label: 'Vacaciones',
+    icon: '🏖️',
+    startTime: '00:00',
+    endTime: '00:00',
+    color: 'cyan',
+    badgeBg: 'bg-cyan-500/10 dark:bg-cyan-500/20',
+    badgeText: 'text-cyan-700 dark:text-cyan-300',
+    border: 'border-cyan-300 dark:border-cyan-700/50'
+  },
+  stay: {
+    label: 'Stay',
+    icon: '🏨',
+    startTime: '00:00',
+    endTime: '00:00',
+    color: 'violet',
+    badgeBg: 'bg-violet-500/10 dark:bg-violet-500/20',
+    badgeText: 'text-violet-700 dark:text-violet-300',
+    border: 'border-violet-300 dark:border-violet-700/50'
+  },
+  cumpleanos: {
+    label: 'Cumpleaños',
+    icon: '🎂',
+    startTime: '00:00',
+    endTime: '00:00',
+    color: 'pink',
+    badgeBg: 'bg-pink-500/10 dark:bg-pink-500/20',
+    badgeText: 'text-pink-700 dark:text-pink-300',
+    border: 'border-pink-300 dark:border-pink-700/50'
   },
   descanso: {
     label: 'Día de Descanso / Franco',
@@ -167,10 +189,29 @@ export const SHIFT_PRESETS: Record<ShiftType, {
   }
 };
 
+export const getShiftPreset = (shiftType: string | undefined | null): ShiftPresetInfo => {
+  if (!shiftType) return SHIFT_PRESETS.descanso;
+  if (SHIFT_PRESETS[shiftType]) return SHIFT_PRESETS[shiftType];
+  if (shiftType === 'guardia_24h') {
+    return {
+      label: 'Jornada Intermedia',
+      icon: '🏢',
+      startTime: '08:00',
+      endTime: '17:00',
+      color: 'emerald',
+      badgeBg: 'bg-emerald-500/10 dark:bg-emerald-500/20',
+      badgeText: 'text-emerald-700 dark:text-emerald-300',
+      border: 'border-emerald-300 dark:border-emerald-700/50'
+    };
+  }
+  return SHIFT_PRESETS.personalizado || SHIFT_PRESETS.descanso;
+};
+
 export const getShiftWorkedHours = (sched: { shiftType?: ShiftType | string; startTime?: string; endTime?: string } | undefined | null): number => {
-  if (!sched || !sched.shiftType || sched.shiftType === 'descanso') return 0;
+  if (!sched || !sched.shiftType || sched.shiftType === 'descanso' || sched.shiftType === 'vacaciones' || sched.shiftType === 'cumpleanos') return 0;
+  if (sched.shiftType === 'stay' && (!sched.startTime || sched.startTime === '00:00') && (!sched.endTime || sched.endTime === '00:00')) return 0;
   
-  const preset = SHIFT_PRESETS[sched.shiftType as ShiftType];
+  const preset = getShiftPreset(sched.shiftType);
   let start = sched.startTime || preset?.startTime;
   let end = sched.endTime || preset?.endTime;
 
@@ -732,7 +773,7 @@ export const TechnicianSchedulesView: React.FC = () => {
       displayedDays.forEach(day => {
         const sch = (schedules || []).find(s => s && s.date === day.dateIso && isScheduleForTech(s, tech));
         if (sch) {
-          const preset = SHIFT_PRESETS[sch.shiftType];
+          const preset = getShiftPreset(sch.shiftType);
           const icon = preset?.icon || '⏰';
           const label = preset?.label || sch.shiftType;
           const shiftHours = getShiftWorkedHours(sch);
@@ -1346,13 +1387,13 @@ export const TechnicianSchedulesView: React.FC = () => {
   };
 
   const handleShiftPresetChange = (presetKey: ShiftType) => {
-    const preset = SHIFT_PRESETS[presetKey];
+    const preset = getShiftPreset(presetKey);
     setFormData(prev => ({
       ...prev,
       shiftType: presetKey,
       startTime: preset.startTime,
       endTime: preset.endTime,
-      isOnCall: presetKey === 'guardia_24h'
+      isOnCall: false
     }));
   };
 
@@ -1589,7 +1630,7 @@ export const TechnicianSchedulesView: React.FC = () => {
                       )}
                     </h4>
                     <p className="text-[11px] text-slate-300 truncate">
-                      {tech.startTime} - {tech.endTime} • {SHIFT_PRESETS[tech.shiftType]?.label || tech.shiftType}
+                      {tech.startTime} - {tech.endTime} • {getShiftPreset(tech.shiftType)?.label || tech.shiftType}
                     </p>
                   </div>
                 </div>
@@ -2308,7 +2349,7 @@ export const TechnicianSchedulesView: React.FC = () => {
                           const daySched = (schedules || []).find(s => 
                             s && s.date === day.dateIso && isScheduleForTech(s, tech)
                           );
-                          const preset = daySched ? SHIFT_PRESETS[daySched.shiftType] : null;
+                          const preset = daySched ? getShiftPreset(daySched.shiftType) : null;
 
                           return (
                             <td 
@@ -2338,6 +2379,12 @@ export const TechnicianSchedulesView: React.FC = () => {
                                         ? 'Intermedia' 
                                         : daySched.shiftType === 'descanso' 
                                         ? 'Descanso' 
+                                        : daySched.shiftType === 'vacaciones'
+                                        ? 'Vacaciones'
+                                        : daySched.shiftType === 'stay'
+                                        ? 'Stay'
+                                        : daySched.shiftType === 'cumpleanos'
+                                        ? 'Cumpleaños'
                                         : daySched.shiftType === 'manana'
                                         ? 'Mañana'
                                         : daySched.shiftType === 'tarde'
@@ -2346,13 +2393,11 @@ export const TechnicianSchedulesView: React.FC = () => {
                                         ? 'Noche'
                                         : daySched.shiftType === 'supervisor'
                                         ? 'Supervisor'
-                                        : daySched.shiftType === 'guardia_24h'
-                                        ? 'Intermedio'
                                         : (preset?.label || '').replace('Turno ', '')}
                                     </span>
                                   </div>
 
-                                  {daySched.shiftType !== 'descanso' ? (
+                                  {(daySched.shiftType !== 'descanso' && daySched.shiftType !== 'vacaciones' && daySched.shiftType !== 'cumpleanos' && (daySched.shiftType !== 'stay' || (daySched.startTime !== '00:00' && daySched.endTime !== '00:00'))) ? (
                                     <div className="flex items-center justify-center gap-1 text-[9px] font-semibold opacity-90 mt-0.5 tracking-tighter">
                                       <span>{daySched.startTime}</span>
                                       <span className="font-black px-1 py-0.2 bg-black/10 dark:bg-white/10 rounded text-[8px] text-slate-700 dark:text-slate-200">
@@ -2560,11 +2605,11 @@ export const TechnicianSchedulesView: React.FC = () => {
                       <div className="flex items-center gap-2 overflow-x-auto pb-2 pt-1 scrollbar-thin">
                         {displayedDays.map(day => {
                           const daySched = techScheds.find(s => s.date === day.dateIso);
-                          const preset = daySched ? SHIFT_PRESETS[daySched.shiftType] : null;
+                          const preset = daySched ? getShiftPreset(daySched.shiftType) : null;
 
                           return (
                             <div 
-                              key={day.dateIso}
+                              key={day.dateIso} 
                               onClick={() => {
                                 if (isAdmin) {
                                   if (daySched) handleOpenEditModal(daySched);
@@ -2589,7 +2634,7 @@ export const TechnicianSchedulesView: React.FC = () => {
                                     <span>{preset?.icon}</span>
                                     <span className="truncate">{preset?.label.replace('Turno ', '')}</span>
                                   </div>
-                                  {daySched.shiftType !== 'descanso' ? (
+                                  {(daySched.shiftType !== 'descanso' && daySched.shiftType !== 'vacaciones' && daySched.shiftType !== 'cumpleanos' && (daySched.shiftType !== 'stay' || (daySched.startTime !== '00:00' && daySched.endTime !== '00:00'))) ? (
                                     <div className="text-[10px] font-medium opacity-90 flex items-center justify-center gap-1">
                                       <span>{daySched.startTime} - {daySched.endTime}</span>
                                       <span className="font-extrabold px-1 rounded bg-black/10 dark:bg-white/10 text-[9px]">
@@ -2598,7 +2643,7 @@ export const TechnicianSchedulesView: React.FC = () => {
                                     </div>
                                   ) : (
                                     <div className="text-[9px] font-bold text-slate-400 dark:text-slate-500">
-                                      0h (Descanso)
+                                      0h ({preset?.label.replace('Turno ', '') || 'Libre'})
                                     </div>
                                   )}
                                 </div>
@@ -2828,7 +2873,7 @@ export const TechnicianSchedulesView: React.FC = () => {
               .filter(s => s.date.startsWith(selectedDate.substring(0, 7)))
               .sort((a, b) => a.date.localeCompare(b.date))
               .map(sched => {
-                const preset = SHIFT_PRESETS[sched.shiftType];
+                const preset = getShiftPreset(sched.shiftType);
                 return (
                   <div 
                     key={sched.id} 
@@ -4001,7 +4046,7 @@ export const TechnicianSchedulesView: React.FC = () => {
                     .filter(s => !currentUser || s.technicianId === currentUser.id || isAdmin)
                     .map(s => {
                       const isSelected = swapData.scheduleId === s.id;
-                      const preset = SHIFT_PRESETS[s.shiftType];
+                      const preset = getShiftPreset(s.shiftType);
                       return (
                         <button
                           type="button"

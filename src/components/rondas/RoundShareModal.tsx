@@ -74,10 +74,28 @@ export const RoundShareModal: React.FC<RoundShareModalProps> = ({
     area: string;
     type: string;
   }> = [];
+  const seenSharePhotoUrls = new Set<string>();
+  const addSharePhoto = (item: {
+    id: string;
+    url?: string | null;
+    title: string;
+    area: string;
+    type: string;
+  }) => {
+    if (!item.url || !isValidPhoto(item.url) || seenSharePhotoUrls.has(item.url)) return;
+    seenSharePhotoUrls.add(item.url);
+    attachedPhotos.push({
+      id: item.id,
+      url: item.url,
+      title: item.title,
+      area: item.area,
+      type: item.type
+    });
+  };
 
   (round.checkpoints || []).forEach(c => {
     if (isValidPhoto(c.photoUrl)) {
-      attachedPhotos.push({
+      addSharePhoto({
         id: `chk-${c.id}`,
         url: c.photoUrl!,
         title: c.title,
@@ -85,9 +103,20 @@ export const RoundShareModal: React.FC<RoundShareModalProps> = ({
         type: 'Punto de ronda'
       });
     }
+    if (Array.isArray(c.photos)) {
+      c.photos.forEach((p, pIdx) => {
+        addSharePhoto({
+          id: `chk-${c.id}-${pIdx}`,
+          url: p,
+          title: c.title,
+          area: c.area || 'Zona técnica',
+          type: 'Punto de ronda'
+        });
+      });
+    }
     (c.measurementFields || []).forEach((f, idx) => {
       if (isValidPhoto(f.photoUrl)) {
-        attachedPhotos.push({
+        addSharePhoto({
           id: `field-${c.id}-${f.id || idx}`,
           url: f.photoUrl!,
           title: `${c.title} — ${f.name || `Medición ${idx + 1}`}`,
@@ -99,7 +128,7 @@ export const RoundShareModal: React.FC<RoundShareModalProps> = ({
   });
 
   if (isValidPhoto(round.meterReadings?.waterMeterPhotoUrl)) {
-    attachedPhotos.push({
+    addSharePhoto({
       id: 'meter-water',
       url: round.meterReadings!.waterMeterPhotoUrl!,
       title: 'Contador de Agua Potable',
@@ -108,7 +137,7 @@ export const RoundShareModal: React.FC<RoundShareModalProps> = ({
     });
   }
   if (isValidPhoto(round.meterReadings?.electricMeterPhotoUrl)) {
-    attachedPhotos.push({
+    addSharePhoto({
       id: 'meter-electric',
       url: round.meterReadings!.electricMeterPhotoUrl!,
       title: 'Contador de Energía Eléctrica',
@@ -117,7 +146,7 @@ export const RoundShareModal: React.FC<RoundShareModalProps> = ({
     });
   }
   if (isValidPhoto(round.meterReadings?.gasMeterPhotoUrl)) {
-    attachedPhotos.push({
+    addSharePhoto({
       id: 'meter-gas',
       url: round.meterReadings!.gasMeterPhotoUrl!,
       title: 'Contador de Gas Natural',
@@ -127,7 +156,7 @@ export const RoundShareModal: React.FC<RoundShareModalProps> = ({
   }
   (round.anomalies || []).forEach((a, idx) => {
     if (isValidPhoto(a.photoUrl)) {
-      attachedPhotos.push({
+      addSharePhoto({
         id: `anom-${a.id || idx}`,
         url: a.photoUrl!,
         title: `Incidencia: ${a.title}`,

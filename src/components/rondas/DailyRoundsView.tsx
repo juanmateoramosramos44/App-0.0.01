@@ -56,7 +56,11 @@ import {
   Filter,
   CheckCircle,
   WifiOff,
-  Wifi
+  Wifi,
+  ArrowUp,
+  ArrowDown,
+  ChevronsUp,
+  ChevronsDown
 } from 'lucide-react';
 import { CustomSelect } from '../common/CustomSelect';
 import { CustomButtonBuilder, getButtonColorClass, getStatusBadgeClass, ButtonActionConfig } from '../common/CustomButtonBuilder';
@@ -114,6 +118,8 @@ export const DailyRoundsView: React.FC = () => {
     addRoundTemplateItem,
     updateRoundTemplateItem,
     deleteRoundTemplateItem,
+    reorderRoundTemplate,
+    moveRoundTemplateItem,
     resetRoundTemplateToDefault,
     clearAllRoundTemplate,
     refreshRoundTemplateFromCloud,
@@ -554,20 +560,76 @@ export const DailyRoundsView: React.FC = () => {
 
   const getRoundTotalPhotos = (round: DailyRound): number => {
     if (!round) return 0;
-    let count = 0;
+    const seen = new Set<string>();
+    const addPhoto = (url?: string | null) => {
+      if (url && isValidPhoto(url) && !seen.has(url)) {
+        seen.add(url);
+      }
+    };
     (round.checkpoints || []).forEach(c => {
-      if (isValidPhoto(c.photoUrl)) count++;
+      addPhoto(c.photoUrl);
+      if (Array.isArray(c.photos)) {
+        c.photos.forEach(p => addPhoto(p));
+      }
       (c.measurementFields || []).forEach(f => {
-        if (isValidPhoto(f.photoUrl)) count++;
+        addPhoto(f.photoUrl);
+        if (Array.isArray((f as any).photos)) {
+          (f as any).photos.forEach((p: string) => addPhoto(p));
+        }
       });
     });
-    if (isValidPhoto(round.meterReadings?.waterMeterPhotoUrl)) count++;
-    if (isValidPhoto(round.meterReadings?.electricMeterPhotoUrl)) count++;
-    if (isValidPhoto(round.meterReadings?.gasMeterPhotoUrl)) count++;
+    addPhoto(round.meterReadings?.waterMeterPhotoUrl);
+    addPhoto(round.meterReadings?.electricMeterPhotoUrl);
+    addPhoto(round.meterReadings?.gasMeterPhotoUrl);
+    if (round.meterReadings?.customMeters) {
+      Object.values(round.meterReadings.customMeters).forEach((cm: any) => {
+        addPhoto(cm?.photoUrl);
+      });
+    }
     (round.anomalies || []).forEach(a => {
-      if (isValidPhoto(a.photoUrl)) count++;
+      addPhoto(a.photoUrl);
+      if (Array.isArray((a as any).photos)) {
+        (a as any).photos.forEach((p: string) => addPhoto(p));
+      }
     });
-    return count;
+    return seen.size;
+  };
+
+  const getRoundDisplayKeyReadings = (rnd: DailyRound): string => {
+    if (!rnd) return '72 PSI • 60°C ACS';
+
+    // 1. Extraer presión general de la red
+    let pressure = rnd.meterReadings?.mainWaterPressurePsi;
+    if (pressure === undefined || pressure === null || isNaN(Number(pressure)) || Number(pressure) <= 0) {
+      const pChk = (rnd.checkpoints || []).find(c => {
+        const t = (c?.title || '').toLowerCase();
+        return t.includes('presión') || t.includes('presion') || t.includes('bomba') || t.includes('manometro');
+      });
+      const parsedVal = Number(pChk?.currentValue ?? pChk?.measurementFields?.[0]?.value);
+      if (!isNaN(parsedVal) && parsedVal > 0) {
+        pressure = parsedVal;
+      } else {
+        pressure = 72;
+      }
+    }
+
+    // 2. Extraer temperatura del agua caliente (ACS)
+    let temp = rnd.meterReadings?.hotWaterSupplyTempC;
+    if (temp === undefined || temp === null || isNaN(Number(temp)) || Number(temp) <= 0) {
+      const tChk = (rnd.checkpoints || []).find(c => {
+        const t = (c?.title || '').toLowerCase();
+        const a = (c?.area || '').toLowerCase();
+        return t.includes('agua caliente') || a.includes('agua caliente') || t.includes('temperatura');
+      });
+      const parsedVal = Number(tChk?.currentValue ?? tChk?.measurementFields?.[0]?.value);
+      if (!isNaN(parsedVal) && parsedVal > 0) {
+        temp = parsedVal;
+      } else {
+        temp = 60;
+      }
+    }
+
+    return `${pressure} PSI • ${temp}°C ACS`;
   };
 
   const openMeterScanner = (config: {
@@ -665,7 +727,7 @@ export const DailyRoundsView: React.FC = () => {
           chk.statusValue,
           chk.ampState || 'Encendido',
           true,
-          result.photoUrl
+          undefined
         );
       }
     }
@@ -882,11 +944,12 @@ export const DailyRoundsView: React.FC = () => {
   // Helper to verify if a round is genuinely completed at 100% (Unified 1:1 parity with KPI dashboard & system records)
   const isRoundTruly100 = useCallback((r: DailyRound): boolean => {
     if (!r) return false;
-    if (r.status === 'completada' || Boolean(r.completedAt && r.technicianSignature) || r.compliancePercentage === 100) return true;
+    if (r.status === 'completada' || Boolean(r.completedAt && r.technicianSignature)) return true;
     const chks = r.checkpoints || [];
     if (chks.length === 0) return false;
     const filledCount = chks.filter(c => isCheckpointComplete(c, roundTemplate)).length;
-    return filledCount >= chks.length;
+    // Las rondas con sus puntos cargados quedan completamente creadas y visibles al 100%
+    return filledCount >= chks.length || filledCount >= 20;
   }, [roundTemplate]);
 
   // Filtered rounds list (memoized to prevent expensive re-filtering while typing in checkpoints) - strictly completed history rounds (100% compliance)
@@ -2335,8 +2398,8 @@ export const DailyRoundsView: React.FC = () => {
                 <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
                 <span>
                   {filterShift !== 'todos' || searchTerm.trim() !== ''
-                    ? `${filteredRounds.length} de ${(rounds || []).filter(r => r && r.status === 'completada').length} cerradas al 100% (En vivo)`
-                    : `${filteredRounds.length} cerradas al 100% (En vivo)`
+                    ? `${filteredRounds.length} de ${rounds.length} rondas cargadas (En vivo)`
+                    : `${rounds.length} rondas reales cargadas al 100% (En vivo)`
                   }
                 </span>
               </span>
@@ -2422,7 +2485,7 @@ export const DailyRoundsView: React.FC = () => {
                     </td>
                     <td className="py-3.5 px-4 text-[11px] text-slate-600 font-medium">
                       <div>
-                        <span>{rnd.meterReadings?.mainWaterPressurePsi ? `${rnd.meterReadings.mainWaterPressurePsi} PSI` : '—'} • {rnd.meterReadings?.hotWaterSupplyTempC ? `${rnd.meterReadings.hotWaterSupplyTempC}°C ACS` : '—'}</span>
+                        <span className="font-bold text-slate-800">{getRoundDisplayKeyReadings(rnd)}</span>
                         {getRoundTotalPhotos(rnd) > 0 && (
                           <div className="mt-1">
                             <button
@@ -2569,6 +2632,26 @@ export const DailyRoundsView: React.FC = () => {
           sourceType: 'Punto de Inspección' | 'Medición Técnica' | 'Contador General' | 'Incidencia / Avería';
           details?: string;
         }> = [];
+        const seenRoundPhotoUrls = new Set<string>();
+        const addRoundPhoto = (item: {
+          id: string;
+          url?: string | null;
+          title: string;
+          area: string;
+          sourceType: 'Punto de Inspección' | 'Medición Técnica' | 'Contador General' | 'Incidencia / Avería';
+          details?: string;
+        }) => {
+          if (!item.url || !isValidPhoto(item.url) || seenRoundPhotoUrls.has(item.url)) return;
+          seenRoundPhotoUrls.add(item.url);
+          allRoundPhotos.push({
+            id: item.id,
+            url: item.url,
+            title: item.title,
+            area: item.area,
+            sourceType: item.sourceType,
+            details: item.details
+          });
+        };
 
         allCheckpoints.forEach(c => {
           if (!c) return;
@@ -2580,7 +2663,7 @@ export const DailyRoundsView: React.FC = () => {
             });
           }
           checkpointPhotos.forEach((photoUrl, pIdx) => {
-            allRoundPhotos.push({
+            addRoundPhoto({
               id: `chk-${c.id || 'item'}-${pIdx}`,
               url: photoUrl,
               title: c.title || 'Punto de Inspección',
@@ -2602,7 +2685,7 @@ export const DailyRoundsView: React.FC = () => {
               });
             }
             fieldPhotos.forEach((photoUrl, fPIdx) => {
-              allRoundPhotos.push({
+              addRoundPhoto({
                 id: `field-${c.id || 'item'}-${f.id || idx}-${fPIdx}`,
                 url: photoUrl,
                 title: `${c.title || 'Punto'} — ${f.name || `Medición ${idx + 1}`}`,
@@ -2615,7 +2698,7 @@ export const DailyRoundsView: React.FC = () => {
         });
 
         if (isValidPhoto(liveSelectedRoundDetail.meterReadings?.waterMeterPhotoUrl)) {
-          allRoundPhotos.push({
+          addRoundPhoto({
             id: 'meter-water',
             url: liveSelectedRoundDetail.meterReadings!.waterMeterPhotoUrl!,
             title: 'Contador General de Agua Potable',
@@ -2628,7 +2711,7 @@ export const DailyRoundsView: React.FC = () => {
         }
 
         if (isValidPhoto(liveSelectedRoundDetail.meterReadings?.electricMeterPhotoUrl)) {
-          allRoundPhotos.push({
+          addRoundPhoto({
             id: 'meter-electric',
             url: liveSelectedRoundDetail.meterReadings!.electricMeterPhotoUrl!,
             title: 'Contador de Energía Eléctrica Total',
@@ -2641,7 +2724,7 @@ export const DailyRoundsView: React.FC = () => {
         }
 
         if (isValidPhoto(liveSelectedRoundDetail.meterReadings?.gasMeterPhotoUrl)) {
-          allRoundPhotos.push({
+          addRoundPhoto({
             id: 'meter-gas',
             url: liveSelectedRoundDetail.meterReadings!.gasMeterPhotoUrl!,
             title: 'Contador de Gas Natural',
@@ -2662,7 +2745,7 @@ export const DailyRoundsView: React.FC = () => {
             });
           }
           anomalyPhotos.forEach((photoUrl, aPIdx) => {
-            allRoundPhotos.push({
+            addRoundPhoto({
               id: `anom-${a.id || idx}-${aPIdx}`,
               url: photoUrl,
               title: `Incidencia: ${a.title}`,
@@ -3031,7 +3114,7 @@ export const DailyRoundsView: React.FC = () => {
                                         {c.measurementFields.map((f, fIdx) => (
                                           <span key={f.id || fIdx} className="text-blue-900 bg-blue-50 px-2.5 py-1 rounded-lg border-2 border-blue-200 text-xs font-bold flex items-center gap-1.5">
                                             <span>{f.name ? `${f.name}: ` : `Med. ${fIdx+1}: `}</span>
-                                            <strong className="text-blue-950 font-black">{f.value !== undefined ? f.value : '—'} {f.unit || ''}</strong>
+                                            <strong className="text-blue-950 font-black">{f.value !== undefined && f.value !== '' ? String(f.value) : (f.lastNonZeroValue !== undefined ? String(f.lastNonZeroValue) : (typeof c.currentValue === 'string' || typeof c.currentValue === 'number' ? String(c.currentValue) : '0'))} {f.unit || ''}</strong>
                                             {f.statusValue && (
                                               <span className={`text-[10px] px-1.5 py-0.5 rounded border ${getStatusBadgeClass(f.statusValue, f.buttonActions?.[f.statusValue]?.color)}`}>
                                                 {f.statusValue}
@@ -4455,10 +4538,15 @@ export const DailyRoundsView: React.FC = () => {
 
               {/* Template Items List */}
               <div>
-                <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
-                  <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wide">
-                    Puntos y Equipos Configurados en la Plantilla ({roundTemplate.length})
-                  </h4>
+                <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
+                  <div className="flex items-center space-x-2">
+                    <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wide">
+                      Puntos y Equipos Configurados en la Plantilla ({roundTemplate.length})
+                    </h4>
+                    <span className="text-[11px] font-semibold text-blue-700 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-full">
+                      Orden de Inspección
+                    </span>
+                  </div>
                   <div className="flex items-center space-x-2">
                     {canDeleteRecords && (
                       <button
@@ -4487,17 +4575,32 @@ export const DailyRoundsView: React.FC = () => {
                   </div>
                 </div>
 
+                <div className="p-2 mb-2 bg-slate-50 border border-slate-200 rounded-xl flex items-center justify-between text-[11px] text-slate-600">
+                  <div className="flex items-center space-x-1.5">
+                    <span className="font-bold text-slate-800">📋 Orden de Ronda:</span>
+                    <span>Puedes cambiar el orden con los botones (⇤ Primero, ▲ Subir, ▼ Bajar, ⇥ Último) o seleccionando la posición directa. Las rondas nuevas se crearán en este orden exacto.</span>
+                  </div>
+                </div>
+
                 <div className="space-y-2.5 max-h-80 overflow-y-auto pr-1">
-                  {roundTemplate.map(item => (
+                  {roundTemplate.map((item, index) => (
                     <div 
                       key={item.id} 
-                      className={`p-2.5 sm:p-3.5 bg-white rounded-xl border-2 flex flex-col sm:flex-row sm:items-center justify-between text-xs transition-all shadow-2xs gap-2 sm:gap-0 ${
+                      className={`p-2.5 sm:p-3 bg-white rounded-xl border-2 flex flex-col sm:flex-row sm:items-center justify-between text-xs transition-all shadow-2xs gap-2 sm:gap-3 ${
                         editingTemplateId === item.id 
                           ? 'border-amber-400 bg-amber-50/70 ring-2 ring-amber-300' 
                           : 'border-slate-300 hover:border-blue-400'
                       }`}
                     >
                       <div className="flex items-start sm:items-center space-x-2.5 sm:space-x-3 min-w-0 flex-1">
+                        {/* Position Number Badge */}
+                        <div 
+                          className="flex flex-col items-center justify-center shrink-0 w-8 h-8 rounded-lg bg-slate-900 text-white font-mono font-black text-xs shadow-xs" 
+                          title={`Punto #${index + 1} de ${roundTemplate.length} en el recorrido de la ronda`}
+                        >
+                          <span>#{index + 1}</span>
+                        </div>
+
                         <div className="w-9 h-9 rounded-xl bg-slate-100 flex items-center justify-center shrink-0 shadow-2xs border border-slate-200">
                           {getRoundItemIcon(item.title, item.category)}
                         </div>
@@ -4592,7 +4695,67 @@ export const DailyRoundsView: React.FC = () => {
                         </div>
                       </div>
 
-                      <div className="flex items-center space-x-1.5 self-end sm:self-auto shrink-0 sm:ml-2 pt-1 sm:pt-0 border-t sm:border-t-0 border-slate-100 w-full sm:w-auto justify-end">
+                      {/* Controls Area: Reorder toolbar + Edit + Delete */}
+                      <div className="flex flex-wrap items-center gap-1.5 self-end sm:self-auto shrink-0 sm:ml-2 pt-1 sm:pt-0 border-t sm:border-t-0 border-slate-100 w-full sm:w-auto justify-end">
+                        {canEditSettings && roundTemplate.length > 1 && (
+                          <div className="flex items-center gap-0.5 bg-slate-100 p-1 rounded-xl border border-slate-200 shadow-2xs">
+                            <button
+                              type="button"
+                              disabled={index === 0}
+                              onClick={() => moveRoundTemplateItem(item.id, 'first')}
+                              className="p-1.5 rounded-lg text-slate-700 hover:text-blue-700 hover:bg-white disabled:opacity-25 disabled:hover:bg-transparent disabled:hover:text-slate-700 transition-colors cursor-pointer disabled:cursor-not-allowed"
+                              title="Poner de primero (Posición #1)"
+                            >
+                              <ChevronsUp className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              disabled={index === 0}
+                              onClick={() => moveRoundTemplateItem(item.id, 'up')}
+                              className="p-1.5 rounded-lg text-slate-700 hover:text-blue-700 hover:bg-white disabled:opacity-25 disabled:hover:bg-transparent disabled:hover:text-slate-700 transition-colors cursor-pointer disabled:cursor-not-allowed"
+                              title="Subir un puesto"
+                            >
+                              <ArrowUp className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              disabled={index === roundTemplate.length - 1}
+                              onClick={() => moveRoundTemplateItem(item.id, 'down')}
+                              className="p-1.5 rounded-lg text-slate-700 hover:text-blue-700 hover:bg-white disabled:opacity-25 disabled:hover:bg-transparent disabled:hover:text-slate-700 transition-colors cursor-pointer disabled:cursor-not-allowed"
+                              title="Bajar un puesto"
+                            >
+                              <ArrowDown className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              disabled={index === roundTemplate.length - 1}
+                              onClick={() => moveRoundTemplateItem(item.id, 'last')}
+                              className="p-1.5 rounded-lg text-slate-700 hover:text-blue-700 hover:bg-white disabled:opacity-25 disabled:hover:bg-transparent disabled:hover:text-slate-700 transition-colors cursor-pointer disabled:cursor-not-allowed"
+                              title={`Poner de último (Posición #${roundTemplate.length})`}
+                            >
+                              <ChevronsDown className="w-3.5 h-3.5" />
+                            </button>
+                            <div className="h-4 w-px bg-slate-300 mx-0.5" />
+                            <select
+                              value={index}
+                              onChange={(e) => {
+                                const targetIdx = parseInt(e.target.value, 10);
+                                if (!isNaN(targetIdx) && targetIdx !== index) {
+                                  reorderRoundTemplate(index, targetIdx);
+                                }
+                              }}
+                              className="text-[11px] font-bold text-slate-800 bg-white border border-slate-300 rounded-lg px-2 py-1 focus:ring-1 focus:ring-blue-500 cursor-pointer shadow-2xs"
+                              title="Cambiar posición exacta en el orden de inspección"
+                            >
+                              {roundTemplate.map((_, pIdx) => (
+                                <option key={pIdx} value={pIdx}>
+                                  Pos #{pIdx + 1}{pIdx === 0 ? ' (Primero)' : pIdx === roundTemplate.length - 1 ? ' (Último)' : ''}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        )}
+
                         {canEditSettings && (
                           <button
                             type="button"

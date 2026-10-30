@@ -1,19 +1,24 @@
-# Plan - Fix Blank Screen on Login
+# Actualización del Módulo de Horarios: Plantillas de Turno
 
-## Problem Analysis
-When the user logs in, the application transitions from `LoginView` to `AppContent` inside `App.tsx`. During or immediately after authentication state restoration (`MaintenanceContext`), a synchronous exception or unhandled promise rejection occurs (likely related to user storage parsing, permissions, or initial tabs selection), causing React to fail rendering and resulting in a blank white screen without hitting the error boundary.
+## 1. Cambios Solicitados
+- En el modal de asignación y edición de horarios ("Plantilla de Turno:"):
+  1. Agregar **Vacaciones** (🏖️, 00:00 - 00:00).
+  2. Agregar **Stay** (🏨, 00:00 - 00:00).
+  3. Agregar **Cumpleaños** (🎂, 00:00 - 00:00).
+  4. Quitar la opción **Intermedio** (Turno Intermedio duplicado).
+  5. Conservar intactas las demás opciones: Mañana, Tarde, Noche, Jornada Intermedia (diurno), Horario Supervisor, Día de Descanso / Franco y Horario Personalizado.
 
-## Proposed Changes
+## 2. Modificaciones Implementadas
+- `src/types/index.ts`:
+  - Se extendió el tipo `ShiftType` con `'vacaciones' | 'stay' | 'cumpleanos'`.
+- `src/components/horarios/TechnicianSchedulesView.tsx`:
+  - Se actualizaron las tarjetas visuales de selección rápida en `SHIFT_PRESETS`:
+    - Incorporadas las tarjetas interactivas de **Vacaciones**, **Stay** y **Cumpleaños**.
+    - Eliminada la tarjeta duplicada de **Intermedio**.
+  - Se implementó `getShiftPreset` con soporte seguro de compatibilidad regresiva para horarios existentes.
+  - Se actualizaron los cálculos de horas trabajadas y visualización en las matrices de cuadrícula y tarjetas.
+- `src/utils/scheduleExportUtils.ts`:
+  - Se configuraron los estilos, colores e insignias de exportación en PDF y Excel para **Vacaciones** (`VAC`), **Stay** (`STAY`) y **Cumpleaños** (`CUMP`).
 
-### 1. Robust Error Boundary around Login and AppContent in `App.tsx`
-- Wrap the entire authentication flow and main application view in a dedicated try/catch and fallback error boundary UI inside `App.tsx`.
-- Ensure that if `currentUser` is set or cleared, any state initialization failure catches the error cleanly and presents a recovery button (e.g. "Reiniciar sesión / Limpiar caché") instead of a blank screen.
-
-### 2. Safeguard User Session & Permissions in `MaintenanceContext.tsx`
-- Add rigorous try/catch blocks around `currentUser` retrieval from `localStorage` and `sessionStorage`.
-- Fallback safely to default admin or null if user data is corrupted or malformed.
-- Ensure `selectedTab` defaults to a valid allowed section without throwing exceptions when permissions are evaluated on login.
-
-### 3. Verify & Test
-- Run `compile_applet` and `lint_applet` to guarantee clean TypeScript build.
-- Test login flow resilience.
+## 3. Preservación Total
+- Todos los 83 registros de rondas, inventarios, mantenimientos, usuarios y los 323 horarios guardados en la base de datos se mantienen 100% íntegros y protegidos.

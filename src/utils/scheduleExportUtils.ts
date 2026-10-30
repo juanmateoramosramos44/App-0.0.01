@@ -107,6 +107,33 @@ export function getShiftCellInfo(schedule?: TechnicianSchedule | null): {
         textColor: [6, 95, 70], // emerald-800
         isOff: false
       };
+    case 'vacaciones':
+      return {
+        code: 'VAC',
+        label: 'Vacaciones',
+        hours: 'Vacaciones',
+        bgColor: [224, 242, 254], // sky-100
+        textColor: [3, 105, 161], // sky-700
+        isOff: true
+      };
+    case 'stay':
+      return {
+        code: 'STAY',
+        label: 'Stay',
+        hours: 'Stay',
+        bgColor: [237, 233, 254], // violet-100
+        textColor: [109, 40, 217], // violet-700
+        isOff: false
+      };
+    case 'cumpleanos':
+      return {
+        code: 'CUMP',
+        label: 'Cumpleaños',
+        hours: 'Cumpleaños',
+        bgColor: [252, 231, 243], // pink-100
+        textColor: [190, 24, 93], // pink-700
+        isOff: true
+      };
     case 'descanso':
     default:
       return {
@@ -121,7 +148,7 @@ export function getShiftCellInfo(schedule?: TechnicianSchedule | null): {
 }
 
 export function getExportShiftHours(schedule?: TechnicianSchedule | null): number {
-  if (!schedule || !schedule.shiftType || schedule.shiftType === 'descanso') return 0;
+  if (!schedule || !schedule.shiftType || schedule.shiftType === 'descanso' || schedule.shiftType === 'vacaciones' || schedule.shiftType === 'cumpleanos') return 0;
   let start = schedule.startTime;
   let end = schedule.endTime;
   if (schedule.shiftType === 'manana') {
@@ -347,6 +374,15 @@ export function downloadSchedulePdf(params: ScheduleExportParams): void {
           case 'diurno':
           case 'guardia_24h':
             pdfCellText = `INT\n${hoursStr || '08:00-17:00'}\nInterm`;
+            break;
+          case 'vacaciones':
+            pdfCellText = `VAC\nVacaciones`;
+            break;
+          case 'stay':
+            pdfCellText = `STAY\n${hoursStr || 'Stay'}`;
+            break;
+          case 'cumpleanos':
+            pdfCellText = `CUMP\nCumpleaños`;
             break;
           case 'descanso':
           default:
