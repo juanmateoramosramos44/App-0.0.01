@@ -5,8 +5,8 @@ import fs from "fs";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
 import webpush from "web-push";
-import { initializeApp } from "firebase/app";
-import { getFirestore, collection, onSnapshot, doc, setDoc, getDocs, deleteDoc, setLogLevel } from "firebase/firestore";
+import pg from "pg";
+const { Pool } = pg;
 import { HISTORICAL_ROUNDS } from "./src/data/historicalRounds.ts";
 
 const CANONICAL_HISTORICAL_ROUND_IDS = new Set<string>(
@@ -16,9 +16,7 @@ CANONICAL_HISTORICAL_ROUND_IDS.add('rnd-1793041800000'); // Alonso 2026-10-26 ta
 CANONICAL_HISTORICAL_ROUND_IDS.add('rnd-1793236464859'); // Carlos 2026-10-28 tarde
 CANONICAL_HISTORICAL_ROUND_IDS.add('rnd-1793318700000'); // Carlos 2026-10-29 noche
 
-try {
-  setLogLevel('silent');
-} catch {}
+
 
 const rawServerConsoleError = console.error;
 console.error = function (...args: any[]) {
@@ -150,29 +148,364 @@ let memoryCache: any = null;
 let isWritingToDisk = false;
 let pendingDiskWriteTimer: NodeJS.Timeout | null = null;
 
-let fbDb: any = null;
-try {
-  const configPath = path.join(process.cwd(), 'firebase-applet-config.json');
-  if (fs.existsSync(configPath)) {
-    const fbConfig = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-    const fbApp = initializeApp(fbConfig);
-    fbDb = getFirestore(fbApp, fbConfig.firestoreDatabaseId || '(default)');
-    console.log('[Server] Connected to Firestore database:', fbConfig.firestoreDatabaseId || '(default)');
+// PostgreSQL Connection Pool (process.env.DATABASE_URL)
+let pgPool: pg.Pool | null = null;
+const DATABASE_URL = process.env.DATABASE_URL || "";
+
+if (DATABASE_URL) {
+  try {
+    const isSsl = DATABASE_URL.includes("sslmode=require") || !DATABASE_URL.includes("localhost");
+    pgPool = new Pool({
+      connectionString: DATABASE_URL,
+      ssl: isSsl ? { rejectUnauthorized: false } : undefined,
+      max: 20,
+      idleTimeoutMillis: 30000,
+      connectionTimeoutMillis: 10000,
+    });
+    console.log("[PostgreSQL] Pool initialized for Coolify / production database.");
+  } catch (err) {
+    console.warn("[PostgreSQL] Error creating database pool:", err);
   }
-} catch (e) {
-  console.warn('[Server] Firestore init warning:', e);
+} else {
+  console.log("[Server] DATABASE_URL not set, operating with persistent local JSON store.");
 }
 
-// Background Real-Time Synchronization with Firestore
-function initFirestoreServerSync() {
-  if (!fbDb) return;
+async function initPostgresSchema() {
+  if (!pgPool) return;
   try {
-    // Synchronization paused due to quota limit exceeded.
-    // To restore, implement lazy-loading or request-based fetching.
-    console.warn('[Server] Firestore synchronization paused due to quota limits.');
+    const client = await pgPool.connect();
+    try {
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS rounds (
+          id VARCHAR(255) PRIMARY KEY,
+          data JSONB NOT NULL,
+          date VARCHAR(50),
+          shift VARCHAR(50),
+          status VARCHAR(50),
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE TABLE IF NOT EXISTS equipments (
+          id VARCHAR(255) PRIMARY KEY,
+          data JSONB NOT NULL,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE TABLE IF NOT EXISTS incidents (
+          id VARCHAR(255) PRIMARY KEY,
+          data JSONB NOT NULL,
+          status VARCHAR(50),
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE TABLE IF NOT EXISTS requests (
+          id VARCHAR(255) PRIMARY KEY,
+          data JSONB NOT NULL,
+          status VARCHAR(50),
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE TABLE IF NOT EXISTS tasks (
+          id VARCHAR(255) PRIMARY KEY,
+          data JSONB NOT NULL,
+          status VARCHAR(50),
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE TABLE IF NOT EXISTS schedules (
+          id VARCHAR(255) PRIMARY KEY,
+          data JSONB NOT NULL,
+          date VARCHAR(50),
+          shift VARCHAR(50),
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE TABLE IF NOT EXISTS shift_swaps (
+          id VARCHAR(255) PRIMARY KEY,
+          data JSONB NOT NULL,
+          status VARCHAR(50),
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE TABLE IF NOT EXISTS cronogramas (
+          id VARCHAR(255) PRIMARY KEY,
+          data JSONB NOT NULL,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE TABLE IF NOT EXISTS meters (
+          id VARCHAR(255) PRIMARY KEY,
+          data JSONB NOT NULL,
+          code VARCHAR(100),
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE TABLE IF NOT EXISTS meter_readings_log (
+          id VARCHAR(255) PRIMARY KEY,
+          data JSONB NOT NULL,
+          meter_id VARCHAR(255),
+          date VARCHAR(50),
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE TABLE IF NOT EXISTS pump_inspections (
+          id VARCHAR(255) PRIMARY KEY,
+          data JSONB NOT NULL,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE TABLE IF NOT EXISTS preventive_plans (
+          id VARCHAR(255) PRIMARY KEY,
+          data JSONB NOT NULL,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE TABLE IF NOT EXISTS work_orders (
+          id VARCHAR(255) PRIMARY KEY,
+          data JSONB NOT NULL,
+          status VARCHAR(50),
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE TABLE IF NOT EXISTS uploaded_documents (
+          id VARCHAR(255) PRIMARY KEY,
+          data JSONB NOT NULL,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE TABLE IF NOT EXISTS document_folders (
+          id VARCHAR(255) PRIMARY KEY,
+          data JSONB NOT NULL,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE TABLE IF NOT EXISTS users (
+          id VARCHAR(255) PRIMARY KEY,
+          data JSONB NOT NULL,
+          email VARCHAR(255),
+          role VARCHAR(50),
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE TABLE IF NOT EXISTS app_data (
+          id VARCHAR(255) PRIMARY KEY,
+          data JSONB NOT NULL,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE TABLE IF NOT EXISTS settings (
+          id VARCHAR(255) PRIMARY KEY,
+          data JSONB NOT NULL,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE TABLE IF NOT EXISTS deleted_ids (
+          id VARCHAR(255) PRIMARY KEY,
+          deleted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+      `);
+      console.log("[PostgreSQL] All tables verified / created successfully.");
+      await syncMemoryToPostgresIfEmpty(client);
+    } finally {
+      client.release();
+    }
+  } catch (err) {
+    console.warn("[PostgreSQL] Error initializing schema:", err);
+  }
+}
 
+async function syncMemoryToPostgresIfEmpty(client: any) {
+  try {
+    const res = await client.query('SELECT COUNT(*) as count FROM rounds');
+    const roundsCount = parseInt(res.rows[0]?.count || '0', 10);
+    if (roundsCount === 0) {
+      console.log('[PostgreSQL] Database is currently empty. Seeding initial application data...');
+      const data = getCachedData();
+      await seedPostgresFromData(data, client);
+      console.log('[PostgreSQL] Database successfully seeded with existing data.');
+    } else {
+      console.log(`[PostgreSQL] Database has existing data (${roundsCount} rounds found). Loading into memory...`);
+      await loadPostgresIntoMemory(client);
+    }
   } catch (e) {
-    console.warn('[Server] Failed to setup Firestore real-time sync in server:', e);
+    console.warn('[PostgreSQL] Notice checking database initial state:', e);
+  }
+}
+
+async function seedPostgresFromData(data: any, client: any) {
+  if (!data || typeof data !== 'object') return;
+  const collections: Array<{ name: string; items: any[] }> = [
+    { name: 'rounds', items: Array.isArray(data.rounds) ? data.rounds : [] },
+    { name: 'equipments', items: Array.isArray(data.equipments) ? data.equipments : [] },
+    { name: 'incidents', items: Array.isArray(data.incidents) ? data.incidents : [] },
+    { name: 'requests', items: Array.isArray(data.requests) ? data.requests : [] },
+    { name: 'tasks', items: Array.isArray(data.tasks) ? data.tasks : [] },
+    { name: 'schedules', items: Array.isArray(data.schedules) ? data.schedules : [] },
+    { name: 'shift_swaps', items: Array.isArray(data.shiftSwaps) ? data.shiftSwaps : [] },
+    { name: 'cronogramas', items: Array.isArray(data.cronogramas) ? data.cronogramas : [] },
+    { name: 'meters', items: Array.isArray(data.meters) ? data.meters : [] },
+    { name: 'meter_readings_log', items: Array.isArray(data.meterReadingsLog) ? data.meterReadingsLog : [] },
+    { name: 'pump_inspections', items: Array.isArray(data.pumpInspections) ? data.pumpInspections : [] },
+    { name: 'preventive_plans', items: Array.isArray(data.preventivePlans) ? data.preventivePlans : [] },
+    { name: 'work_orders', items: Array.isArray(data.workOrders) ? data.workOrders : [] },
+    { name: 'uploaded_documents', items: Array.isArray(data.uploadedDocuments) ? data.uploadedDocuments : [] },
+    { name: 'document_folders', items: Array.isArray(data.documentFolders) ? data.documentFolders : [] },
+    { name: 'users', items: Array.isArray(data.users) ? data.users : [] }
+  ];
+
+  for (const col of collections) {
+    for (const item of col.items) {
+      if (!item || !item.id) continue;
+      try {
+        await client.query(
+          `INSERT INTO ${col.name} (id, data, updated_at) VALUES ($1, $2, CURRENT_TIMESTAMP) ON CONFLICT (id) DO NOTHING`,
+          [item.id, JSON.stringify(item)]
+        );
+      } catch (err) {}
+    }
+  }
+
+  if (data.settings) {
+    try {
+      await client.query(
+        `INSERT INTO settings (id, data, updated_at) VALUES ($1, $2, CURRENT_TIMESTAMP) ON CONFLICT (id) DO NOTHING`,
+        ['app_settings', JSON.stringify(data.settings)]
+      );
+    } catch {}
+  }
+
+  if (Array.isArray(data.roundTemplate)) {
+    try {
+      await client.query(
+        `INSERT INTO app_data (id, data, updated_at) VALUES ($1, $2, CURRENT_TIMESTAMP) ON CONFLICT (id) DO NOTHING`,
+        ['round_template', JSON.stringify({ items: data.roundTemplate })]
+      );
+    } catch {}
+  }
+}
+
+async function loadPostgresIntoMemory(client: any) {
+  try {
+    const tables = [
+      { name: 'rounds', key: 'rounds' },
+      { name: 'equipments', key: 'equipments' },
+      { name: 'incidents', key: 'incidents' },
+      { name: 'requests', key: 'requests' },
+      { name: 'tasks', key: 'tasks' },
+      { name: 'schedules', key: 'schedules' },
+      { name: 'shift_swaps', key: 'shiftSwaps' },
+      { name: 'cronogramas', key: 'cronogramas' },
+      { name: 'meters', key: 'meters' },
+      { name: 'meter_readings_log', key: 'meterReadingsLog' },
+      { name: 'pump_inspections', key: 'pumpInspections' },
+      { name: 'preventive_plans', key: 'preventivePlans' },
+      { name: 'work_orders', key: 'workOrders' },
+      { name: 'uploaded_documents', key: 'uploadedDocuments' },
+      { name: 'document_folders', key: 'documentFolders' },
+      { name: 'users', key: 'users' }
+    ];
+
+    if (!memoryCache) getCachedData();
+
+    for (const t of tables) {
+      const q = await client.query(`SELECT data FROM ${t.name}`);
+      if (q.rows.length > 0) {
+        memoryCache[t.key] = q.rows.map((r: any) => r.data);
+      }
+    }
+
+    const delQ = await client.query('SELECT id FROM deleted_ids');
+    if (delQ.rows.length > 0) {
+      memoryCache.deletedIds = delQ.rows.map((r: any) => r.id);
+    }
+
+    const setQ = await client.query('SELECT data FROM settings WHERE id = $1', ['app_settings']);
+    if (setQ.rows.length > 0) {
+      memoryCache.settings = setQ.rows[0].data;
+    }
+
+    const tplQ = await client.query('SELECT data FROM app_data WHERE id = $1', ['round_template']);
+    if (tplQ.rows.length > 0 && Array.isArray(tplQ.rows[0].data?.items)) {
+      memoryCache.roundTemplate = tplQ.rows[0].data.items;
+    }
+    console.log('[PostgreSQL] Loaded records from PostgreSQL into memory cache.');
+  } catch (e) {
+    console.warn('[PostgreSQL] Warning loading postgres records into memory:', e);
+  }
+}
+
+async function pgUpsert(table: string, id: string, data: any) {
+  if (!pgPool) return;
+  try {
+    await pgPool.query(
+      `INSERT INTO ${table} (id, data, updated_at) 
+       VALUES ($1, $2, CURRENT_TIMESTAMP) 
+       ON CONFLICT (id) 
+       DO UPDATE SET data = EXCLUDED.data, updated_at = CURRENT_TIMESTAMP`,
+      [id, JSON.stringify(data)]
+    );
+  } catch (err) {
+    console.warn(`[PostgreSQL] Upsert error on ${table}:`, err);
+  }
+}
+
+async function pgDelete(table: string, id: string) {
+  if (!pgPool) return;
+  try {
+    await pgPool.query(`DELETE FROM ${table} WHERE id = $1`, [id]);
+    await pgPool.query(
+      `INSERT INTO deleted_ids (id, deleted_at) VALUES ($1, CURRENT_TIMESTAMP) ON CONFLICT (id) DO NOTHING`,
+      [id]
+    );
+  } catch (err) {
+    console.warn(`[PostgreSQL] Delete error on ${table}:`, err);
+  }
+}
+
+async function pgGet(table: string, id: string) {
+  if (!pgPool) return null;
+  try {
+    const res = await pgPool.query(`SELECT data FROM ${table} WHERE id = $1`, [id]);
+    return res.rows[0]?.data || null;
+  } catch (err) {
+    console.warn(`[PostgreSQL] Get error on ${table}:`, err);
+    return null;
+  }
+}
+
+async function pgGetAll(table: string) {
+  if (!pgPool) return null;
+  try {
+    const res = await pgPool.query(`SELECT data FROM ${table}`);
+    return res.rows.map(r => r.data);
+  } catch (err) {
+    console.warn(`[PostgreSQL] GetAll error on ${table}:`, err);
+    return null;
+  }
+}
+
+async function persistMemoryToPostgres(incoming: any) {
+  if (!pgPool || !incoming || typeof incoming !== 'object') return;
+  try {
+    const mappings: Array<{ key: string; table: string }> = [
+      { key: 'rounds', table: 'rounds' },
+      { key: 'equipments', table: 'equipments' },
+      { key: 'incidents', table: 'incidents' },
+      { key: 'requests', table: 'requests' },
+      { key: 'tasks', table: 'tasks' },
+      { key: 'schedules', table: 'schedules' },
+      { key: 'shiftSwaps', table: 'shift_swaps' },
+      { key: 'cronogramas', table: 'cronogramas' },
+      { key: 'meters', table: 'meters' },
+      { key: 'meterReadingsLog', table: 'meter_readings_log' },
+      { key: 'pumpInspections', table: 'pump_inspections' },
+      { key: 'preventivePlans', table: 'preventive_plans' },
+      { key: 'workOrders', table: 'work_orders' },
+      { key: 'uploadedDocuments', table: 'uploaded_documents' },
+      { key: 'documentFolders', table: 'document_folders' },
+      { key: 'users', table: 'users' }
+    ];
+
+    for (const m of mappings) {
+      if (Array.isArray(incoming[m.key])) {
+        for (const item of incoming[m.key]) {
+          if (item && item.id) {
+            await pgUpsert(m.table, item.id, item);
+          }
+        }
+      }
+    }
+
+    if (incoming.settings) {
+      await pgUpsert('settings', 'app_settings', incoming.settings);
+    }
+    if (Array.isArray(incoming.roundTemplate)) {
+      await pgUpsert('app_data', 'round_template', { items: incoming.roundTemplate });
+    }
+  } catch (err) {
+    console.warn('[PostgreSQL] Async persist error:', err);
   }
 }
 
@@ -2488,6 +2821,239 @@ app.delete("/api/meter-readings/:id", (req, res) => {
   res.json({ status: "deleted", id });
 });
 
+// Generic entity CRUD endpoints
+// 1. Rounds
+app.get("/api/rounds", (_req, res) => {
+  const store = getCachedData();
+  res.json(store.rounds || []);
+});
+
+// 2. Incidents
+app.get("/api/incidents", (_req, res) => {
+  const store = getCachedData();
+  res.json(store.incidents || []);
+});
+app.post("/api/incidents", async (req, res) => {
+  const inc = req.body;
+  if (!inc || !inc.id) return res.status(400).json({ error: "Invalid incident data" });
+  const store = getCachedData();
+  if (!Array.isArray(store.incidents)) store.incidents = [];
+  const idx = store.incidents.findIndex((i: any) => i.id === inc.id);
+  if (idx >= 0) store.incidents[idx] = { ...store.incidents[idx], ...inc };
+  else store.incidents.unshift(inc);
+  await pgUpsert('incidents', inc.id, inc);
+  scheduleSaveToDisk();
+  const clientId = req.headers['x-client-id'] || null;
+  broadcastSse({ type: 'incident_updated', incident: inc, clientId, time: Date.now() });
+  res.json({ status: "success", incident: inc });
+});
+app.put("/api/incidents/:id", async (req, res) => {
+  const { id } = req.params;
+  const inc = { ...req.body, id };
+  const store = getCachedData();
+  if (!Array.isArray(store.incidents)) store.incidents = [];
+  const idx = store.incidents.findIndex((i: any) => i.id === id);
+  if (idx >= 0) store.incidents[idx] = { ...store.incidents[idx], ...inc };
+  else store.incidents.unshift(inc);
+  await pgUpsert('incidents', id, inc);
+  scheduleSaveToDisk();
+  const clientId = req.headers['x-client-id'] || null;
+  broadcastSse({ type: 'incident_updated', incident: inc, clientId, time: Date.now() });
+  res.json({ status: "success", incident: inc });
+});
+
+// 3. Requests
+app.get("/api/requests", (_req, res) => {
+  const store = getCachedData();
+  res.json(store.requests || []);
+});
+app.post("/api/requests", async (req, res) => {
+  const item = req.body;
+  if (!item || !item.id) return res.status(400).json({ error: "Invalid request data" });
+  const store = getCachedData();
+  if (!Array.isArray(store.requests)) store.requests = [];
+  const idx = store.requests.findIndex((r: any) => r.id === item.id);
+  if (idx >= 0) store.requests[idx] = { ...store.requests[idx], ...item };
+  else store.requests.unshift(item);
+  await pgUpsert('requests', item.id, item);
+  scheduleSaveToDisk();
+  const clientId = req.headers['x-client-id'] || null;
+  broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
+  res.json({ status: "success", request: item });
+});
+app.put("/api/requests/:id", async (req, res) => {
+  const { id } = req.params;
+  const item = { ...req.body, id };
+  const store = getCachedData();
+  if (!Array.isArray(store.requests)) store.requests = [];
+  const idx = store.requests.findIndex((r: any) => r.id === id);
+  if (idx >= 0) store.requests[idx] = { ...store.requests[idx], ...item };
+  else store.requests.unshift(item);
+  await pgUpsert('requests', id, item);
+  scheduleSaveToDisk();
+  const clientId = req.headers['x-client-id'] || null;
+  broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
+  res.json({ status: "success", request: item });
+});
+
+// 4. Tasks
+app.get("/api/tasks", (_req, res) => {
+  const store = getCachedData();
+  res.json(store.tasks || []);
+});
+app.put("/api/tasks/:id", async (req, res) => {
+  const { id } = req.params;
+  const item = { ...req.body, id };
+  const store = getCachedData();
+  if (!Array.isArray(store.tasks)) store.tasks = [];
+  const idx = store.tasks.findIndex((t: any) => t.id === id);
+  if (idx >= 0) store.tasks[idx] = { ...store.tasks[idx], ...item };
+  else store.tasks.unshift(item);
+  await pgUpsert('tasks', id, item);
+  scheduleSaveToDisk();
+  const clientId = req.headers['x-client-id'] || null;
+  broadcastSse({ type: 'task_updated', task: item, clientId, time: Date.now() });
+  res.json({ status: "success", task: item });
+});
+
+// 5. Schedules
+app.get("/api/schedules", (_req, res) => {
+  const store = getCachedData();
+  res.json(store.schedules || []);
+});
+app.post("/api/schedules", async (req, res) => {
+  const items = Array.isArray(req.body) ? req.body : [req.body];
+  const store = getCachedData();
+  if (!Array.isArray(store.schedules)) store.schedules = [];
+  for (const item of items) {
+    if (!item || !item.id) continue;
+    const idx = store.schedules.findIndex((s: any) => s.id === item.id);
+    if (idx >= 0) store.schedules[idx] = { ...store.schedules[idx], ...item };
+    else store.schedules.push(item);
+    await pgUpsert('schedules', item.id, item);
+  }
+  scheduleSaveToDisk();
+  const clientId = req.headers['x-client-id'] || null;
+  broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
+  res.json({ status: "success", count: items.length });
+});
+app.delete("/api/schedules/:id", async (req, res) => {
+  const { id } = req.params;
+  const store = getCachedData();
+  if (Array.isArray(store.schedules)) {
+    store.schedules = store.schedules.filter((s: any) => s.id !== id);
+  }
+  await pgDelete('schedules', id);
+  registerDeletion(id);
+  scheduleSaveToDisk();
+  const clientId = req.headers['x-client-id'] || null;
+  broadcastSse({ type: 'schedule_deleted', scheduleId: id, clientId, time: Date.now() });
+  res.json({ status: "deleted", id });
+});
+
+// 6. Equipments
+app.get("/api/equipments", (_req, res) => {
+  const store = getCachedData();
+  res.json(store.equipments || []);
+});
+app.post("/api/equipments", async (req, res) => {
+  const item = req.body;
+  if (!item || !item.id) return res.status(400).json({ error: "Invalid equipment data" });
+  const store = getCachedData();
+  if (!Array.isArray(store.equipments)) store.equipments = [];
+  const idx = store.equipments.findIndex((e: any) => e.id === item.id);
+  if (idx >= 0) store.equipments[idx] = { ...store.equipments[idx], ...item };
+  else store.equipments.push(item);
+  await pgUpsert('equipments', item.id, item);
+  scheduleSaveToDisk();
+  const clientId = req.headers['x-client-id'] || null;
+  broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
+  res.json({ status: "success", equipment: item });
+});
+
+// 7. Users
+app.get("/api/users", (_req, res) => {
+  const store = getCachedData();
+  res.json(store.users || []);
+});
+app.post("/api/users", async (req, res) => {
+  const item = req.body;
+  if (!item || !item.id) return res.status(400).json({ error: "Invalid user data" });
+  const store = getCachedData();
+  if (!Array.isArray(store.users)) store.users = [];
+  const idx = store.users.findIndex((u: any) => u.id === item.id);
+  if (idx >= 0) store.users[idx] = { ...store.users[idx], ...item };
+  else store.users.push(item);
+  await pgUpsert('users', item.id, item);
+  scheduleSaveToDisk();
+  const clientId = req.headers['x-client-id'] || null;
+  broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
+  res.json({ status: "success", user: item });
+});
+
+// 8. Cronogramas
+app.get("/api/cronogramas", (_req, res) => {
+  const store = getCachedData();
+  res.json(store.cronogramas || []);
+});
+app.post("/api/cronogramas", async (req, res) => {
+  const item = req.body;
+  if (!item || !item.id) return res.status(400).json({ error: "Invalid cronograma data" });
+  const store = getCachedData();
+  if (!Array.isArray(store.cronogramas)) store.cronogramas = [];
+  const idx = store.cronogramas.findIndex((c: any) => c.id === item.id);
+  if (idx >= 0) store.cronogramas[idx] = { ...store.cronogramas[idx], ...item };
+  else store.cronogramas.push(item);
+  await pgUpsert('cronogramas', item.id, item);
+  scheduleSaveToDisk();
+  const clientId = req.headers['x-client-id'] || null;
+  broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
+  res.json({ status: "success", cronograma: item });
+});
+
+// 9. App Data & Singletons (schedule_config, app_version, round_template)
+app.get("/api/app-data/:id", async (req, res) => {
+  const { id } = req.params;
+  const store = getCachedData();
+  if (!store.appData) store.appData = {};
+  if (store.appData[id]) {
+    return res.json(store.appData[id]);
+  }
+  const dbData = await pgGet('app_data', id);
+  if (dbData) {
+    store.appData[id] = dbData;
+    return res.json(dbData);
+  }
+  res.json({});
+});
+app.post("/api/app-data/:id", async (req, res) => {
+  const { id } = req.params;
+  const payload = req.body || {};
+  const store = getCachedData();
+  if (!store.appData) store.appData = {};
+  store.appData[id] = { ...store.appData[id], ...payload };
+  await pgUpsert('app_data', id, store.appData[id]);
+  scheduleSaveToDisk();
+  const clientId = req.headers['x-client-id'] || null;
+  broadcastSse({ type: 'app_data_updated', id, data: store.appData[id], clientId, time: Date.now() });
+  res.json({ status: "success", data: store.appData[id] });
+});
+
+// 10. Settings
+app.get("/api/settings", (_req, res) => {
+  const store = getCachedData();
+  res.json(store.settings || {});
+});
+app.post("/api/settings", async (req, res) => {
+  const store = getCachedData();
+  store.settings = { ...(store.settings || {}), ...req.body };
+  await pgUpsert('settings', 'app_settings', store.settings);
+  scheduleSaveToDisk();
+  const clientId = req.headers['x-client-id'] || null;
+  broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
+  res.json({ status: "success", settings: store.settings });
+});
+
 app.post("/api/broadcast", (req, res) => {
   broadcastSse(req.body);
   res.json({ status: "ok" });
@@ -2661,6 +3227,7 @@ app.use((req, res, next) => {
 });
 
 async function startServer() {
+  await initPostgresSchema();
   const distPath = path.join(process.cwd(), 'dist');
 
   // Vite middleware for development
@@ -2732,7 +3299,7 @@ async function startServer() {
 
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://localhost:${PORT}`);
-    setTimeout(initFirestoreServerSync, 30000);
+    console.log('[Server] System operational and synchronized with PostgreSQL/Storage.');
   });
 }
 

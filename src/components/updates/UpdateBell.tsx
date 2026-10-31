@@ -1,7 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import { Bell, Sparkles, CheckCircle2, ShieldCheck, Zap, Download } from 'lucide-react';
-import { doc, onSnapshot, setDoc, getDoc } from 'firebase/firestore';
-import { db, safeFirestoreWrite, isFirestoreQuotaExceeded } from '../../lib/firebase';
 
 // =========================================================================
 // INCREMENTA ESTE NÚMERO CON CADA ACTUALIZACIÓN PARA DISPARAR LA CAMPANA
@@ -41,48 +39,54 @@ export const UpdateBell: React.FC = () => {
   const [remoteVersionInfo, setRemoteVersionInfo] = useState<any>(CURRENT_CHANGELOG);
 
   useEffect(() => {
-    const versionRef = doc(db, 'system', 'app_version');
+    // 1. Consultar la versión del sistema en /api/app-data/app_version
+    const checkVersion = () => {
+      fetch('/api/app-data/app_version')
+        .then(res => res.json())
+        .then(data => {
+          if (data && data.versionCode) {
+            const remoteCode = Number(data.versionCode) || 0;
+            const appliedCode = getAppliedVersionCode();
+            const currentActiveCode = Math.max(LOCAL_VERSION_CODE, appliedCode);
 
-    // 1. Escuchar en tiempo real para verificar si existe una nueva versión superior a la ya aplicada
-    const unsubscribe = onSnapshot(versionRef, (snapshot) => {
-      if (snapshot.exists()) {
-        const data = snapshot.data();
-        const remoteCode = Number(data.versionCode) || 0;
-        const appliedCode = getAppliedVersionCode();
-        const currentActiveCode = Math.max(LOCAL_VERSION_CODE, appliedCode);
+            if (remoteCode > currentActiveCode) {
+              setHasUpdate(true);
+              setRemoteVersionInfo(data.changelog || { ...CURRENT_CHANGELOG, versionCode: remoteCode });
+            } else {
+              setHasUpdate(false);
+              setRemoteVersionInfo(CURRENT_CHANGELOG);
+            }
 
-        if (remoteCode > currentActiveCode) {
-          // Solo marcar como pendiente si el código remoto es estrictamente mayor que el código aplicado
-          setHasUpdate(true);
-          setRemoteVersionInfo(data.changelog || { ...CURRENT_CHANGELOG, versionCode: remoteCode });
-        } else {
-          // Ya está actualizado y al día
-          setHasUpdate(false);
-          setRemoteVersionInfo(CURRENT_CHANGELOG);
-        }
-      } else {
-        setHasUpdate(false);
-      }
-    }, (err) => {
-      console.warn('Update bell listener warning:', err);
-    });
+            if (LOCAL_VERSION_CODE > remoteCode) {
+              fetch('/api/app-data/app_version', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  versionCode: LOCAL_VERSION_CODE,
+                  changelog: CURRENT_CHANGELOG,
+                  timestamp: new Date().toISOString()
+                })
+              }).catch(() => {});
+            }
+          } else {
+            // Registro inicial de versión
+            fetch('/api/app-data/app_version', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                versionCode: LOCAL_VERSION_CODE,
+                changelog: CURRENT_CHANGELOG,
+                timestamp: new Date().toISOString()
+              })
+            }).catch(() => {});
+          }
+        })
+        .catch(() => {});
+    };
 
-    // 2. Si este cliente tiene un código de versión superior (porque se acaba de compilar una actualización),
-    // empujamos la nueva versión a la base de datos para sincronizar con todos los dispositivos.
-    if (!isFirestoreQuotaExceeded()) {
-      getDoc(versionRef).then((snapshot) => {
-        const currentRemoteCode = snapshot.exists() ? Number(snapshot.data().versionCode) || 0 : 0;
-        if (LOCAL_VERSION_CODE > currentRemoteCode) {
-          safeFirestoreWrite(() => setDoc(versionRef, {
-            versionCode: LOCAL_VERSION_CODE,
-            changelog: CURRENT_CHANGELOG,
-            timestamp: new Date().toISOString()
-          }, { merge: true })).catch(() => {});
-        }
-      }).catch(() => {});
-    }
-
-    return () => unsubscribe();
+    checkVersion();
+    const interval = setInterval(checkVersion, 30000);
+    return () => clearInterval(interval);
   }, []);
 
   const handleOpenModal = () => {

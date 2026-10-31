@@ -1,8 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
-import { db, safeFirestoreWrite, cleanForFirestore } from '../../lib/firebase';
-import { doc, onSnapshot, setDoc } from 'firebase/firestore';
 import { useMaintenance } from '../../context/MaintenanceContext';
 import { isColombianHoliday } from '../../utils/colombianHolidays';
 import { 
@@ -361,49 +359,40 @@ export const TechnicianSchedulesView: React.FC = () => {
   // 🔄 Real-time Bidirectional Synchronization of Schedule Personnel and Order with Cloud Firestore
   useEffect(() => {
     let isMounted = true;
-    const unsub = onSnapshot(doc(db, 'app_data', 'schedule_config'), (snap) => {
-      if (!isMounted) return;
-      if (snap.exists()) {
-        const data = snap.data();
-        if (Array.isArray(data.schedulePersonnel) && data.schedulePersonnel.length > 0) {
-          setSchedulePersonnel(data.schedulePersonnel);
-          try {
-            localStorage.setItem('hotel_maint_schedule_personnel', JSON.stringify(data.schedulePersonnel));
-          } catch {}
+    const loadScheduleConfig = async () => {
+      try {
+        const res = await fetch('/api/app-data/schedule_config');
+        if (res.ok) {
+          const data = await res.json();
+          if (!isMounted) return;
+          if (Array.isArray(data.schedulePersonnel) && data.schedulePersonnel.length > 0) {
+            setSchedulePersonnel(data.schedulePersonnel);
+            try {
+              localStorage.setItem('hotel_maint_schedule_personnel', JSON.stringify(data.schedulePersonnel));
+            } catch {}
+          }
+          if (Array.isArray(data.techOrder) && data.techOrder.length > 0) {
+            setTechOrder(data.techOrder);
+            try {
+              localStorage.setItem('hotel_maint_tech_order', JSON.stringify(data.techOrder));
+            } catch {}
+          }
         }
-        if (Array.isArray(data.techOrder) && data.techOrder.length > 0) {
-          setTechOrder(data.techOrder);
-          try {
-            localStorage.setItem('hotel_maint_tech_order', JSON.stringify(data.techOrder));
-          } catch {}
-        }
-      } else {
-        // Si no existe aún en Firestore, respaldar inmediatamente lo que tenga el dispositivo actual
-        const currentSaved = localStorage.getItem('hotel_maint_schedule_personnel');
-        if (currentSaved) {
-          try {
-            const parsed = JSON.parse(currentSaved);
-            if (Array.isArray(parsed) && parsed.length > 0) {
-              safeFirestoreWrite(() => setDoc(doc(db, 'app_data', 'schedule_config'), cleanForFirestore({
-                schedulePersonnel: parsed,
-                techOrder: techOrder,
-                updatedAt: new Date().toISOString()
-              }), { merge: true })).catch(() => {});
-            }
-          } catch {}
-        }
+      } catch (err) {
+        console.warn('Schedule config fetch notice:', err);
       }
-    }, (err) => {
-      console.warn('Schedule config listener notice:', err);
-    });
+    };
+
+    loadScheduleConfig();
+    const interval = setInterval(loadScheduleConfig, 25000);
 
     return () => {
       isMounted = false;
-      unsub();
+      clearInterval(interval);
     };
   }, []);
 
-  // Helper to persist schedule personnel and ordering directly to Cloud Firestore & LocalStorage
+  // Helper to persist schedule personnel and ordering directly to Server API / PostgreSQL & LocalStorage
   const syncSchedulePersonnelCloud = async (
     newList: Array<{ id: string; displayName: string; role?: string; department?: string }>,
     newOrder?: string[]
@@ -413,13 +402,17 @@ export const TechnicianSchedulesView: React.FC = () => {
       if (newOrder) {
         localStorage.setItem('hotel_maint_tech_order', JSON.stringify(newOrder));
       }
-      await safeFirestoreWrite(() => setDoc(doc(db, 'app_data', 'schedule_config'), cleanForFirestore({
-        schedulePersonnel: newList,
-        techOrder: newOrder !== undefined ? newOrder : techOrder,
-        updatedAt: new Date().toISOString()
-      }), { merge: true }));
+      await fetch('/api/app-data/schedule_config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          schedulePersonnel: newList,
+          techOrder: newOrder !== undefined ? newOrder : techOrder,
+          updatedAt: new Date().toISOString()
+        })
+      });
     } catch (e) {
-      console.warn('Error syncing schedule personnel to cloud:', e);
+      console.warn('Error syncing schedule personnel to server:', e);
     }
   };
 
