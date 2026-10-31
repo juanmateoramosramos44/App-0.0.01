@@ -150,24 +150,28 @@ let pendingDiskWriteTimer: NodeJS.Timeout | null = null;
 
 // PostgreSQL Connection Pool (process.env.DATABASE_URL)
 let pgPool: pg.Pool | null = null;
+let pgAvailable = false;
 const DATABASE_URL = process.env.DATABASE_URL || "";
 
 if (DATABASE_URL) {
   try {
-    const isSsl = DATABASE_URL.includes("sslmode=require") || !DATABASE_URL.includes("localhost");
+    const isSsl = DATABASE_URL.includes("sslmode=require");
     pgPool = new Pool({
       connectionString: DATABASE_URL,
       ssl: isSsl ? { rejectUnauthorized: false } : undefined,
       max: 20,
       idleTimeoutMillis: 30000,
-      connectionTimeoutMillis: 10000,
+      connectionTimeoutMillis: 3500,
+    });
+    pgPool.on('error', (err) => {
+      console.warn("[PostgreSQL Pool] Warning / connection event:", err.message);
     });
     console.log("[PostgreSQL] Pool initialized for Coolify / production database.");
   } catch (err) {
     console.warn("[PostgreSQL] Error creating database pool:", err);
   }
 } else {
-  console.log("[Server] DATABASE_URL not set, operating with persistent local JSON store.");
+  console.log("[Server] DATABASE_URL not set in environment, operating with persistent local JSON store.");
 }
 
 async function initPostgresSchema() {
@@ -286,13 +290,15 @@ async function initPostgresSchema() {
           deleted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
       `);
+      pgAvailable = true;
       console.log("[PostgreSQL] All tables verified / created successfully.");
       await syncMemoryToPostgresIfEmpty(client);
     } finally {
       client.release();
     }
   } catch (err) {
-    console.warn("[PostgreSQL] Error initializing schema:", err);
+    pgAvailable = false;
+    console.warn("[PostgreSQL] Notice: PostgreSQL not reachable in this environment, operating with local JSON store.");
   }
 }
 
@@ -417,7 +423,7 @@ async function loadPostgresIntoMemory(client: any) {
 }
 
 async function pgUpsert(table: string, id: string, data: any) {
-  if (!pgPool) return;
+  if (!pgPool || !pgAvailable) return;
   try {
     await pgPool.query(
       `INSERT INTO ${table} (id, data, updated_at) 
@@ -427,12 +433,13 @@ async function pgUpsert(table: string, id: string, data: any) {
       [id, JSON.stringify(data)]
     );
   } catch (err) {
-    console.warn(`[PostgreSQL] Upsert error on ${table}:`, err);
+    pgAvailable = false;
+    console.warn(`[PostgreSQL] Notice on ${table} (falling back to JSON store):`, (err as any)?.message || err);
   }
 }
 
 async function pgDelete(table: string, id: string) {
-  if (!pgPool) return;
+  if (!pgPool || !pgAvailable) return;
   try {
     await pgPool.query(`DELETE FROM ${table} WHERE id = $1`, [id]);
     await pgPool.query(
@@ -440,17 +447,18 @@ async function pgDelete(table: string, id: string) {
       [id]
     );
   } catch (err) {
-    console.warn(`[PostgreSQL] Delete error on ${table}:`, err);
+    pgAvailable = false;
+    console.warn(`[PostgreSQL] Notice on delete ${table}:`, (err as any)?.message || err);
   }
 }
 
 async function pgGet(table: string, id: string) {
-  if (!pgPool) return null;
+  if (!pgPool || !pgAvailable) return null;
   try {
     const res = await pgPool.query(`SELECT data FROM ${table} WHERE id = $1`, [id]);
     return res.rows[0]?.data || null;
   } catch (err) {
-    console.warn(`[PostgreSQL] Get error on ${table}:`, err);
+    pgAvailable = false;
     return null;
   }
 }
@@ -561,14 +569,40 @@ function getCachedData() {
       };
     }
 
+    function sanitizeCheckpointTemplateServer(chk: any) {
+      if (!chk) return chk;
+      const copy = { ...chk };
+      delete copy.currentValue;
+      delete copy.statusValue;
+      delete copy.notes;
+      delete copy.photoUrl;
+      delete copy.photos;
+      delete copy.anomalyId;
+      delete copy.isAlarmActive;
+      delete copy.alarmReason;
+      if (Array.isArray(copy.measurementFields)) {
+        copy.measurementFields = copy.measurementFields.map((f: any) => {
+          const fCopy = { ...f };
+          delete fCopy.value;
+          delete fCopy.statusValue;
+          delete fCopy.photoUrl;
+          delete fCopy.photos;
+          return fCopy;
+        });
+      }
+      return copy;
+    }
+
     if (!Array.isArray(memoryCache.roundTemplate) || memoryCache.roundTemplate.length < 26) {
       try {
         if (HISTORICAL_ROUNDS && HISTORICAL_ROUNDS[0] && HISTORICAL_ROUNDS[0].checkpoints) {
-          memoryCache.roundTemplate = HISTORICAL_ROUNDS[0].checkpoints.map((c: any) => ({ ...c }));
+          memoryCache.roundTemplate = HISTORICAL_ROUNDS[0].checkpoints.map(sanitizeCheckpointTemplateServer);
         }
       } catch (e) {
         if (!Array.isArray(memoryCache.roundTemplate)) memoryCache.roundTemplate = [];
       }
+    } else {
+      memoryCache.roundTemplate = memoryCache.roundTemplate.map(sanitizeCheckpointTemplateServer);
     }
 
     if (Array.isArray(memoryCache.rounds)) {
@@ -658,7 +692,12 @@ function getCachedData() {
       // Quality validation & complete readings guarantee for all rounds
       memoryCache.rounds.forEach((r: any) => {
         if (!r) return;
-        // Never allow empty or missing meterReadings - always provide valid operational numbers
+        // If a round is actively in progress by a technician, NEVER override its status, readings or auto-complete it
+        if (r.status === 'en_progreso' && !CANONICAL_HISTORICAL_ROUND_IDS.has(r.id)) {
+          return;
+        }
+
+        // Never allow empty or missing meterReadings - always provide valid operational numbers for historical rounds
         if (!r.meterReadings || typeof r.meterReadings !== 'object') {
           r.meterReadings = {};
         }
@@ -2549,32 +2588,16 @@ app.post("/api/rounds", (req, res) => {
           technicianSignature: round.technicianSignature || existing.technicianSignature || round.technicianName
         };
       } else if (round.status === 'en_progreso') {
-        const isFullCheckpoints = isFull100 || (Array.isArray(mergedCheckpoints) && mergedCheckpoints.filter((c: any) => c && (c.currentValue !== undefined && c.currentValue !== '' || c.statusValue)).length >= 20);
-        if (isFullCheckpoints) {
-          savedRound = {
-            ...existing,
-            ...round,
-            checkpoints: mergedCheckpoints,
-            meterReadings: mergedMeters,
-            anomalies: mergedAnomalies,
-            status: 'completada',
-            compliancePercentage: 100,
-            progress: 100,
-            completedAt: existing.completedAt || round.completedAt || new Date().toISOString(),
-            technicianSignature: round.technicianSignature || existing.technicianSignature || round.technicianName || 'Técnico'
-          };
-        } else {
-          savedRound = {
-            ...existing,
-            ...round,
-            checkpoints: mergedCheckpoints,
-            meterReadings: mergedMeters,
-            anomalies: mergedAnomalies,
-            status: 'en_progreso',
-            completedAt: undefined,
-            technicianSignature: round.technicianSignature || existing.technicianSignature
-          };
-        }
+        savedRound = {
+          ...existing,
+          ...round,
+          checkpoints: mergedCheckpoints,
+          meterReadings: mergedMeters,
+          anomalies: mergedAnomalies,
+          status: 'en_progreso',
+          completedAt: undefined,
+          technicianSignature: round.technicianSignature || existing.technicianSignature || undefined
+        };
       } else {
         savedRound = { ...existing, ...round, checkpoints: mergedCheckpoints, meterReadings: mergedMeters, anomalies: mergedAnomalies };
       }
@@ -2583,14 +2606,16 @@ app.post("/api/rounds", (req, res) => {
       if (!round.meterReadings || typeof round.meterReadings !== 'object') {
         round.meterReadings = {};
       }
-      if (!round.meterReadings.mainWaterPressurePsi) round.meterReadings.mainWaterPressurePsi = 72;
-      if (!round.meterReadings.hotWaterSupplyTempC) round.meterReadings.hotWaterSupplyTempC = 60;
-      if (!round.meterReadings.hotWaterReturnTempC) round.meterReadings.hotWaterReturnTempC = 53.5;
-      if (!round.meterReadings.waterCubicMeters) round.meterReadings.waterCubicMeters = 48925;
-      if (!round.meterReadings.electricKwh) round.meterReadings.electricKwh = 341950;
-      if (!round.meterReadings.gasCubicMeters) round.meterReadings.gasCubicMeters = 18215;
-      if (!round.meterReadings.poolPh) round.meterReadings.poolPh = 7.35;
-      if (!round.meterReadings.poolChlorinePpm) round.meterReadings.poolChlorinePpm = 2.1;
+      if (round.status !== 'en_progreso') {
+        if (!round.meterReadings.mainWaterPressurePsi) round.meterReadings.mainWaterPressurePsi = 72;
+        if (!round.meterReadings.hotWaterSupplyTempC) round.meterReadings.hotWaterSupplyTempC = 60;
+        if (!round.meterReadings.hotWaterReturnTempC) round.meterReadings.hotWaterReturnTempC = 53.5;
+        if (!round.meterReadings.waterCubicMeters) round.meterReadings.waterCubicMeters = 48925;
+        if (!round.meterReadings.electricKwh) round.meterReadings.electricKwh = 341950;
+        if (!round.meterReadings.gasCubicMeters) round.meterReadings.gasCubicMeters = 18215;
+        if (!round.meterReadings.poolPh) round.meterReadings.poolPh = 7.35;
+        if (!round.meterReadings.poolChlorinePpm) round.meterReadings.poolChlorinePpm = 2.1;
+      }
       savedRound = round;
       current.rounds.unshift(round);
     }

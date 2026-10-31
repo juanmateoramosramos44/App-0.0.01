@@ -2900,17 +2900,44 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
     return sanitizeSystemSettings(INITIAL_SETTINGS);
   });
 
+  const sanitizeCheckpointTemplate = (chk: RoundCheckpoint): RoundCheckpoint => {
+  if (!chk) return chk;
+  const copy: RoundCheckpoint = {
+    ...chk,
+    currentValue: '',
+    statusValue: undefined,
+    notes: '',
+    photoUrl: undefined,
+    photos: undefined,
+    anomalyId: undefined,
+    isAlarmActive: false,
+    alarmReason: undefined
+  };
+  if (Array.isArray(copy.measurementFields)) {
+    copy.measurementFields = copy.measurementFields.map(f => ({
+      ...f,
+      value: undefined,
+      statusValue: undefined,
+      photoUrl: undefined,
+      photos: undefined,
+      lastNonZeroValue: f.minValue ?? 0
+    }));
+  }
+  return copy;
+}
+
   const [roundTemplate, setRoundTemplate] = useState<RoundCheckpoint[]>(() => {
     const saved = localStorage.getItem('hotel_round_template');
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length >= 26) return parsed;
+        if (Array.isArray(parsed) && parsed.length >= 26) return parsed.map(sanitizeCheckpointTemplate);
       } catch (e) { console.error(e); }
     }
-    return HISTORICAL_ROUNDS[0]?.checkpoints?.length 
-      ? HISTORICAL_ROUNDS[0].checkpoints.map(c => ({ ...c })) 
-      : STANDARD_ROUND_CHECKPOINTS.map(c => ({ ...c }));
+    const raw = HISTORICAL_ROUNDS[0]?.checkpoints?.length 
+      ? HISTORICAL_ROUNDS[0].checkpoints 
+      : STANDARD_ROUND_CHECKPOINTS;
+    return raw.map(sanitizeCheckpointTemplate);
   });
 
   useEffect(() => {
@@ -2919,11 +2946,12 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
 
   const saveRoundTemplateToCloud = async (items: RoundCheckpoint[]) => {
     try {
-      roundTemplateRef.current = items;
-      localStorage.setItem('hotel_round_template', JSON.stringify(items));
+      const sanitized = items.map(sanitizeCheckpointTemplate);
+      roundTemplateRef.current = sanitized;
+      localStorage.setItem('hotel_round_template', JSON.stringify(sanitized));
       hasPendingLocalChanges.current = true;
       persistToServer();
-      await safeCloudWrite(() => setDoc(doc(db, 'hotel_round_template', 'main'), cleanForFirestore({ items, updatedAt: new Date().toISOString() })));
+      await safeCloudWrite(() => setDoc(doc(db, 'hotel_round_template', 'main'), cleanForFirestore({ items: sanitized, updatedAt: new Date().toISOString() })));
     } catch (e) {
       console.error('Error saving round template to cloud:', e);
     }
@@ -2935,9 +2963,10 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
       if (docSnap.exists()) {
         const data = docSnap.data() as { items?: RoundCheckpoint[] };
         if (data && Array.isArray(data.items)) {
-          roundTemplateRef.current = data.items;
-          setRoundTemplate(data.items);
-          localStorage.setItem('hotel_round_template', JSON.stringify(data.items));
+          const sanitized = data.items.map(sanitizeCheckpointTemplate);
+          roundTemplateRef.current = sanitized;
+          setRoundTemplate(sanitized);
+          localStorage.setItem('hotel_round_template', JSON.stringify(sanitized));
           notify('🔄 Plantilla sincronizada correctamente desde la nube.');
         }
       } else {
@@ -3184,38 +3213,28 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
           lastNonZeroValue: existing.lastNonZeroValue
         };
       } else {
-        const defaultStatus = tplItem.statusValue;
-        const actionType = defaultStatus ? getCheckpointButtonAction(tplItem, defaultStatus, template) : 'default';
-        const isOff = actionType === 'turn_off';
-
         const initFields = tplItem.measurementFields && Array.isArray(tplItem.measurementFields)
-          ? tplItem.measurementFields.map((f, fIdx) => {
-              const defaultFieldStatus = f.statusValue;
-              const fieldAction = defaultFieldStatus ? getFieldButtonAction(f, defaultFieldStatus, tplItem, template, fIdx) : 'default';
-              const isFieldOff = isOff || fieldAction === 'turn_off';
-              const normalVal = f.value !== undefined ? f.value : (f.minValue !== undefined && f.maxValue !== undefined ? Number(((f.minValue + f.maxValue) / 2).toFixed(1)) : (f.minValue ?? 0));
-              return {
-                ...f,
-                statusValue: defaultFieldStatus,
-                value: f.value !== undefined ? f.value : (isFieldOff ? 0 : undefined),
-                ampState: isFieldOff ? 'Apagado' : (f.ampState || 'Encendido'),
-                lastNonZeroValue: typeof normalVal === 'number' && normalVal > 0 ? normalVal : (f.minValue ?? 0)
-              };
-            })
+          ? tplItem.measurementFields.map(f => ({
+              ...f,
+              value: undefined,
+              statusValue: undefined,
+              ampState: f.ampState || 'Encendido',
+              photoUrl: undefined,
+              photos: undefined,
+              lastNonZeroValue: f.minValue ?? 0
+            }))
           : undefined;
-
-        let initVal: any = tplItem.currentValue !== undefined ? tplItem.currentValue : '';
-        if (initVal === '' && tplItem.type === 'numeric' && isOff) {
-          initVal = 0;
-        }
 
         return {
           ...tplItem,
           measurementFields: initFields,
-          statusValue: defaultStatus,
-          ampState: isOff ? 'Apagado' : (tplItem.ampState || 'Encendido'),
-          currentValue: initVal,
-          lastNonZeroValue: typeof initVal === 'number' && initVal > 0 ? initVal : (tplItem.minValue ?? 0)
+          statusValue: undefined,
+          ampState: tplItem.ampState || 'Encendido',
+          currentValue: '',
+          notes: '',
+          photoUrl: undefined,
+          photos: undefined,
+          lastNonZeroValue: tplItem.minValue ?? 0
         };
       }
     });
@@ -3655,15 +3674,12 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
   // Limpieza precisa y atómica: solo si esta ronda exacta (por ID) ya fue completada y firmada oficialmente
   useEffect(() => {
     if (!activeRound) return;
-    const isCompleted = activeRound.status === 'completada' && Boolean(activeRound.completedAt && activeRound.technicianSignature);
-    const inListCompleted = (rounds || []).some(r => 
-      r && 
-      r.id === activeRound.id && 
-      r.status === 'completada' && 
-      Boolean(r.completedAt && r.technicianSignature)
-    );
+    // Si la ronda local está en curso en este dispositivo, NUNCA cerrarla automáticamente por nada del mundo.
+    // Permanece 100% abierta hasta que el técnico presione el botón de validar, firmar y cerrar la ronda.
+    if (activeRound.status === 'en_progreso') return;
 
-    if (isCompleted || inListCompleted) {
+    const isCompleted = activeRound.status === 'completada' && Boolean(activeRound.completedAt && activeRound.technicianSignature);
+    if (isCompleted) {
       activeRoundRef.current = null;
       setActiveRound(null);
       localStorage.removeItem(STORAGE_KEYS.ACTIVE_ROUND);
@@ -8487,39 +8503,29 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
       userId: currentUser?.id,
       userEmail: currentUser?.email,
       status: 'en_progreso',
-      checkpoints: roundTemplate.map(chk => {
-        const defaultStatus = chk.statusValue;
-        const actionType = defaultStatus ? getCheckpointButtonAction(chk, defaultStatus, roundTemplate) : 'default';
-        const isOff = actionType === 'turn_off';
-
+      checkpoints: (roundTemplateRef.current?.length ? roundTemplateRef.current : roundTemplate).map(chk => {
         const initFields = chk.measurementFields && Array.isArray(chk.measurementFields)
-          ? chk.measurementFields.map((f, fIdx) => {
-              const defaultFieldStatus = f.statusValue;
-              const fieldAction = defaultFieldStatus ? getFieldButtonAction(f, defaultFieldStatus, chk, roundTemplate, fIdx) : 'default';
-              const isFieldOff = isOff || fieldAction === 'turn_off';
-              const normalVal = f.value !== undefined ? f.value : (f.minValue !== undefined && f.maxValue !== undefined ? Number(((f.minValue + f.maxValue) / 2).toFixed(1)) : (f.minValue ?? 0));
-              return {
-                ...f,
-                statusValue: defaultFieldStatus,
-                value: f.value !== undefined ? f.value : (isFieldOff ? 0 : undefined),
-                ampState: isFieldOff ? 'Apagado' : (f.ampState || 'Encendido'),
-                lastNonZeroValue: typeof normalVal === 'number' && normalVal > 0 ? normalVal : (f.minValue ?? 0)
-              };
-            })
+          ? chk.measurementFields.map(f => ({
+              ...f,
+              value: undefined,
+              statusValue: undefined,
+              ampState: f.ampState || 'Encendido',
+              photoUrl: undefined,
+              photos: undefined,
+              lastNonZeroValue: f.minValue ?? 0
+            }))
           : undefined;
-
-        let initVal: any = chk.currentValue !== undefined ? chk.currentValue : '';
-        if (initVal === '' && chk.type === 'numeric' && isOff) {
-          initVal = 0;
-        }
 
         return {
           ...chk,
           measurementFields: initFields,
-          statusValue: defaultStatus,
-          ampState: isOff ? 'Apagado' : (chk.ampState || 'Encendido'),
-          currentValue: initVal,
-          lastNonZeroValue: typeof initVal === 'number' && initVal > 0 ? initVal : (chk.minValue ?? 0)
+          statusValue: undefined,
+          ampState: chk.ampState || 'Encendido',
+          currentValue: '',
+          notes: '',
+          photoUrl: undefined,
+          photos: undefined,
+          lastNonZeroValue: chk.minValue ?? 0
         };
       }),
       anomaliesCount: 0,

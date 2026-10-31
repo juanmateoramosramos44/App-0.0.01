@@ -490,16 +490,7 @@ export const DailyRoundsView: React.FC = () => {
   };
 
   // Active round state for final submission
-  const [meterReadings, setMeterReadings] = useState<DailyRound['meterReadings']>({
-    waterCubicMeters: 48925,
-    electricKwh: 341950,
-    gasCubicMeters: 18215,
-    poolPh: 7.35,
-    poolChlorinePpm: 2.1,
-    hotWaterSupplyTempC: 60.0,
-    hotWaterReturnTempC: 53.5,
-    mainWaterPressurePsi: 72,
-  });
+  const [meterReadings, setMeterReadings] = useState<DailyRound['meterReadings']>({});
   const [generalNotes, setGeneralNotes] = useState('');
   const [signatureName, setSignatureName] = useState('');
 
@@ -771,18 +762,16 @@ export const DailyRoundsView: React.FC = () => {
     if (activeRound) {
       if (syncedRoundIdRef.current !== activeRound.id) {
         syncedRoundIdRef.current = activeRound.id;
-        if (activeRound.meterReadings) {
-          setMeterReadings(p => ({ ...p, ...activeRound.meterReadings }));
-        }
-        if (activeRound.generalNotes !== undefined) {
-          setGeneralNotes(activeRound.generalNotes);
-        }
+        setMeterReadings(activeRound.meterReadings ? { ...activeRound.meterReadings } : {});
+        setGeneralNotes(activeRound.generalNotes || '');
         if (activeRound.technicianName && !signatureName) {
           setSignatureName(activeRound.technicianName);
         }
       }
     } else {
       syncedRoundIdRef.current = null;
+      setMeterReadings({});
+      setGeneralNotes('');
     }
   }, [activeRound?.id]);
 
@@ -852,6 +841,8 @@ export const DailyRoundsView: React.FC = () => {
   };
 
   const handleStartRound = () => {
+    setMeterReadings({});
+    setGeneralNotes('');
     startNewRound(selectedShift, detectedTechnicianName);
     setIsStartingRound(false);
     setSignatureName(detectedTechnicianName);
