@@ -1,19 +1,17 @@
-# Reglas de Desarrollo y Actualizaciones
+# Reglas Permanentes de Desarrollo y Arquitectura
 
-1. **Preservación Total de Funcionalidades, Datos y Configuraciones**:
-   - NUNCA eliminar, reiniciar ni alterar datos existentes (equipos, inventarios, rondas, hojas de vida, historiales, solicitudes, incidencias, usuarios, contraseñas ni configuraciones del hotel) al realizar cualquier cambio o actualización.
-   - Todo cambio o actualización debe ser 100% quirúrgico, seguro e incremental, respetando y protegiendo siempre la información previamente guardada.
+1. **Carpeta Principal Estricta (src/)**:
+   - Todo el código fuente del frontend debe residir única y exclusivamente dentro de la carpeta `src/`. Queda prohibido crear carpetas duplicadas o alternas (como `app/applet/`). Coolify lee exclusivamente desde la raíz y `src/`.
 
-2. **Alcance Estricto de las Solicitudes**:
-   - Implementar única y exclusivamente lo que el usuario pida de forma explícita, sin agregar cambios no solicitados ni alterar los flujos existentes.
+2. **Cero Firebase / Firestore para Siempre**:
+   - Firebase, Firestore, `firebase-applet-config.json`, `firestore.rules` y cualquier SDK de Firebase están eliminados permanentemente y prohibidos en cualquier actualización futura.
 
-3. **Sincronización en Tiempo Real Fiable y Silenciosa**:
-   - Mantener siempre la sincronización bidireccional inmediata en Firestore y el servidor local para que cualquier creación o eliminación se refleje de inmediato tanto en computador como en dispositivos móviles, sin generar sobrecarga ni bucles de actualización.
+3. **Base de Datos Exclusiva: PostgreSQL (Coolify)**:
+   - Toda la persistencia, lectura, escritura y sincronización debe realizarse directamente en la base de datos PostgreSQL del servidor (configurada mediante `DATABASE_URL` y el backend en `server.ts`).
 
-4. **Aplicación Global y Consistente de Cambios**:
-   - Todo cambio o mejora solicitada debe implementarse de forma consistente y general en toda la aplicación (en todas las vistas, componentes, formularios y dispositivos conectados), garantizando una experiencia uniforme y homogénea en toda la plataforma.
+4. **Preservación Total de Datos y Funcionalidades**:
+   - NUNCA eliminar, reiniciar ni alterar datos existentes (equipos, inventarios, rondas, tareas, hojas de vida, historiales, solicitudes, incidencias, usuarios, contraseñas ni configuraciones del hotel).
+   - Todo cambio debe ser 100% quirúrgico, seguro e incremental.
 
-5. **Estabilidad Visual Absoluta (Cero Parpadeos / No "Espavilar" la Pantalla)**:
-   - Toda actualización de estado, guardado de datos o sincronización debe realizarse de manera suave, atómica y fluida en segundo plano.
-   - Queda estrictamente prohibido provocar parpadeos, destellos o saltos bruscos en la pantalla ("espavilar la pantalla"), así como recargas de página o pérdidas de foco que desestabilicen la app durante el trabajo del usuario.
-   - Las transiciones de datos deben preservar el estado de navegación y la interacción del usuario sin interrupciones visuales ni comportamientos erráticos.
+5. **Estabilidad Visual y Cero Parpadeos**:
+   - Toda actualización de estado o sincronización debe realizarse de forma fluida en segundo plano, sin provocar parpadeos, destellos ni recargas que desestabilicen la pantalla.
