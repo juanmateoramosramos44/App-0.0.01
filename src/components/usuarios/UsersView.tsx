@@ -33,7 +33,8 @@ import {
   ClipboardList,
   CheckSquare,
   CalendarRange,
-  Gauge
+  Gauge,
+  Loader2
 } from 'lucide-react';
 
 const AVAILABLE_MODULES = [
@@ -61,6 +62,7 @@ export const UsersView: React.FC = () => {
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [userToDelete, setUserToDelete] = useState<User | null>(null);
   const [editingUser, setEditingUser] = useState<User | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
 
   // Form states
   const [formName, setFormName] = useState('');
@@ -292,46 +294,55 @@ export const UsersView: React.FC = () => {
 
     const finalSections = [...formSections];
 
-    if (!editingUser) {
-      await addUser({
-        displayName: trimmedName,
-        email: trimmedEmail,
-        password: trimmedPassword,
-        role: formRole,
-        department: formDepartment.trim(),
-        visibleSections: finalSections,
-        permissions: finalPermissions,
-        canStartRounds: finalPermissions.canStartRounds,
-        notifyRoundInProgress: finalPermissions.notifyRoundInProgress,
-        notifyRounds: finalPermissions.notifyRounds,
-        notifyRequests: finalPermissions.notifyRequests,
-        notifyTasks: finalPermissions.notifyTasks,
-        notifyIncidents: finalPermissions.notifyIncidents,
-        status: formStatus
-      });
-    } else {
-      // Editing existing user
-      const updateData: Partial<User> = {
-        displayName: trimmedName,
-        email: trimmedEmail,
-        password: trimmedPassword,
-        role: formRole,
-        department: formDepartment.trim(),
-        visibleSections: finalSections,
-        permissions: finalPermissions,
-        canStartRounds: finalPermissions.canStartRounds,
-        notifyRoundInProgress: finalPermissions.notifyRoundInProgress,
-        notifyRounds: finalPermissions.notifyRounds,
-        notifyRequests: finalPermissions.notifyRequests,
-        notifyTasks: finalPermissions.notifyTasks,
-        notifyIncidents: finalPermissions.notifyIncidents,
-        status: formStatus
-      };
+    setIsSaving(true);
+    try {
+      if (!editingUser) {
+        await addUser({
+          displayName: trimmedName,
+          email: trimmedEmail,
+          password: trimmedPassword,
+          role: formRole,
+          department: formDepartment.trim(),
+          visibleSections: finalSections,
+          permissions: finalPermissions,
+          canStartRounds: finalPermissions.canStartRounds,
+          notifyRoundInProgress: finalPermissions.notifyRoundInProgress,
+          notifyRounds: finalPermissions.notifyRounds,
+          notifyRequests: finalPermissions.notifyRequests,
+          notifyTasks: finalPermissions.notifyTasks,
+          notifyIncidents: finalPermissions.notifyIncidents,
+          status: formStatus
+        });
+      } else {
+        // Editing existing user
+        const updateData: Partial<User> = {
+          displayName: trimmedName,
+          email: trimmedEmail,
+          password: trimmedPassword,
+          role: formRole,
+          department: formDepartment.trim(),
+          visibleSections: finalSections,
+          permissions: finalPermissions,
+          canStartRounds: finalPermissions.canStartRounds,
+          notifyRoundInProgress: finalPermissions.notifyRoundInProgress,
+          notifyRounds: finalPermissions.notifyRounds,
+          notifyRequests: finalPermissions.notifyRequests,
+          notifyTasks: finalPermissions.notifyTasks,
+          notifyIncidents: finalPermissions.notifyIncidents,
+          status: formStatus
+        };
 
-      await updateUser(editingUser.id, updateData);
+        await updateUser(editingUser.id, updateData);
+      }
+
+      setIsCreateModalOpen(false);
+      setEditingUser(null);
+    } catch (err: any) {
+      console.error('Error saving user:', err);
+      setFormError('Error al guardar el usuario en el servidor: ' + (err.message || 'Error desconocido'));
+    } finally {
+      setIsSaving(false);
     }
-
-    setIsCreateModalOpen(false);
   };
 
   const handleDelete = async (user: User) => {
@@ -1245,16 +1256,25 @@ export const UsersView: React.FC = () => {
               <div className="flex items-center justify-end space-x-3 p-4 sm:p-5 border-t border-slate-100 shrink-0 bg-slate-50/90">
                 <button
                   type="button"
+                  disabled={isSaving}
                   onClick={() => setIsCreateModalOpen(false)}
-                  className="px-4 py-2.5 rounded-xl border border-slate-300 text-slate-700 font-bold text-xs hover:bg-slate-100 transition-colors"
+                  className="px-4 py-2.5 rounded-xl border border-slate-300 text-slate-700 font-bold text-xs hover:bg-slate-100 transition-colors disabled:opacity-50"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
-                  className="px-6 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-md shadow-blue-600/20 cursor-pointer transition-all active:scale-95"
+                  disabled={isSaving}
+                  className="px-6 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-md shadow-blue-600/20 cursor-pointer transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
                 >
-                  {editingUser ? 'Guardar Cambios' : 'Crear Usuario'}
+                  {isSaving ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>Guardando...</span>
+                    </>
+                  ) : (
+                    <span>{editingUser ? 'Guardar Cambios' : 'Crear Usuario'}</span>
+                  )}
                 </button>
               </div>
             </form>

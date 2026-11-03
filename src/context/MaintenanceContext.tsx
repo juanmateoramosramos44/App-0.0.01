@@ -169,24 +169,13 @@ export function ensureAdminUserList(list: User[]): User[] {
     if (!existing) {
       uniqueMap.set(primaryKey, u);
     } else {
-      if (existing.role === 'admin' && u.role !== 'admin') {
-        uniqueMap.set(primaryKey, { ...u, ...existing });
-      } else if (u.role === 'admin' && existing.role !== 'admin') {
-        uniqueMap.set(primaryKey, { ...existing, ...u });
-      } else {
-        const timeExisting = new Date(existing.updatedAt || existing.createdAt || 0).getTime();
-        const timeIncoming = new Date(u.updatedAt || u.createdAt || 0).getTime();
-        uniqueMap.set(primaryKey, timeIncoming >= timeExisting ? { ...existing, ...u } : { ...u, ...existing });
-      }
+      const timeExisting = new Date(existing.updatedAt || existing.createdAt || 0).getTime();
+      const timeIncoming = new Date(u.updatedAt || u.createdAt || 0).getTime();
+      uniqueMap.set(primaryKey, timeIncoming >= timeExisting ? { ...existing, ...u } : { ...u, ...existing });
     }
   }
 
-  return Array.from(uniqueMap.values()).map(u => {
-    if (Array.isArray(u.visibleSections) && !u.visibleSections.includes('tareas')) {
-      return { ...u, visibleSections: [...u.visibleSections, 'tareas'] };
-    }
-    return u;
-  });
+  return Array.from(uniqueMap.values());
 }
 
 export const checkRealInternetConnection = async (): Promise<boolean> => {
@@ -8233,7 +8222,8 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
       notifyRequests: finalPermissions.notifyRequests,
       notifyTasks: finalPermissions.notifyTasks,
       notifyIncidents: finalPermissions.notifyIncidents,
-      createdAt: new Date().toISOString()
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
     };
 
     unmarkDeletedUserId(newUser.id);
@@ -8241,24 +8231,43 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
     setTimeout(() => { localActionIds.current.delete(newUser.id); }, 15000);
 
     // Ensure phantom or legacy placeholder users are never preserved
-    const baseClean = users.filter(u => u && u.id !== 'usr-admin-master' && u.displayName !== 'Administrador Principal');
+    const baseClean = (usersRef.current || users).filter(u => u && u.id !== 'usr-admin-master' && u.displayName !== 'Administrador Principal');
     const updated = [...baseClean.filter(u => u.id !== newUser.id), newUser];
     usersRef.current = updated;
     setUsers(updated);
     localStorage.setItem('hotel_maint_users', JSON.stringify(updated));
+
+    // Call PostgreSQL backend API
+    try {
+      const response = await fetch('/api/users', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Client-Id': clientSessionId.current
+        },
+        body: JSON.stringify(newUser)
+      });
+      if (response.ok) {
+        const resData = await response.json();
+        if (resData.user) {
+          const confirmedList = (usersRef.current || updated).map(u => u.id === newUser.id ? { ...u, ...resData.user } : u);
+          usersRef.current = confirmedList;
+          setUsers(confirmedList);
+          localStorage.setItem('hotel_maint_users', JSON.stringify(confirmedList));
+        }
+      }
+    } catch (apiErr) {
+      console.warn('Notice calling PostgreSQL POST /api/users:', apiErr);
+    }
+
     notify(`Usuario ${newUser.displayName} creado correctamente`);
     persistToServer();
-    try {
-      await safeCloudWrite(() => setDoc(doc(db, 'users', newUser.id), cleanForFirestore(newUser)));
-      setIsCloudSynced(true);
-    } catch (e) {
-      console.warn('Error creating user in cloud:', e);
-    }
   };
 
   const updateUser = async (id: string, data: Partial<User>) => {
     const nowIso = new Date().toISOString();
-    const targetBase = users.find(u => u.id === id) || (currentUserRef.current?.id === id ? currentUserRef.current : null);
+    const currentList = usersRef.current || users;
+    const targetBase = currentList.find(u => u.id === id) || (currentUserRef.current?.id === id ? currentUserRef.current : null);
 
     const mergedPermissions = data.permissions || targetBase?.permissions;
     const finalPermissions: UserPermissions | undefined = mergedPermissions ? {
@@ -8286,12 +8295,21 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
       } : {})
     };
 
-    const updatedUserFull = { ...(targetBase || {}), ...normalizedData, id, updatedAt: nowIso };
+    const updatedUserFull: User = { 
+      ...(targetBase || {} as User), 
+      ...normalizedData, 
+      id, 
+      updatedAt: nowIso 
+    };
 
-    const updated = users.map(u => u.id === id ? { ...u, ...normalizedData, updatedAt: nowIso } : u);
+    const updated = currentList.map(u => u.id === id ? updatedUserFull : u);
+    if (!updated.some(u => u.id === id)) {
+      updated.push(updatedUserFull);
+    }
     usersRef.current = updated;
     setUsers(updated);
     localStorage.setItem('hotel_maint_users', JSON.stringify(updated));
+
     if (currentUserRef.current && (currentUserRef.current.id === id || (data.email && currentUserRef.current.email.toLowerCase().trim() === data.email.toLowerCase().trim()))) {
       const updatedUser = { ...currentUserRef.current, ...normalizedData, updatedAt: nowIso };
       setCurrentUserState(updatedUser);
@@ -8299,18 +8317,36 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
       localStorage.setItem('hotel_maint_current_user', JSON.stringify(updatedUser));
       sessionStorage.setItem('hotel_maint_current_user', JSON.stringify(updatedUser));
     }
-    notify('Usuario actualizado correctamente en la nube');
-    persistToServer();
+
+    // Call PostgreSQL backend API PUT /api/users/:id
     try {
-      await safeCloudWrite(() => setDoc(doc(db, 'users', id), cleanForFirestore(updatedUserFull as any), { merge: true }));
-      setIsCloudSynced(true);
-    } catch (e) {
-      console.warn('Error updating user in cloud:', e);
+      const response = await fetch(`/api/users/${id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Client-Id': clientSessionId.current
+        },
+        body: JSON.stringify(updatedUserFull)
+      });
+      if (response.ok) {
+        const resData = await response.json();
+        if (resData.user) {
+          const syncedList = (usersRef.current || updated).map(u => u.id === id ? { ...u, ...resData.user } : u);
+          usersRef.current = syncedList;
+          setUsers(syncedList);
+          localStorage.setItem('hotel_maint_users', JSON.stringify(syncedList));
+        }
+      }
+    } catch (apiErr) {
+      console.warn('Notice calling PostgreSQL PUT /api/users/:id:', apiErr);
     }
+
+    notify('Usuario actualizado correctamente en PostgreSQL');
+    persistToServer();
   };
 
   const deleteUser = async (id: string) => {
-    if (currentUser && !currentUser.permissions?.canManageUsers) {
+    if (currentUser && !currentUser.permissions?.canManageUsers && currentUser.role !== 'admin') {
       notify('Acceso restringido: No tienes permisos para eliminar usuarios.');
       return;
     }
@@ -8321,7 +8357,7 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
     markDeletedUserId(id);
     localActionIds.current.add(id);
     setTimeout(() => { localActionIds.current.delete(id); }, 15000);
-    const updated = users.filter(u => u.id !== id);
+    const updated = (usersRef.current || users).filter(u => u.id !== id);
     usersRef.current = updated;
     setUsers(updated);
     localStorage.setItem('hotel_maint_users', JSON.stringify(updated));
@@ -8336,15 +8372,12 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
       roundsChannel.current?.postMessage({ type: 'user_deleted', userId: id });
     } catch (e) {}
 
-    fetch(`/api/users/${id}`, { method: 'DELETE' }).catch(() => {});
+    fetch(`/api/users/${id}`, { 
+      method: 'DELETE',
+      headers: { 'X-Client-Id': clientSessionId.current }
+    }).catch(() => {});
     recordCloudDeletion(id);
     persistToServer();
-    try {
-      await safeCloudWrite(() => deleteDoc(doc(db, 'users', id)));
-      setIsCloudSynced(true);
-    } catch (e) {
-      console.warn('Error deleting user in cloud:', e);
-    }
   };
 
   // -------------------------------------------------------------
@@ -9889,6 +9922,7 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
           Boolean(currentUser.permissions?.canEditSettings)
         ) : true,
         canManageUsers: currentUser ? (
+          currentUser.role === 'admin' ||
           currentUser.email?.toLowerCase().trim() === 'juanmateoramosramos44@gmail.com' ||
           currentUser.id === 'usr-1789230683226' ||
           Boolean(currentUser.permissions?.canManageUsers)

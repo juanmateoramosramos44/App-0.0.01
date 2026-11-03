@@ -423,7 +423,7 @@ async function loadPostgresIntoMemory(client: any) {
 }
 
 async function pgUpsert(table: string, id: string, data: any) {
-  if (!pgPool || !pgAvailable) return;
+  if (!pgPool) return;
   try {
     await pgPool.query(
       `INSERT INTO ${table} (id, data, updated_at) 
@@ -433,13 +433,12 @@ async function pgUpsert(table: string, id: string, data: any) {
       [id, JSON.stringify(data)]
     );
   } catch (err) {
-    pgAvailable = false;
     console.warn(`[PostgreSQL] Notice on ${table} (falling back to JSON store):`, (err as any)?.message || err);
   }
 }
 
 async function pgDelete(table: string, id: string) {
-  if (!pgPool || !pgAvailable) return;
+  if (!pgPool) return;
   try {
     await pgPool.query(`DELETE FROM ${table} WHERE id = $1`, [id]);
     await pgPool.query(
@@ -447,18 +446,16 @@ async function pgDelete(table: string, id: string) {
       [id]
     );
   } catch (err) {
-    pgAvailable = false;
     console.warn(`[PostgreSQL] Notice on delete ${table}:`, (err as any)?.message || err);
   }
 }
 
 async function pgGet(table: string, id: string) {
-  if (!pgPool || !pgAvailable) return null;
+  if (!pgPool) return null;
   try {
     const res = await pgPool.query(`SELECT data FROM ${table} WHERE id = $1`, [id]);
     return res.rows[0]?.data || null;
   } catch (err) {
-    pgAvailable = false;
     return null;
   }
 }
@@ -2717,10 +2714,30 @@ app.delete("/api/equipments/:id", (req, res) => {
   res.json({ status: "deleted", id });
 });
 
-app.delete("/api/users/:id", (req, res) => {
+app.delete("/api/users/:id", async (req, res) => {
   const { id } = req.params;
   const clientId = req.headers['x-client-id'] || null;
   registerDeletion(id);
+
+  const store = getCachedData();
+  if (Array.isArray(store.users)) {
+    store.users = store.users.filter((u: any) => u.id !== id);
+  }
+
+  if (pgPool) {
+    try {
+      await pgPool.query('DELETE FROM users WHERE id = $1', [id]);
+      await pgPool.query(
+        'INSERT INTO deleted_ids (id, deleted_at) VALUES ($1, CURRENT_TIMESTAMP) ON CONFLICT (id) DO NOTHING',
+        [id]
+      );
+      console.log(`[PostgreSQL] User ${id} deleted from PostgreSQL users table.`);
+    } catch (e) {
+      console.warn("[PostgreSQL] Error deleting user from DB:", e);
+    }
+  }
+
+  scheduleSaveToDisk();
   broadcastSse({
     type: 'user_deleted',
     userId: id,
@@ -2996,25 +3013,131 @@ app.post("/api/equipments", async (req, res) => {
   res.json({ status: "success", equipment: item });
 });
 
-// 7. Users
-app.get("/api/users", (_req, res) => {
+// 7. Users (Direct PostgreSQL queries with DATABASE_URL)
+app.get("/api/users", async (_req, res) => {
   const store = getCachedData();
+  if (pgPool) {
+    try {
+      const q = await pgPool.query('SELECT data FROM users ORDER BY updated_at DESC');
+      if (q && q.rows && q.rows.length > 0) {
+        const pgUsers = q.rows.map((r: any) => r.data).filter(Boolean);
+        const uMap = new Map();
+        (store.users || []).forEach((u: any) => { if (u && u.id) uMap.set(u.id, u); });
+        pgUsers.forEach((u: any) => { if (u && u.id) uMap.set(u.id, u); });
+        store.users = Array.from(uMap.values());
+      }
+    } catch (e) {
+      console.warn("[PostgreSQL] Notice loading users from DB:", (e as any)?.message || e);
+    }
+  }
   res.json(store.users || []);
 });
+
 app.post("/api/users", async (req, res) => {
   const item = req.body;
-  if (!item || !item.id) return res.status(400).json({ error: "Invalid user data" });
+  if (!item || (!item.id && !item.email)) return res.status(400).json({ error: "Invalid user data" });
+  if (!item.id) {
+    item.id = `usr-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
+  }
+  const nowIso = new Date().toISOString();
+  if (!item.createdAt) item.createdAt = nowIso;
+  item.updatedAt = nowIso;
+
   const store = getCachedData();
   if (!Array.isArray(store.users)) store.users = [];
-  const idx = store.users.findIndex((u: any) => u.id === item.id);
-  if (idx >= 0) store.users[idx] = { ...store.users[idx], ...item };
-  else store.users.push(item);
-  await pgUpsert('users', item.id, item);
+  const idx = store.users.findIndex((u: any) => u.id === item.id || (u.email && item.email && u.email.toLowerCase().trim() === item.email.toLowerCase().trim()));
+  if (idx >= 0) {
+    store.users[idx] = { ...store.users[idx], ...item };
+  } else {
+    store.users.push(item);
+  }
+
+  // Direct SQL execution on PostgreSQL
+  if (pgPool) {
+    try {
+      await pgPool.query(
+        `INSERT INTO users (id, data, email, role, updated_at) 
+         VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP) 
+         ON CONFLICT (id) 
+         DO UPDATE SET data = EXCLUDED.data, email = EXCLUDED.email, role = EXCLUDED.role, updated_at = CURRENT_TIMESTAMP`,
+        [item.id, JSON.stringify(item), item.email ? String(item.email).toLowerCase().trim() : null, item.role || 'técnico']
+      );
+      console.log(`[PostgreSQL] User ${item.id} (${item.displayName}) created/saved in DB.`);
+    } catch (pgErr) {
+      console.warn("[PostgreSQL] Error executing INSERT on users table:", (pgErr as any)?.message || pgErr);
+    }
+  }
+
   scheduleSaveToDisk();
   const clientId = req.headers['x-client-id'] || null;
+  broadcastSse({ type: 'user_created', user: item, clientId, time: Date.now() });
   broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
   res.json({ status: "success", user: item });
 });
+
+const handleUpdateUserRoute = async (req: express.Request, res: express.Response) => {
+  const { id } = req.params;
+  const updates = req.body;
+  if (!id) return res.status(400).json({ error: "User ID is required" });
+
+  const store = getCachedData();
+  if (!Array.isArray(store.users)) store.users = [];
+  const existingIdx = store.users.findIndex((u: any) => u.id === id);
+  const nowIso = new Date().toISOString();
+
+  let finalUser: any;
+  if (existingIdx >= 0) {
+    finalUser = {
+      ...store.users[existingIdx],
+      ...updates,
+      id, // Preserve ID
+      updatedAt: nowIso
+    };
+    store.users[existingIdx] = finalUser;
+  } else {
+    finalUser = {
+      ...updates,
+      id,
+      createdAt: updates.createdAt || nowIso,
+      updatedAt: nowIso
+    };
+    store.users.push(finalUser);
+  }
+
+  // Direct SQL execution on PostgreSQL (UPDATE WHERE id = $1, with UPSERT fallback)
+  if (pgPool) {
+    try {
+      const updateResult = await pgPool.query(
+        `UPDATE users 
+         SET data = $1, email = $2, role = $3, updated_at = CURRENT_TIMESTAMP 
+         WHERE id = $4`,
+        [JSON.stringify(finalUser), finalUser.email ? String(finalUser.email).toLowerCase().trim() : null, finalUser.role || 'técnico', id]
+      );
+
+      if (updateResult.rowCount === 0) {
+        await pgPool.query(
+          `INSERT INTO users (id, data, email, role, updated_at) 
+           VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP) 
+           ON CONFLICT (id) 
+           DO UPDATE SET data = EXCLUDED.data, email = EXCLUDED.email, role = EXCLUDED.role, updated_at = CURRENT_TIMESTAMP`,
+          [id, JSON.stringify(finalUser), finalUser.email ? String(finalUser.email).toLowerCase().trim() : null, finalUser.role || 'técnico']
+        );
+      }
+      console.log(`[PostgreSQL] User ${id} (${finalUser.displayName}) updated in DB successfully.`);
+    } catch (pgErr) {
+      console.warn("[PostgreSQL] Error executing UPDATE on users table:", (pgErr as any)?.message || pgErr);
+    }
+  }
+
+  scheduleSaveToDisk();
+  const clientId = req.headers['x-client-id'] || null;
+  broadcastSse({ type: 'user_updated', user: finalUser, clientId, time: Date.now() });
+  broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
+  res.json({ status: "success", user: finalUser });
+};
+
+app.put("/api/users/:id", handleUpdateUserRoute);
+app.patch("/api/users/:id", handleUpdateUserRoute);
 
 // 8. Cronogramas
 app.get("/api/cronogramas", (_req, res) => {
