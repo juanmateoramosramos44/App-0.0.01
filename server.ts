@@ -304,15 +304,22 @@ async function initPostgresSchema() {
 
 async function syncMemoryToPostgresIfEmpty(client: any) {
   try {
-    const res = await client.query('SELECT COUNT(*) as count FROM rounds');
-    const roundsCount = parseInt(res.rows[0]?.count || '0', 10);
-    if (roundsCount === 0) {
-      console.log('[PostgreSQL] Database is currently empty. Seeding initial application data...');
+    const tablesToCheck = ['rounds', 'users', 'equipments', 'tasks', 'incidents', 'requests', 'meters'];
+    let totalExistingRecords = 0;
+    for (const tbl of tablesToCheck) {
+      try {
+        const cRes = await client.query(`SELECT COUNT(*) as count FROM ${tbl}`);
+        totalExistingRecords += parseInt(cRes.rows[0]?.count || '0', 10);
+      } catch {}
+    }
+
+    if (totalExistingRecords === 0) {
+      console.log('[PostgreSQL] Database is currently empty across all tables. Seeding initial baseline data...');
       const data = getCachedData();
       await seedPostgresFromData(data, client);
-      console.log('[PostgreSQL] Database successfully seeded with existing data.');
+      console.log('[PostgreSQL] Database baseline initialized without overwriting.');
     } else {
-      console.log(`[PostgreSQL] Database has existing data (${roundsCount} rounds found). Loading into memory...`);
+      console.log(`[PostgreSQL] Database has existing data (${totalExistingRecords} records found across primary tables). Loading into memory...`);
       await loadPostgresIntoMemory(client);
     }
   } catch (e) {
@@ -1848,9 +1855,10 @@ app.post("/api/audit/repair", (req, res) => {
   res.json({ status: "success", ...auditResult });
 });
 
-app.post("/api/data", (req, res) => {
+app.post("/api/data", async (req, res) => {
   const clientId = req.headers['x-client-id'] || null;
   mergeAppData(req.body);
+  await persistMemoryToPostgres(req.body);
   broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
   res.json({ status: "success" });
 });
@@ -2358,38 +2366,47 @@ app.delete("/api/schedules/:id", (req, res) => {
   res.json({ status: "deleted", id });
 });
 
-app.delete("/api/cronogramas/:id", (req, res) => {
+app.delete("/api/cronogramas/:id", async (req, res) => {
   const { id } = req.params;
   const clientId = req.headers['x-client-id'] || null;
   registerDeletion(id);
   const cache = getCachedData();
   if (Array.isArray(cache.cronogramas)) {
     cache.cronogramas = cache.cronogramas.filter((c: any) => c.id !== id);
-    scheduleSaveToDisk();
   }
+  await pgDelete('cronogramas', id);
+  scheduleSaveToDisk();
   broadcastSse({
     type: 'cronograma_deleted',
     cronogramaId: id,
     clientId,
     time: Date.now()
   });
+  broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
   res.json({ status: "deleted", id });
 });
 
-app.delete("/api/shift-swaps/:id", (req, res) => {
+app.delete("/api/shift-swaps/:id", async (req, res) => {
   const { id } = req.params;
   const clientId = req.headers['x-client-id'] || null;
   registerDeletion(id);
+  const cache = getCachedData();
+  if (Array.isArray(cache.shiftSwaps)) {
+    cache.shiftSwaps = cache.shiftSwaps.filter((s: any) => s.id !== id);
+  }
+  await pgDelete('shift_swaps', id);
+  scheduleSaveToDisk();
   broadcastSse({
     type: 'swap_deleted',
     swapId: id,
     clientId,
     time: Date.now()
   });
+  broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
   res.json({ status: "deleted", id });
 });
 
-app.post("/api/tasks", (req, res) => {
+app.post("/api/tasks", async (req, res) => {
   let body = req.body;
   if (typeof body === 'string') {
     try {
@@ -2430,6 +2447,7 @@ app.post("/api/tasks", (req, res) => {
       current.tasks.unshift(savedTask);
     }
     savedTasks.push(savedTask);
+    await pgUpsert('tasks', savedTask.id, savedTask);
     broadcastSse({
       type: 'task_updated',
       task: savedTask,
@@ -2439,23 +2457,27 @@ app.post("/api/tasks", (req, res) => {
   }
 
   scheduleSaveToDisk();
+  broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
   res.json({ status: "success", tasks: savedTasks });
 });
 
-app.delete("/api/tasks/:id", (req, res) => {
+app.delete("/api/tasks/:id", async (req, res) => {
   const { id } = req.params;
   const clientId = req.headers['x-client-id'] || null;
   registerDeletion(id);
+  await pgDelete('tasks', id);
+  scheduleSaveToDisk();
   broadcastSse({
     type: 'task_deleted',
     taskId: id,
     clientId,
     time: Date.now()
   });
+  broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
   res.json({ status: "deleted", id });
 });
 
-app.post("/api/rounds", (req, res) => {
+app.post("/api/rounds", async (req, res) => {
   let body = req.body;
   if (typeof body === 'string') {
     try {
@@ -2617,6 +2639,8 @@ app.post("/api/rounds", (req, res) => {
       current.rounds.unshift(round);
     }
 
+    await pgUpsert('rounds', savedRound.id, savedRound);
+
     const eventType = savedRound.status === 'completada' ? 'round_completed' : 'round_updated';
     broadcastSse({
       type: eventType,
@@ -2662,55 +2686,104 @@ app.post("/api/rounds", (req, res) => {
   });
 });
 
-app.delete("/api/rounds/:id", (req, res) => {
+app.put("/api/rounds/:id", async (req, res) => {
+  const { id } = req.params;
+  const updates = { ...req.body, id };
+  const current = getCachedData();
+  if (!Array.isArray(current.rounds)) current.rounds = [];
+  const idx = current.rounds.findIndex((r: any) => r && r.id === id);
+  let savedRound: any;
+  if (idx >= 0) {
+    savedRound = { ...current.rounds[idx], ...updates };
+    current.rounds[idx] = savedRound;
+  } else {
+    savedRound = updates;
+    current.rounds.unshift(savedRound);
+  }
+  await pgUpsert('rounds', id, savedRound);
+  scheduleSaveToDisk();
+  const clientId = req.headers['x-client-id'] || null;
+  broadcastSse({ type: 'round_updated', round: savedRound, clientId, time: Date.now() });
+  broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
+  res.json({ success: true, round: savedRound });
+});
+
+app.delete("/api/rounds/:id", async (req, res) => {
   const { id } = req.params;
   const clientId = req.headers['x-client-id'] || null;
   registerDeletion(id);
+  await pgDelete('rounds', id);
+  scheduleSaveToDisk();
   broadcastSse({
     type: 'round_deleted',
     roundId: id,
     clientId,
     time: Date.now()
   });
+  broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
   res.json({ status: "deleted", id });
 });
 
-app.delete("/api/requests/:id", (req, res) => {
+app.delete("/api/requests/:id", async (req, res) => {
   const { id } = req.params;
   const clientId = req.headers['x-client-id'] || null;
   registerDeletion(id);
+  await pgDelete('requests', id);
+  scheduleSaveToDisk();
   broadcastSse({
     type: 'request_deleted',
     requestId: id,
     clientId,
     time: Date.now()
   });
+  broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
   res.json({ status: "deleted", id });
 });
 
-app.delete("/api/incidents/:id", (req, res) => {
+app.delete("/api/incidents/:id", async (req, res) => {
   const { id } = req.params;
   const clientId = req.headers['x-client-id'] || null;
   registerDeletion(id);
+  await pgDelete('incidents', id);
+  scheduleSaveToDisk();
   broadcastSse({
     type: 'incident_deleted',
     incidentId: id,
     clientId,
     time: Date.now()
   });
+  broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
   res.json({ status: "deleted", id });
 });
 
-app.delete("/api/equipments/:id", (req, res) => {
+app.put("/api/equipments/:id", async (req, res) => {
+  const { id } = req.params;
+  const item = { ...req.body, id };
+  const store = getCachedData();
+  if (!Array.isArray(store.equipments)) store.equipments = [];
+  const idx = store.equipments.findIndex((e: any) => e.id === id);
+  if (idx >= 0) store.equipments[idx] = { ...store.equipments[idx], ...item };
+  else store.equipments.push(item);
+  await pgUpsert('equipments', id, item);
+  scheduleSaveToDisk();
+  const clientId = req.headers['x-client-id'] || null;
+  broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
+  res.json({ status: "success", equipment: item });
+});
+
+app.delete("/api/equipments/:id", async (req, res) => {
   const { id } = req.params;
   const clientId = req.headers['x-client-id'] || null;
   registerDeletion(id);
+  await pgDelete('equipments', id);
+  scheduleSaveToDisk();
   broadcastSse({
     type: 'equipment_deleted',
     equipmentId: id,
     clientId,
     time: Date.now()
   });
+  broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
   res.json({ status: "deleted", id });
 });
 
@@ -2748,39 +2821,233 @@ app.delete("/api/users/:id", async (req, res) => {
   res.json({ status: "deleted", id });
 });
 
-app.delete("/api/preventive-plans/:id", (req, res) => {
+// Preventive Plans
+app.get("/api/preventive-plans", (_req, res) => {
+  const store = getCachedData();
+  res.json(store.preventivePlans || []);
+});
+app.post("/api/preventive-plans", async (req, res) => {
+  const item = req.body;
+  if (!item || !item.id) return res.status(400).json({ error: "Invalid preventive plan" });
+  const store = getCachedData();
+  if (!Array.isArray(store.preventivePlans)) store.preventivePlans = [];
+  const idx = store.preventivePlans.findIndex((p: any) => p.id === item.id);
+  if (idx >= 0) store.preventivePlans[idx] = { ...store.preventivePlans[idx], ...item };
+  else store.preventivePlans.push(item);
+  await pgUpsert('preventive_plans', item.id, item);
+  scheduleSaveToDisk();
+  const clientId = req.headers['x-client-id'] || null;
+  broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
+  res.json({ status: "success", plan: item });
+});
+app.put("/api/preventive-plans/:id", async (req, res) => {
+  const { id } = req.params;
+  const item = { ...req.body, id };
+  const store = getCachedData();
+  if (!Array.isArray(store.preventivePlans)) store.preventivePlans = [];
+  const idx = store.preventivePlans.findIndex((p: any) => p.id === id);
+  if (idx >= 0) store.preventivePlans[idx] = { ...store.preventivePlans[idx], ...item };
+  else store.preventivePlans.push(item);
+  await pgUpsert('preventive_plans', id, item);
+  scheduleSaveToDisk();
+  const clientId = req.headers['x-client-id'] || null;
+  broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
+  res.json({ status: "success", plan: item });
+});
+app.delete("/api/preventive-plans/:id", async (req, res) => {
   const { id } = req.params;
   const clientId = req.headers['x-client-id'] || null;
   registerDeletion(id);
+  await pgDelete('preventive_plans', id);
+  scheduleSaveToDisk();
   broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
   res.json({ status: "deleted", id });
 });
 
-app.delete("/api/work-orders/:id", (req, res) => {
+// Work Orders
+app.get("/api/work-orders", (_req, res) => {
+  const store = getCachedData();
+  res.json(store.workOrders || []);
+});
+app.post("/api/work-orders", async (req, res) => {
+  const item = req.body;
+  if (!item || !item.id) return res.status(400).json({ error: "Invalid work order" });
+  const store = getCachedData();
+  if (!Array.isArray(store.workOrders)) store.workOrders = [];
+  const idx = store.workOrders.findIndex((w: any) => w.id === item.id);
+  if (idx >= 0) store.workOrders[idx] = { ...store.workOrders[idx], ...item };
+  else store.workOrders.push(item);
+  await pgUpsert('work_orders', item.id, item);
+  scheduleSaveToDisk();
+  const clientId = req.headers['x-client-id'] || null;
+  broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
+  res.json({ status: "success", workOrder: item });
+});
+app.put("/api/work-orders/:id", async (req, res) => {
+  const { id } = req.params;
+  const item = { ...req.body, id };
+  const store = getCachedData();
+  if (!Array.isArray(store.workOrders)) store.workOrders = [];
+  const idx = store.workOrders.findIndex((w: any) => w.id === id);
+  if (idx >= 0) store.workOrders[idx] = { ...store.workOrders[idx], ...item };
+  else store.workOrders.push(item);
+  await pgUpsert('work_orders', id, item);
+  scheduleSaveToDisk();
+  const clientId = req.headers['x-client-id'] || null;
+  broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
+  res.json({ status: "success", workOrder: item });
+});
+app.delete("/api/work-orders/:id", async (req, res) => {
   const { id } = req.params;
   const clientId = req.headers['x-client-id'] || null;
   registerDeletion(id);
+  await pgDelete('work_orders', id);
+  scheduleSaveToDisk();
   broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
   res.json({ status: "deleted", id });
 });
 
-app.delete("/api/uploaded-documents/:id", (req, res) => {
+// Pump Inspections
+app.get("/api/pump-inspections", (_req, res) => {
+  const store = getCachedData();
+  res.json(store.pumpInspections || []);
+});
+app.post("/api/pump-inspections", async (req, res) => {
+  const item = req.body;
+  if (!item || !item.id) return res.status(400).json({ error: "Invalid pump inspection" });
+  const store = getCachedData();
+  if (!Array.isArray(store.pumpInspections)) store.pumpInspections = [];
+  const idx = store.pumpInspections.findIndex((p: any) => p.id === item.id);
+  if (idx >= 0) store.pumpInspections[idx] = { ...store.pumpInspections[idx], ...item };
+  else store.pumpInspections.push(item);
+  await pgUpsert('pump_inspections', item.id, item);
+  scheduleSaveToDisk();
+  const clientId = req.headers['x-client-id'] || null;
+  broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
+  res.json({ status: "success", inspection: item });
+});
+app.put("/api/pump-inspections/:id", async (req, res) => {
+  const { id } = req.params;
+  const item = { ...req.body, id };
+  const store = getCachedData();
+  if (!Array.isArray(store.pumpInspections)) store.pumpInspections = [];
+  const idx = store.pumpInspections.findIndex((p: any) => p.id === id);
+  if (idx >= 0) store.pumpInspections[idx] = { ...store.pumpInspections[idx], ...item };
+  else store.pumpInspections.push(item);
+  await pgUpsert('pump_inspections', id, item);
+  scheduleSaveToDisk();
+  const clientId = req.headers['x-client-id'] || null;
+  broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
+  res.json({ status: "success", inspection: item });
+});
+app.delete("/api/pump-inspections/:id", async (req, res) => {
   const { id } = req.params;
   const clientId = req.headers['x-client-id'] || null;
   registerDeletion(id);
+  await pgDelete('pump_inspections', id);
+  scheduleSaveToDisk();
   broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
   res.json({ status: "deleted", id });
 });
 
-app.delete("/api/document-folders/:id", (req, res) => {
+// Shift Swaps
+app.get("/api/shift-swaps", (_req, res) => {
+  const store = getCachedData();
+  res.json(store.shiftSwaps || []);
+});
+app.post("/api/shift-swaps", async (req, res) => {
+  const item = req.body;
+  if (!item || !item.id) return res.status(400).json({ error: "Invalid swap data" });
+  const store = getCachedData();
+  if (!Array.isArray(store.shiftSwaps)) store.shiftSwaps = [];
+  const idx = store.shiftSwaps.findIndex((s: any) => s.id === item.id);
+  if (idx >= 0) store.shiftSwaps[idx] = { ...store.shiftSwaps[idx], ...item };
+  else store.shiftSwaps.push(item);
+  await pgUpsert('shift_swaps', item.id, item);
+  scheduleSaveToDisk();
+  const clientId = req.headers['x-client-id'] || null;
+  broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
+  res.json({ status: "success", swap: item });
+});
+app.put("/api/shift-swaps/:id", async (req, res) => {
+  const { id } = req.params;
+  const item = { ...req.body, id };
+  const store = getCachedData();
+  if (!Array.isArray(store.shiftSwaps)) store.shiftSwaps = [];
+  const idx = store.shiftSwaps.findIndex((s: any) => s.id === id);
+  if (idx >= 0) store.shiftSwaps[idx] = { ...store.shiftSwaps[idx], ...item };
+  else store.shiftSwaps.push(item);
+  await pgUpsert('shift_swaps', id, item);
+  scheduleSaveToDisk();
+  const clientId = req.headers['x-client-id'] || null;
+  broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
+  res.json({ status: "success", swap: item });
+});
+
+// Uploaded Documents
+app.get("/api/uploaded-documents", (_req, res) => {
+  const store = getCachedData();
+  res.json(store.uploadedDocuments || []);
+});
+app.post("/api/uploaded-documents", async (req, res) => {
+  const item = req.body;
+  if (!item || !item.id) return res.status(400).json({ error: "Invalid document data" });
+  const store = getCachedData();
+  if (!Array.isArray(store.uploadedDocuments)) store.uploadedDocuments = [];
+  const idx = store.uploadedDocuments.findIndex((d: any) => d.id === item.id);
+  if (idx >= 0) store.uploadedDocuments[idx] = { ...store.uploadedDocuments[idx], ...item };
+  else store.uploadedDocuments.push(item);
+  await pgUpsert('uploaded_documents', item.id, item);
+  scheduleSaveToDisk();
+  const clientId = req.headers['x-client-id'] || null;
+  broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
+  res.json({ status: "success", document: item });
+});
+app.delete("/api/uploaded-documents/:id", async (req, res) => {
   const { id } = req.params;
   const clientId = req.headers['x-client-id'] || null;
   registerDeletion(id);
+  await pgDelete('uploaded_documents', id);
+  scheduleSaveToDisk();
   broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
   res.json({ status: "deleted", id });
 });
 
-app.post("/api/meters", (req, res) => {
+// Document Folders
+app.get("/api/document-folders", (_req, res) => {
+  const store = getCachedData();
+  res.json(store.documentFolders || []);
+});
+app.post("/api/document-folders", async (req, res) => {
+  const item = req.body;
+  if (!item || !item.id) return res.status(400).json({ error: "Invalid folder data" });
+  const store = getCachedData();
+  if (!Array.isArray(store.documentFolders)) store.documentFolders = [];
+  const idx = store.documentFolders.findIndex((f: any) => f.id === item.id);
+  if (idx >= 0) store.documentFolders[idx] = { ...store.documentFolders[idx], ...item };
+  else store.documentFolders.push(item);
+  await pgUpsert('document_folders', item.id, item);
+  scheduleSaveToDisk();
+  const clientId = req.headers['x-client-id'] || null;
+  broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
+  res.json({ status: "success", folder: item });
+});
+app.delete("/api/document-folders/:id", async (req, res) => {
+  const { id } = req.params;
+  const clientId = req.headers['x-client-id'] || null;
+  registerDeletion(id);
+  await pgDelete('document_folders', id);
+  scheduleSaveToDisk();
+  broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
+  res.json({ status: "deleted", id });
+});
+
+// Meters & Meter Readings
+app.get("/api/meters", (_req, res) => {
+  const current = getCachedData();
+  res.json(current.meters || []);
+});
+app.post("/api/meters", async (req, res) => {
   const meter = req.body;
   if (!meter || !meter.id) return res.status(400).json({ error: "Invalid meter data" });
   const current = getCachedData();
@@ -2793,18 +3060,35 @@ app.post("/api/meters", (req, res) => {
     current.meters.unshift(meter);
   }
 
-  // Ensure deletedIds is updated
   if (Array.isArray(current.deletedIds)) {
     current.deletedIds = current.deletedIds.filter((id: string) => id !== meter.id && id !== meter.code);
   }
 
+  await pgUpsert('meters', meter.id, meter);
   scheduleSaveToDisk();
   const clientId = req.headers['x-client-id'] || null;
   broadcastSse({ type: 'meter_updated', meter, clientId, time: Date.now() });
+  broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
   res.json({ success: true, meter });
 });
 
-app.delete("/api/meters/:id", (req, res) => {
+app.put("/api/meters/:id", async (req, res) => {
+  const { id } = req.params;
+  const meter = { ...req.body, id };
+  const current = getCachedData();
+  if (!Array.isArray(current.meters)) current.meters = [];
+  const idx = current.meters.findIndex((m: any) => m && (m.id === id || m.code === id));
+  if (idx >= 0) current.meters[idx] = { ...current.meters[idx], ...meter };
+  else current.meters.unshift(meter);
+  await pgUpsert('meters', id, meter);
+  scheduleSaveToDisk();
+  const clientId = req.headers['x-client-id'] || null;
+  broadcastSse({ type: 'meter_updated', meter, clientId, time: Date.now() });
+  broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
+  res.json({ success: true, meter });
+});
+
+app.delete("/api/meters/:id", async (req, res) => {
   const { id } = req.params;
   const clientId = req.headers['x-client-id'] || null;
   registerDeletion(id);
@@ -2815,12 +3099,19 @@ app.delete("/api/meters/:id", (req, res) => {
   if (Array.isArray(current.meterReadingsLog)) {
     current.meterReadingsLog = current.meterReadingsLog.filter((r: any) => r && r.meterId !== id);
   }
+  await pgDelete('meters', id);
   scheduleSaveToDisk();
   broadcastSse({ type: 'meter_deleted', meterId: id, clientId, time: Date.now() });
+  broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
   res.json({ status: "deleted", id });
 });
 
-app.post("/api/meter-readings", (req, res) => {
+app.get("/api/meter-readings", (_req, res) => {
+  const current = getCachedData();
+  res.json(current.meterReadingsLog || []);
+});
+
+app.post("/api/meter-readings", async (req, res) => {
   const reading = req.body;
   if (!reading || !reading.id) return res.status(400).json({ error: "Invalid reading data" });
   const current = getCachedData();
@@ -2840,9 +3131,11 @@ app.post("/api/meter-readings", (req, res) => {
       current.meters[mIdx].lastReadingDate = reading.date;
       current.meters[mIdx].lastReadingTime = reading.time;
       current.meters[mIdx].updatedAt = new Date().toISOString();
+      await pgUpsert('meters', current.meters[mIdx].id, current.meters[mIdx]);
     }
   }
 
+  await pgUpsert('meter_readings_log', reading.id, reading);
   scheduleSaveToDisk();
   const clientId = req.headers['x-client-id'] || null;
   broadcastSse({ type: 'meter_reading_added', reading, clientId, time: Date.now() });
@@ -2850,7 +3143,7 @@ app.post("/api/meter-readings", (req, res) => {
   res.json({ success: true, reading });
 });
 
-app.delete("/api/meter-readings/:id", (req, res) => {
+app.delete("/api/meter-readings/:id", async (req, res) => {
   const { id } = req.params;
   const clientId = req.headers['x-client-id'] || null;
   registerDeletion(id);
@@ -2858,8 +3151,10 @@ app.delete("/api/meter-readings/:id", (req, res) => {
   if (Array.isArray(current.meterReadingsLog)) {
     current.meterReadingsLog = current.meterReadingsLog.filter((r: any) => r && r.id !== id);
   }
+  await pgDelete('meter_readings_log', id);
   scheduleSaveToDisk();
   broadcastSse({ type: 'meter_reading_deleted', readingId: id, clientId, time: Date.now() });
+  broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
   res.json({ status: "deleted", id });
 });
 
@@ -3155,6 +3450,21 @@ app.post("/api/cronogramas", async (req, res) => {
   await pgUpsert('cronogramas', item.id, item);
   scheduleSaveToDisk();
   const clientId = req.headers['x-client-id'] || null;
+  broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
+  res.json({ status: "success", cronograma: item });
+});
+app.put("/api/cronogramas/:id", async (req, res) => {
+  const { id } = req.params;
+  const item = { ...req.body, id };
+  const store = getCachedData();
+  if (!Array.isArray(store.cronogramas)) store.cronogramas = [];
+  const idx = store.cronogramas.findIndex((c: any) => c.id === id);
+  if (idx >= 0) store.cronogramas[idx] = { ...store.cronogramas[idx], ...item };
+  else store.cronogramas.push(item);
+  await pgUpsert('cronogramas', id, item);
+  scheduleSaveToDisk();
+  const clientId = req.headers['x-client-id'] || null;
+  broadcastSse({ type: 'cronograma_updated', cronograma: item, clientId, time: Date.now() });
   broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
   res.json({ status: "success", cronograma: item });
 });
