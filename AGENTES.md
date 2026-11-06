@@ -45,3 +45,20 @@
 
 7. **Estabilidad Visual y Cero Parpadeos**:
    - Toda actualización de estado, sincronización SSE y persistencia se realiza en segundo plano de manera transparente, sin parpadeos, destellos ni recargas forzadas que interrumpan al usuario.
+
+8. **Sincronización en Vivo de Sesiones de Usuario (Sin Cerrar Sesión)**:
+   - Cuando un administrador modifica un usuario (rol, permisos, secciones visibles, horario o estado), el cambio se aplica de forma automática e instantánea en el dispositivo abierto del usuario mediante SSE (`user_updated`), sincronización activa con `/api/auth/me` y eventos de visibilidad/foco, sin forzar cierre de sesión ni borrar caché.
+
+9. **Blindaje Definitivo contra Null/Undefined (`String(val ?? '').toLowerCase()`)**:
+   - Queda terminantemente prohibido llamar `.toLowerCase()` directamente sobre propiedades que puedan ser nulas o indefinidas. Toda búsqueda, filtro y renderizado emplea safe lowercasing para garantizar cero pantallas en blanco.
+
+10. **Sincronización Total Multi-Dispositivo (PC y Celulares Idénticos)**:
+    - La API de PostgreSQL es la única fuente de verdad. Se prohíbe que filtros locales de `localStorage` (`deletedIds`) supriman tareas u objetos existentes en la base de datos, garantizando que el recuento de tareas, rondas y reportes sea exactamente el mismo en ordenadores y teléfonos móviles.
+
+11. **Panel General de Métricas y Estadísticas Recharts en Vivo**:
+    - El Panel General cuenta con gráficos interactivos y adaptables alimentados con datos de PostgreSQL:
+      - Rondas técnicas (completadas vs. pendientes / por día).
+      - Lectura de contadores (tendencia y consumo registrado de agua, electricidad y gas).
+      - Inconvenientes y fallas en vivo (activos vs. resueltos y desglose por nivel de urgencia).
+      - Solicitudes hoteleras (resueltas vs. en proceso vs. pendientes).
+      - Tareas y órdenes de trabajo (estados operativos y distribución por prioridad).

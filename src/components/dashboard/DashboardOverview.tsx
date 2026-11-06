@@ -467,7 +467,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
               <h3 className="font-bold text-slate-900 text-sm flex items-center space-x-2">
                 <span>Tablero de Inconvenientes en Vivo (Compartido entre Compañeros)</span>
                 <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 font-normal">
-                  Nube Firestore Activa
+                  Base de Datos PostgreSQL Activa
                 </span>
               </h3>
               <p className="text-xs text-slate-500">

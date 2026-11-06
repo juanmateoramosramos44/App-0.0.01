@@ -37,6 +37,8 @@ import {
   Loader2
 } from 'lucide-react';
 
+const safeLower = (val: unknown): string => String(val ?? '').toLowerCase().trim();
+
 const AVAILABLE_MODULES = [
   { id: 'dashboard', label: 'Panel General', icon: Layers, desc: 'Métricas e indicadores globales' },
   { id: 'rondas', label: 'Rondas Diarias', icon: Clock, desc: 'Toma de lecturas e inspecciones' },
@@ -251,7 +253,8 @@ export const UsersView: React.FC = () => {
     setFormError('');
 
     const trimmedName = formName.trim();
-    const trimmedEmail = (formEmail.trim() || `${trimmedName.toLowerCase().replace(/[^a-z0-9]/g, '')}_${Date.now().toString().slice(-4)}@hotel.com`).toLowerCase();
+    const fallbackEmail = `${safeLower(trimmedName).replace(/[^a-z0-9]/g, '')}_${Date.now().toString().slice(-4)}@hotel.com`;
+    const trimmedEmail = safeLower(formEmail) || fallbackEmail;
 
     if (!trimmedName) {
       setFormError('Por favor ingresa el nombre completo del usuario.');
@@ -265,7 +268,7 @@ export const UsersView: React.FC = () => {
 
     // Check email uniqueness only if different user
     if (editingUser) {
-      const existsEmail = users.some(u => u.id !== editingUser.id && u.email?.toLowerCase().trim() === trimmedEmail);
+      const existsEmail = users.some(u => u.id !== editingUser.id && safeLower(u.email) === trimmedEmail);
       if (existsEmail) {
         setFormError('Ya existe otro usuario registrado con este correo electrónico.');
         return;
@@ -346,7 +349,7 @@ export const UsersView: React.FC = () => {
   };
 
   const handleDelete = async (user: User) => {
-    if (currentUser && (user.id === currentUser.id || user.email.toLowerCase().trim() === currentUser.email.toLowerCase().trim())) {
+    if (currentUser && (user.id === currentUser.id || (safeLower(user.email) && safeLower(user.email) === safeLower(currentUser.email)))) {
       notify('⚠️ No puedes eliminar tu propia cuenta en sesión activa.');
       return;
     }
@@ -363,7 +366,7 @@ export const UsersView: React.FC = () => {
   };
 
   const toggleUserActiveStatus = async (user: User) => {
-    if (currentUser && (user.id === currentUser.id || user.email.toLowerCase().trim() === currentUser.email.toLowerCase().trim())) {
+    if (currentUser && (user.id === currentUser.id || (safeLower(user.email) && safeLower(user.email) === safeLower(currentUser.email)))) {
       notify('⚠️ No puedes desactivar tu propia cuenta en sesión activa.');
       return;
     }
@@ -373,7 +376,7 @@ export const UsersView: React.FC = () => {
 
   // Helper para verificar el estado de conexión en vivo del usuario
   const checkIsUserOnline = (u: User): { isOnline: boolean; label: string; timeText: string } => {
-    const isMe = currentUser && (u.id === currentUser.id || (u.email && u.email.toLowerCase().trim() === currentUser.email?.toLowerCase().trim()));
+    const isMe = currentUser && (u.id === currentUser.id || (safeLower(u.email) && safeLower(u.email) === safeLower(currentUser.email)));
     if (isMe) {
       return { isOnline: true, label: 'En línea (Tu sesión actual)', timeText: 'Activo ahora' };
     }
@@ -413,9 +416,11 @@ export const UsersView: React.FC = () => {
 
   // Filtered users
   const filteredUsers = users.filter(user => {
-    const matchesSearch = 
-      user.displayName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      user.email.toLowerCase().includes(searchTerm.toLowerCase());
+    const sTerm = safeLower(searchTerm);
+    const matchesSearch = !sTerm ||
+      safeLower(user.displayName).includes(sTerm) ||
+      safeLower(user.email).includes(sTerm) ||
+      safeLower(user.role).includes(sTerm);
     const matchesRole = roleFilter === 'all' || user.role === roleFilter;
     const isOnline = checkIsUserOnline(user).isOnline;
     const matchesStatus = statusFilter === 'all' || 
@@ -568,10 +573,11 @@ export const UsersView: React.FC = () => {
       {/* Users Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-5">
         {filteredUsers.map(user => {
-          const isCurrentUser = currentUser && (user.id === currentUser.id || user.email.toLowerCase().trim() === currentUser.email.toLowerCase().trim());
+          const isCurrentUser = currentUser && (user.id === currentUser.id || (safeLower(user.email) && safeLower(user.email) === safeLower(currentUser.email)));
           const roleBadge = roleDisplay[user.role] || roleDisplay.técnico;
           const isActive = user.status === 'active';
           const onlineInfo = checkIsUserOnline(user);
+          const initialLetter = String(user.displayName || user.email || 'U').charAt(0).toUpperCase();
 
           return (
             <div 
@@ -594,7 +600,7 @@ export const UsersView: React.FC = () => {
                           ? 'bg-teal-600 text-white shadow-teal-500/20'
                           : 'bg-slate-600 text-white'
                       }`}>
-                        {user.displayName.charAt(0).toUpperCase()}
+                        {initialLetter}
                       </div>
                       {/* Indicador de conexión sobre avatar */}
                       <span 

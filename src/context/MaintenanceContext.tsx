@@ -5734,6 +5734,44 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
               localStorage.removeItem('hotel_maint_current_user');
               sessionStorage.removeItem('hotel_maint_current_user');
             }
+          } else if (payload && (payload.type === 'user_updated' || payload.type === 'user_created') && payload.user) {
+            const incomingUser = payload.user as User;
+            unmarkDeletedUserId(incomingUser.id);
+            const prevUsers = usersRef.current || [];
+            const safeIncomingEmail = String(incomingUser.email ?? '').toLowerCase().trim();
+            const uIdx = prevUsers.findIndex(u => u.id === incomingUser.id || (safeIncomingEmail && String(u.email ?? '').toLowerCase().trim() === safeIncomingEmail));
+            let updatedUsers: User[];
+            if (uIdx >= 0) {
+              updatedUsers = [...prevUsers];
+              updatedUsers[uIdx] = { ...prevUsers[uIdx], ...incomingUser };
+            } else {
+              updatedUsers = [incomingUser, ...prevUsers];
+            }
+            const cleanGuaranteed = ensureAdminUserList(updatedUsers);
+            usersRef.current = cleanGuaranteed;
+            setUsers(cleanGuaranteed);
+            localStorage.setItem('hotel_maint_users', JSON.stringify(cleanGuaranteed));
+
+            // Sincronización en vivo e instantánea del perfil de sesión en el dispositivo activo (sin cerrar sesión)
+            if (currentUserRef.current) {
+              const activeId = currentUserRef.current.id;
+              const activeEmail = String(currentUserRef.current.email ?? '').toLowerCase().trim();
+              const isMe = activeId === incomingUser.id || (safeIncomingEmail && activeEmail === safeIncomingEmail);
+              if (isMe) {
+                if (incomingUser.status === 'inactive') {
+                  setCurrentUserState(null);
+                  currentUserRef.current = null;
+                  localStorage.removeItem('hotel_maint_current_user');
+                  sessionStorage.removeItem('hotel_maint_current_user');
+                  notify('Tu sesión ha finalizado porque tu usuario fue desactivado por el administrador.');
+                } else {
+                  const freshMe = { ...currentUserRef.current, ...incomingUser };
+                  setCurrentUserState(freshMe);
+                  currentUserRef.current = freshMe;
+                  localStorage.setItem('hotel_maint_current_user', JSON.stringify(freshMe));
+                }
+              }
+            }
           } else if (payload && payload.type === 'cronograma_deleted' && payload.cronogramaId) {
             const delId = payload.cronogramaId;
             markDeletedCronogramaId(delId);
@@ -5855,9 +5893,10 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
                   }
                 }
                 if (Array.isArray(fresh.tasks)) {
-                  const deletedIds = getDeletedTaskIds();
-                  const cleanFresh = fresh.tasks.filter(t => t && !deletedIds.has(t.id));
-                  const merged = mergeTaskLists(tasksRef.current || [], cleanFresh, deletedIds);
+                  const cleanFresh = fresh.tasks.filter(t => t && t.id);
+                  // PostgreSQL es la única fuente de verdad: desmarcar eliminaciones locales obsoletas
+                  cleanFresh.forEach(t => unmarkDeletedTaskId(t.id));
+                  const merged = mergeTaskLists(tasksRef.current || [], cleanFresh, new Set());
                   if (JSON.stringify(merged) !== JSON.stringify(tasksRef.current)) {
                     checkAndNotifyNewTasks(merged, tasksRef.current || []);
                     tasksRef.current = merged;
@@ -5917,6 +5956,37 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
                     usersRef.current = guaranteed;
                     setUsers(guaranteed);
                     localStorage.setItem('hotel_maint_users', JSON.stringify(guaranteed));
+                  }
+
+                  // Sincronización en vivo del perfil de sesión en el dispositivo activo (sin recargar ni cerrar sesión)
+                  if (currentUserRef.current) {
+                    const activeId = currentUserRef.current.id;
+                    const activeEmail = String(currentUserRef.current.email ?? '').toLowerCase().trim();
+                    const freshMe = guaranteed.find(u => u && (u.id === activeId || (activeEmail && String(u.email ?? '').toLowerCase().trim() === activeEmail)));
+                    if (freshMe) {
+                      if (freshMe.status === 'inactive') {
+                        setCurrentUserState(null);
+                        currentUserRef.current = null;
+                        localStorage.removeItem('hotel_maint_current_user');
+                        sessionStorage.removeItem('hotel_maint_current_user');
+                        notify('Tu sesión ha finalizado porque tu cuenta fue desactivada.');
+                      } else {
+                        const hasDiff = 
+                          freshMe.role !== currentUserRef.current.role ||
+                          freshMe.displayName !== currentUserRef.current.displayName ||
+                          freshMe.password !== currentUserRef.current.password ||
+                          JSON.stringify(freshMe.permissions) !== JSON.stringify(currentUserRef.current.permissions) ||
+                          JSON.stringify(freshMe.visibleSections) !== JSON.stringify(currentUserRef.current.visibleSections) ||
+                          (freshMe as any).shift !== (currentUserRef.current as any).shift;
+                        if (hasDiff) {
+                          const updatedSession = { ...currentUserRef.current, ...freshMe };
+                          setCurrentUserState(updatedSession);
+                          currentUserRef.current = updatedSession;
+                          localStorage.setItem('hotel_maint_current_user', JSON.stringify(updatedSession));
+                          sessionStorage.setItem('hotel_maint_current_user', JSON.stringify(updatedSession));
+                        }
+                      }
+                    }
                   }
                 }
                 if (fresh.settings) {
@@ -6107,6 +6177,88 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
       roundsChannel.current?.removeEventListener('message', handleBroadcast);
     };
   }, []);
+
+  // Sincronización activa del perfil de usuario en sesión contra PostgreSQL (sin cerrar sesión ni recargar)
+  useEffect(() => {
+    if (!currentUser?.id && !currentUser?.email) return;
+
+    let isCancelled = false;
+    const syncActiveUserProfile = async () => {
+      try {
+        const activeUser = currentUserRef.current;
+        if (!activeUser || (!activeUser.id && !activeUser.email)) return;
+
+        const qId = encodeURIComponent(activeUser.id || '');
+        const qEmail = encodeURIComponent(activeUser.email || '');
+        const res = await fetch(`/api/auth/me?id=${qId}&email=${qEmail}`, { cache: 'no-store' });
+        if (res.ok && !isCancelled) {
+          const body = await res.json();
+          const serverUser = body.user as User;
+          if (serverUser && serverUser.id) {
+            const current = currentUserRef.current;
+            if (!current) return;
+
+            if (serverUser.status === 'inactive') {
+              setCurrentUserState(null);
+              currentUserRef.current = null;
+              localStorage.removeItem('hotel_maint_current_user');
+              sessionStorage.removeItem('hotel_maint_current_user');
+              notify('Tu sesión ha finalizado porque tu cuenta fue desactivada por el administrador.');
+              return;
+            }
+
+            const hasChanged = 
+              serverUser.role !== current.role ||
+              serverUser.displayName !== current.displayName ||
+              serverUser.password !== current.password ||
+              (serverUser as any).shift !== (current as any).shift ||
+              JSON.stringify(serverUser.permissions) !== JSON.stringify(current.permissions) ||
+              JSON.stringify(serverUser.visibleSections) !== JSON.stringify(current.visibleSections) ||
+              JSON.stringify((serverUser as any).assignedTasks) !== JSON.stringify((current as any).assignedTasks);
+
+            if (hasChanged) {
+              const mergedSessionUser = { ...current, ...serverUser };
+              setCurrentUserState(mergedSessionUser);
+              currentUserRef.current = mergedSessionUser;
+              localStorage.setItem('hotel_maint_current_user', JSON.stringify(mergedSessionUser));
+              sessionStorage.setItem('hotel_maint_current_user', JSON.stringify(mergedSessionUser));
+
+              setUsers(prev => {
+                const idx = prev.findIndex(u => u.id === serverUser.id);
+                if (idx >= 0) {
+                  const next = [...prev];
+                  next[idx] = { ...next[idx], ...serverUser };
+                  usersRef.current = next;
+                  localStorage.setItem('hotel_maint_users', JSON.stringify(next));
+                  return next;
+                }
+                return prev;
+              });
+            }
+          }
+        }
+      } catch {
+        // Non-blocking sync
+      }
+    };
+
+    const intervalId = setInterval(syncActiveUserProfile, 5000);
+
+    const handleFocusOrVisible = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+        syncActiveUserProfile();
+      }
+    };
+    window.addEventListener('focus', handleFocusOrVisible);
+    document.addEventListener('visibilitychange', handleFocusOrVisible);
+
+    return () => {
+      isCancelled = true;
+      clearInterval(intervalId);
+      window.removeEventListener('focus', handleFocusOrVisible);
+      document.removeEventListener('visibilitychange', handleFocusOrVisible);
+    };
+  }, [currentUser?.id, currentUser?.email]);
 
   // Helper to persist state to server API whenever key data changes
   const persistToServer = async () => {
@@ -8310,7 +8462,7 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
     setUsers(updated);
     localStorage.setItem('hotel_maint_users', JSON.stringify(updated));
 
-    if (currentUserRef.current && (currentUserRef.current.id === id || (data.email && currentUserRef.current.email.toLowerCase().trim() === data.email.toLowerCase().trim()))) {
+    if (currentUserRef.current && (currentUserRef.current.id === id || (data.email && currentUserRef.current.email && String(currentUserRef.current.email).toLowerCase().trim() === String(data.email).toLowerCase().trim()))) {
       const updatedUser = { ...currentUserRef.current, ...normalizedData, updatedAt: nowIso };
       setCurrentUserState(updatedUser);
       currentUserRef.current = updatedUser;
@@ -8350,7 +8502,8 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
       notify('Acceso restringido: No tienes permisos para eliminar usuarios.');
       return;
     }
-    if (currentUser && (currentUser.id === id || (currentUser.email && users.find(u => u.id === id)?.email?.toLowerCase().trim() === currentUser.email.toLowerCase().trim()))) {
+    const userToDeleteEmail = users.find(u => u.id === id)?.email;
+    if (currentUser && (currentUser.id === id || (currentUser.email && userToDeleteEmail && String(userToDeleteEmail).toLowerCase().trim() === String(currentUser.email).toLowerCase().trim()))) {
       notify('No puedes eliminar tu propia cuenta en sesión activa.');
       return;
     }
@@ -9022,7 +9175,7 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
         // First check if an anomaly for this checkpoint was already recorded in activeRound.anomalies
         const isAlreadyReported = (activeRound.anomalies || []).some(a => 
           (a.title && (a.title.includes(chk.title) || chk.title.includes(a.title))) ||
-          (a.area && chk.area && a.area.toLowerCase() === chk.area.toLowerCase() && a.title.toLowerCase().includes('alarma'))
+          (a.area && chk.area && String(a.area).toLowerCase() === String(chk.area).toLowerCase() && String(a.title || '').toLowerCase().includes('alarma'))
         );
 
         if (!isAlreadyReported) {

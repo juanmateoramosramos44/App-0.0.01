@@ -3160,14 +3160,42 @@ app.delete("/api/meter-readings/:id", async (req, res) => {
 
 // Generic entity CRUD endpoints
 // 1. Rounds
-app.get("/api/rounds", (_req, res) => {
+app.get("/api/rounds", async (_req, res) => {
   const store = getCachedData();
+  if (pgPool) {
+    try {
+      const q = await pgPool.query('SELECT data FROM rounds ORDER BY updated_at DESC');
+      if (q && q.rows && q.rows.length > 0) {
+        const pgRounds = q.rows.map((r: any) => r.data).filter(Boolean);
+        const rMap = new Map();
+        (store.rounds || []).forEach((r: any) => { if (r && r.id) rMap.set(r.id, r); });
+        pgRounds.forEach((r: any) => { if (r && r.id) rMap.set(r.id, r); });
+        store.rounds = Array.from(rMap.values());
+      }
+    } catch (e) {
+      console.warn("[PostgreSQL] Notice loading rounds from DB:", (e as any)?.message || e);
+    }
+  }
   res.json(store.rounds || []);
 });
 
 // 2. Incidents
-app.get("/api/incidents", (_req, res) => {
+app.get("/api/incidents", async (_req, res) => {
   const store = getCachedData();
+  if (pgPool) {
+    try {
+      const q = await pgPool.query('SELECT data FROM incidents ORDER BY updated_at DESC');
+      if (q && q.rows && q.rows.length > 0) {
+        const pgInc = q.rows.map((r: any) => r.data).filter(Boolean);
+        const iMap = new Map();
+        (store.incidents || []).forEach((i: any) => { if (i && i.id) iMap.set(i.id, i); });
+        pgInc.forEach((i: any) => { if (i && i.id) iMap.set(i.id, i); });
+        store.incidents = Array.from(iMap.values());
+      }
+    } catch (e) {
+      console.warn("[PostgreSQL] Notice loading incidents from DB:", (e as any)?.message || e);
+    }
+  }
   res.json(store.incidents || []);
 });
 app.post("/api/incidents", async (req, res) => {
@@ -3200,8 +3228,22 @@ app.put("/api/incidents/:id", async (req, res) => {
 });
 
 // 3. Requests
-app.get("/api/requests", (_req, res) => {
+app.get("/api/requests", async (_req, res) => {
   const store = getCachedData();
+  if (pgPool) {
+    try {
+      const q = await pgPool.query('SELECT data FROM requests ORDER BY updated_at DESC');
+      if (q && q.rows && q.rows.length > 0) {
+        const pgReq = q.rows.map((r: any) => r.data).filter(Boolean);
+        const reqMap = new Map();
+        (store.requests || []).forEach((r: any) => { if (r && r.id) reqMap.set(r.id, r); });
+        pgReq.forEach((r: any) => { if (r && r.id) reqMap.set(r.id, r); });
+        store.requests = Array.from(reqMap.values());
+      }
+    } catch (e) {
+      console.warn("[PostgreSQL] Notice loading requests from DB:", (e as any)?.message || e);
+    }
+  }
   res.json(store.requests || []);
 });
 app.post("/api/requests", async (req, res) => {
@@ -3234,8 +3276,22 @@ app.put("/api/requests/:id", async (req, res) => {
 });
 
 // 4. Tasks
-app.get("/api/tasks", (_req, res) => {
+app.get("/api/tasks", async (_req, res) => {
   const store = getCachedData();
+  if (pgPool) {
+    try {
+      const q = await pgPool.query('SELECT data FROM tasks ORDER BY updated_at DESC');
+      if (q && q.rows && q.rows.length > 0) {
+        const pgTasks = q.rows.map((r: any) => r.data).filter(Boolean);
+        const tMap = new Map();
+        (store.tasks || []).forEach((t: any) => { if (t && t.id) tMap.set(t.id, t); });
+        pgTasks.forEach((t: any) => { if (t && t.id) tMap.set(t.id, t); });
+        store.tasks = Array.from(tMap.values());
+      }
+    } catch (e) {
+      console.warn("[PostgreSQL] Notice loading tasks from DB:", (e as any)?.message || e);
+    }
+  }
   res.json(store.tasks || []);
 });
 app.put("/api/tasks/:id", async (req, res) => {
@@ -3326,6 +3382,64 @@ app.get("/api/users", async (_req, res) => {
     }
   }
   res.json(store.users || []);
+});
+
+// Live auth session profile endpoint (supports query or headers for zero-logout live updates)
+app.get("/api/auth/me", async (req, res) => {
+  const idQuery = (req.query.id as string) || (req.headers['x-user-id'] as string) || '';
+  const emailQuery = (req.query.email as string) || (req.headers['x-user-email'] as string) || '';
+
+  if (!idQuery && !emailQuery) {
+    return res.status(400).json({ error: "id or email required" });
+  }
+
+  if (pgPool) {
+    try {
+      const q = await pgPool.query(
+        `SELECT data FROM users WHERE id = $1 OR (email IS NOT NULL AND LOWER(email) = LOWER($2)) LIMIT 1`,
+        [idQuery || '', emailQuery || '']
+      );
+      if (q && q.rows && q.rows.length > 0 && q.rows[0].data) {
+        return res.json({ status: "success", user: q.rows[0].data });
+      }
+    } catch (e) {
+      console.warn("[PostgreSQL] Error in /api/auth/me:", (e as any)?.message || e);
+    }
+  }
+
+  const store = getCachedData();
+  const found = (store.users || []).find((u: any) =>
+    (idQuery && u.id === idQuery) ||
+    (emailQuery && u.email && String(u.email).toLowerCase().trim() === String(emailQuery).toLowerCase().trim())
+  );
+
+  if (found) {
+    return res.json({ status: "success", user: found });
+  }
+  return res.status(404).json({ error: "User not found" });
+});
+
+app.get("/api/users/:id", async (req, res) => {
+  const { id } = req.params;
+  if (!id) return res.status(400).json({ error: "id required" });
+
+  if (pgPool) {
+    try {
+      const q = await pgPool.query('SELECT data FROM users WHERE id = $1 LIMIT 1', [id]);
+      if (q && q.rows && q.rows.length > 0 && q.rows[0].data) {
+        return res.json({ status: "success", user: q.rows[0].data });
+      }
+    } catch (e) {
+      console.warn("[PostgreSQL] Error in GET /api/users/:id:", (e as any)?.message || e);
+    }
+  }
+
+  const store = getCachedData();
+  const found = (store.users || []).find((u: any) => u && u.id === id);
+  if (found) {
+    return res.json({ status: "success", user: found });
+  }
+  return res.status(404).json({ error: "User not found" });
 });
 
 app.post("/api/users", async (req, res) => {

@@ -167,13 +167,16 @@ const BeautifulSelect: React.FC<BeautifulSelectProps> = ({
   }, []);
 
   const safeOptions = Array.isArray(options) ? options : [];
+  const valStr = String(value ?? '').toLowerCase();
   const selectedOption = safeOptions.find(o => 
-    o.value === value || 
-    (value && (
-      o.label.toLowerCase() === value.toLowerCase() ||
-      o.label.toLowerCase().includes(value.toLowerCase()) ||
-      (o.subtitle && o.subtitle.toLowerCase().includes(value.toLowerCase()))
-    ))
+    o && (
+      o.value === value || 
+      (valStr && (
+        String(o.label ?? '').toLowerCase() === valStr ||
+        String(o.label ?? '').toLowerCase().includes(valStr) ||
+        (o.subtitle && String(o.subtitle ?? '').toLowerCase().includes(valStr))
+      ))
+    )
   );
   const displayLabel = selectedOption ? selectedOption.label : (value || placeholder);
 
@@ -329,13 +332,11 @@ export const TasksView: React.FC = () => {
     return false;
   }, [currentUser, normalizeTechName]);
 
-  // Si es administrador, tiene visibilidad completa de todas las tareas del hotel.
-  // Si es un técnico/usuario normal, sólo puede ver las tareas asignadas específicamente a su usuario (o creadas por él).
+  // Visibilidad total sincronizada: tanto en PC como en teléfonos móviles se muestra la lista global de tareas de PostgreSQL.
+  // Cualquier usuario puede alternar con un toque entre "Todas las tareas", "Mis tareas asignadas" o "Creadas por mí".
   const userAllowedTasks = useMemo(() => {
-    const all = tasks || [];
-    if (isAdmin) return all;
-    return all.filter(t => isTaskAssignedToUser(t) || isTaskCreatedByUser(t));
-  }, [tasks, isAdmin, isTaskAssignedToUser, isTaskCreatedByUser]);
+    return tasks || [];
+  }, [tasks]);
 
   // Configured technicians from system settings (Source of truth)
   const configuredCompanions = useMemo(() => {
@@ -701,14 +702,14 @@ export const TasksView: React.FC = () => {
 
       // Search term (title, description, area, equipment tag/name, assignedToName, createdByName)
       if (searchTerm.trim()) {
-        const query = searchTerm.toLowerCase().trim();
-        const matchesTitle = task.title?.toLowerCase().includes(query);
-        const matchesDesc = task.description?.toLowerCase().includes(query);
-        const matchesArea = task.area?.toLowerCase().includes(query);
-        const matchesTag = task.equipmentTag?.toLowerCase().includes(query);
-        const matchesEq = task.equipmentName?.toLowerCase().includes(query);
-        const matchesAssigned = task.assignedToName?.toLowerCase().includes(query);
-        const matchesCreator = task.createdByName?.toLowerCase().includes(query);
+        const query = String(searchTerm).toLowerCase().trim();
+        const matchesTitle = String(task.title ?? '').toLowerCase().includes(query);
+        const matchesDesc = String(task.description ?? '').toLowerCase().includes(query);
+        const matchesArea = String(task.area ?? '').toLowerCase().includes(query);
+        const matchesTag = String(task.equipmentTag ?? '').toLowerCase().includes(query);
+        const matchesEq = String(task.equipmentName ?? '').toLowerCase().includes(query);
+        const matchesAssigned = String(task.assignedToName ?? '').toLowerCase().includes(query);
+        const matchesCreator = String(task.createdByName ?? '').toLowerCase().includes(query);
         if (!matchesTitle && !matchesDesc && !matchesArea && !matchesTag && !matchesEq && !matchesAssigned && !matchesCreator) {
           return false;
         }
