@@ -1829,11 +1829,47 @@ app.get("/api/version", (req, res) => {
   res.json({ version: SERVER_BUILD_TIME });
 });
 
-app.get("/api/data", (req, res) => {
+app.get("/api/data", async (req, res) => {
   res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
   res.setHeader("Pragma", "no-cache");
   res.setHeader("Expires", "0");
   const data = getCachedData();
+
+  if (pgPool) {
+    try {
+      const qRounds = await pgPool.query('SELECT data FROM rounds ORDER BY updated_at DESC');
+      if (qRounds.rows.length > 0) {
+        data.rounds = qRounds.rows.map((r: any) => r.data).filter(Boolean);
+      }
+      const qIncidents = await pgPool.query('SELECT data FROM incidents ORDER BY updated_at DESC');
+      if (qIncidents.rows.length > 0) {
+        data.incidents = qIncidents.rows.map((r: any) => r.data).filter(Boolean);
+      }
+      const qRequests = await pgPool.query('SELECT data FROM requests ORDER BY updated_at DESC');
+      if (qRequests.rows.length > 0) {
+        data.requests = qRequests.rows.map((r: any) => r.data).filter(Boolean);
+      }
+      const qTasks = await pgPool.query('SELECT data FROM tasks ORDER BY updated_at DESC');
+      if (qTasks.rows.length > 0) {
+        data.tasks = qTasks.rows.map((r: any) => r.data).filter(Boolean);
+      }
+      const qMeters = await pgPool.query('SELECT data FROM meters ORDER BY updated_at DESC');
+      if (qMeters.rows.length > 0) {
+        data.meters = qMeters.rows.map((r: any) => r.data).filter(Boolean);
+      }
+      const qReadings = await pgPool.query('SELECT data FROM meter_readings_log ORDER BY updated_at DESC');
+      if (qReadings.rows.length > 0) {
+        data.meterReadingsLog = qReadings.rows.map((r: any) => r.data).filter(Boolean);
+      }
+      const qUsers = await pgPool.query('SELECT data FROM users ORDER BY updated_at DESC');
+      if (qUsers.rows.length > 0) {
+        data.users = qUsers.rows.map((r: any) => r.data).filter(Boolean);
+      }
+    } catch (e) {
+      console.warn("[PostgreSQL] Notice syncing /api/data with DB:", (e as any)?.message || e);
+    }
+  }
+
   res.json({ ...(data || {}), serverVersion: SERVER_BUILD_TIME });
 });
 
@@ -3043,9 +3079,23 @@ app.delete("/api/document-folders/:id", async (req, res) => {
 });
 
 // Meters & Meter Readings
-app.get("/api/meters", (_req, res) => {
-  const current = getCachedData();
-  res.json(current.meters || []);
+app.get("/api/meters", async (_req, res) => {
+  const store = getCachedData();
+  if (pgPool) {
+    try {
+      const q = await pgPool.query('SELECT data FROM meters ORDER BY updated_at DESC');
+      if (q && q.rows && q.rows.length > 0) {
+        const pgMeters = q.rows.map((r: any) => r.data).filter(Boolean);
+        const mMap = new Map();
+        (store.meters || []).forEach((m: any) => { if (m && m.id) mMap.set(m.id, m); });
+        pgMeters.forEach((m: any) => { if (m && m.id) mMap.set(m.id, m); });
+        store.meters = Array.from(mMap.values());
+      }
+    } catch (e) {
+      console.warn("[PostgreSQL] Notice loading meters from DB:", (e as any)?.message || e);
+    }
+  }
+  res.json(store.meters || []);
 });
 app.post("/api/meters", async (req, res) => {
   const meter = req.body;
@@ -3106,9 +3156,23 @@ app.delete("/api/meters/:id", async (req, res) => {
   res.json({ status: "deleted", id });
 });
 
-app.get("/api/meter-readings", (_req, res) => {
-  const current = getCachedData();
-  res.json(current.meterReadingsLog || []);
+app.get("/api/meter-readings", async (_req, res) => {
+  const store = getCachedData();
+  if (pgPool) {
+    try {
+      const q = await pgPool.query('SELECT data FROM meter_readings_log ORDER BY updated_at DESC');
+      if (q && q.rows && q.rows.length > 0) {
+        const pgReadings = q.rows.map((r: any) => r.data).filter(Boolean);
+        const rMap = new Map();
+        (store.meterReadingsLog || []).forEach((r: any) => { if (r && r.id) rMap.set(r.id, r); });
+        pgReadings.forEach((r: any) => { if (r && r.id) rMap.set(r.id, r); });
+        store.meterReadingsLog = Array.from(rMap.values());
+      }
+    } catch (e) {
+      console.warn("[PostgreSQL] Notice loading meter readings from DB:", (e as any)?.message || e);
+    }
+  }
+  res.json(store.meterReadingsLog || []);
 });
 
 app.post("/api/meter-readings", async (req, res) => {

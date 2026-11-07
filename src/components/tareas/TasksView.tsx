@@ -747,6 +747,35 @@ export const TasksView: React.FC = () => {
     });
   }, [userAllowedTasks, searchTerm, assignmentFilter, statusFilter, priorityFilter, categoryFilter, isTaskAssignedToUser, isTaskCreatedByUser, normalizeTechName]);
 
+  // Map each task to a 1-based chronological creation index: Tarea #1, Tarea #2, ...
+  const taskOrderMap = useMemo(() => {
+    const list = [...(userAllowedTasks || [])];
+    list.sort((a, b) => {
+      const timeA = new Date(a.createdAt || 0).getTime();
+      const timeB = new Date(b.createdAt || 0).getTime();
+      if (!isNaN(timeA) && !isNaN(timeB) && timeA !== timeB) {
+        return timeA - timeB;
+      }
+      return String(a.id || '').localeCompare(String(b.id || ''));
+    });
+    const map = new Map<string, number>();
+    list.forEach((t, idx) => {
+      if (t && t.id) {
+        map.set(t.id, idx + 1);
+      }
+    });
+    return map;
+  }, [userAllowedTasks]);
+
+  // Tasks ordered chronologically by creation
+  const sortedTasks = useMemo(() => {
+    return [...filteredTasks].sort((a, b) => {
+      const numA = taskOrderMap.get(a.id) ?? 9999;
+      const numB = taskOrderMap.get(b.id) ?? 9999;
+      return numA - numB;
+    });
+  }, [filteredTasks, taskOrderMap]);
+
   // Quick stats
   const stats = useMemo(() => {
     const all = userAllowedTasks || [];
@@ -1162,7 +1191,7 @@ export const TasksView: React.FC = () => {
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
-          {filteredTasks.map((task) => {
+          {sortedTasks.map((task) => {
             const priorityStyle = PRIORITY_CONFIG[task.priority] || PRIORITY_CONFIG.media;
             const statusStyle = STATUS_CONFIG[task.status] || STATUS_CONFIG.pendiente;
             const categoryStyle = CATEGORY_CONFIG[task.category] || CATEGORY_CONFIG.mantenimiento;
@@ -1192,6 +1221,11 @@ export const TasksView: React.FC = () => {
                   {/* Card Top: Badges */}
                   <div className="flex items-center justify-between gap-2 flex-wrap">
                     <div className="flex items-center gap-1.5 flex-wrap">
+                      {/* Enumeración de Tarea por orden de creación */}
+                      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 text-xs font-black rounded-full bg-slate-900 text-white shadow-2xs border border-slate-700">
+                        Tarea #{taskOrderMap.get(task.id) || 1}
+                      </span>
+
                       {/* Priority Badge */}
                       <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 text-xs font-semibold rounded-full border ${priorityStyle.bg} ${priorityStyle.text} ${priorityStyle.border}`}>
                         <span className={`w-1.5 h-1.5 rounded-full ${task.priority === 'urgente' ? 'bg-rose-500 animate-ping' : 'bg-current'}`} />
@@ -1247,8 +1281,9 @@ export const TasksView: React.FC = () => {
                     className="cursor-pointer group/title"
                     title="Toca para ver detalles y registrar avances"
                   >
-                    <h3 className="text-base font-bold text-slate-900 leading-snug group-hover/title:text-blue-600 transition-colors">
-                      {task.title}
+                    <h3 className="text-base font-bold text-slate-900 leading-snug group-hover/title:text-blue-600 transition-colors flex items-baseline gap-1.5">
+                      <span className="text-slate-400 font-mono font-bold text-sm shrink-0">#{taskOrderMap.get(task.id) || 1}</span>
+                      <span>{task.title}</span>
                     </h3>
                     {task.description && (
                       <p className="text-xs text-slate-600 mt-1.5 line-clamp-3 leading-relaxed whitespace-pre-line group-hover/title:text-slate-800">
@@ -2144,12 +2179,15 @@ export const TasksView: React.FC = () => {
                     <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
                       Gestión de Tarea
                     </span>
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-blue-600 text-white shadow-2xs">
+                      Tarea #{taskOrderMap.get(activeTask.id) || 1}
+                    </span>
                     <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${STATUS_CONFIG[activeTask.status]?.bg || 'bg-slate-100'} ${STATUS_CONFIG[activeTask.status]?.text || 'text-slate-700'} ${STATUS_CONFIG[activeTask.status]?.border || 'border-slate-300'}`}>
                       {STATUS_CONFIG[activeTask.status]?.label || activeTask.status}
                     </span>
                   </div>
                   <h2 className="text-base sm:text-lg font-bold truncate text-white">
-                    {activeTask.title}
+                    #{taskOrderMap.get(activeTask.id) || 1} • {activeTask.title}
                   </h2>
                 </div>
               </div>
