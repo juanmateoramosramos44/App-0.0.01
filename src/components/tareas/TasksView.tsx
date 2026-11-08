@@ -280,7 +280,6 @@ export const TasksView: React.FC = () => {
 
   const isAdmin = Boolean(
     ctxIsAdmin ||
-    !currentUser ||
     currentUser?.role === 'admin' ||
     currentUser?.email?.toLowerCase().trim() === 'juanmateoramosramos44@gmail.com' ||
     currentUser?.id === 'usr-admin-master' ||
@@ -332,11 +331,14 @@ export const TasksView: React.FC = () => {
     return false;
   }, [currentUser, normalizeTechName]);
 
-  // Visibilidad total sincronizada: tanto en PC como en teléfonos móviles se muestra la lista global de tareas de PostgreSQL.
-  // Cualquier usuario puede alternar con un toque entre "Todas las tareas", "Mis tareas asignadas" o "Creadas por mí".
+  // Filtrado Estricto de Tareas por Usuario y Rol:
+  // - Administrador: visibilidad total y sin restricciones de todas las tareas del sistema.
+  // - Técnico / Usuario: exclusivamente las tareas creadas por él o asignadas a él.
   const userAllowedTasks = useMemo(() => {
-    return tasks || [];
-  }, [tasks]);
+    const all = tasks || [];
+    if (isAdmin) return all;
+    return all.filter(task => isTaskAssignedToUser(task) || isTaskCreatedByUser(task));
+  }, [tasks, isAdmin, isTaskAssignedToUser, isTaskCreatedByUser]);
 
   // Configured technicians from system settings (Source of truth)
   const configuredCompanions = useMemo(() => {

@@ -100898,4 +100898,16746 @@ export const HISTORICAL_ROUNDS: DailyRound[] = [
       }
     ]
   }
+,
+{
+  "id": "rnd-1793318700000",
+  "anomalies": [],
+  "date": "2026-10-29",
+  "meterReadings": {
+    "mainWaterPressurePsi": 72,
+    "hotWaterSupplyTempC": 60,
+    "hotWaterReturnTempC": 53.5,
+    "waterCubicMeters": 48925,
+    "electricKwh": 341950,
+    "gasCubicMeters": 18215,
+    "poolPh": 7.35,
+    "poolChlorinePpm": 2.1
+  },
+  "status": "completada",
+  "shift": "noche",
+  "lastUpdated": "2026-10-27T11:56:57.557Z",
+  "generalNotes": "Ronda nocturna finalizada al 100%. Parámetros y lecturas clave dentro de rangos normales de operación.",
+  "time": "20:45",
+  "userEmail": "ferneymachado@gmail.com",
+  "compliancePercentage": 100,
+  "lastHeartbeat": "2026-10-27T11:56:57.557Z",
+  "userId": "usr-1789246875257",
+  "anomaliesCount": 0,
+  "checkpoints": [
+    {
+      "title": "Cava De Congelación",
+      "photoMode": "normal",
+      "buttonActions": {},
+      "measurementFields": [
+        {
+          "unit": "°C",
+          "ampState": "Encendido",
+          "minValue": -25,
+          "id": "1",
+          "photoMode": "normal",
+          "includeButtons": false,
+          "value": "14.9",
+          "name": "Cava Congelación",
+          "maxValue": 80,
+          "allowPhoto": true,
+          "lastNonZeroValue": 14.9
+        }
+      ],
+      "type": "numeric",
+      "ampState": "Encendido",
+      "unit": "°C",
+      "minValue": -25,
+      "category": "refrigeracion",
+      "maxValue": 80,
+      "photoRequired": false,
+      "includeStatusButtons": false,
+      "id": "chk-tpl-1788985535314-nua3",
+      "allowPhoto": true,
+      "isCritical": false,
+      "lastNonZeroValue": -25,
+      "requireNotesOnFailure": false,
+      "notes": "",
+      "allowNotes": true,
+      "area": "Cocina S4",
+      "currentValue": "14.9"
+    },
+    {
+      "ampState": "Encendido",
+      "title": "Cava De Refrigeración",
+      "minValue": 0,
+      "includeStatusButtons": false,
+      "photoMode": "normal",
+      "category": "refrigeracion",
+      "currentValue": "1.6",
+      "type": "numeric",
+      "unit": "°C",
+      "id": "chk-tpl-1788988056429-c66o",
+      "maxValue": 50,
+      "measurementFields": [
+        {
+          "allowPhoto": true,
+          "unit": "°C",
+          "maxValue": 50,
+          "lastNonZeroValue": 1.6,
+          "photoMode": "normal",
+          "id": "1",
+          "value": "1.6",
+          "includeButtons": false,
+          "ampState": "Encendido",
+          "name": "Cava Refrigeracion",
+          "minValue": 0
+        }
+      ],
+      "area": "Cocina S4",
+      "allowNotes": true,
+      "photoRequired": false,
+      "lastNonZeroValue": 0,
+      "allowPhoto": true,
+      "isCritical": false,
+      "requireNotesOnFailure": false,
+      "buttonActions": {},
+      "notes": ""
+    },
+    {
+      "buttonActions": {},
+      "allowPhoto": true,
+      "isCritical": false,
+      "type": "numeric",
+      "unit": "°C",
+      "allowNotes": true,
+      "lastNonZeroValue": 0,
+      "photoRequired": false,
+      "notes": "",
+      "area": "Cocina S4",
+      "ampState": "Encendido",
+      "currentValue": "2.9",
+      "measurementFields": [
+        {
+          "lastNonZeroValue": 2.9,
+          "name": "Cava Refrigeracion",
+          "ampState": "Encendido",
+          "includeButtons": false,
+          "minValue": 0,
+          "photoMode": "normal",
+          "allowPhoto": true,
+          "maxValue": 50,
+          "value": "2.9",
+          "id": "1",
+          "unit": "°C"
+        }
+      ],
+      "requireNotesOnFailure": false,
+      "minValue": 0,
+      "id": "chk-tpl-1788988080039-nkgi",
+      "title": "Cava De Refrigeración",
+      "category": "refrigeracion",
+      "photoMode": "normal",
+      "includeStatusButtons": false,
+      "maxValue": 50
+    },
+    {
+      "isCritical": false,
+      "allowPhoto": true,
+      "buttonActions": {},
+      "area": "Cocina S4",
+      "notes": "",
+      "options": [
+        "Encendido",
+        "Apagado",
+        "Alarmado"
+      ],
+      "photoRequired": false,
+      "lastNonZeroValue": 0,
+      "id": "chk-tpl-1788989380312-s3ia",
+      "photoMode": "normal",
+      "allowNotes": true,
+      "statusValue": "Apagado",
+      "currentValue": "Apagado",
+      "ampState": "Apagado",
+      "requireNotesOnFailure": false,
+      "title": "Extracción",
+      "type": "ok_nok",
+      "category": "extraccion"
+    },
+    {
+      "buttonActions": {},
+      "title": "Bomba Jockey",
+      "category": "hidraulico",
+      "area": "Planta RCI S3",
+      "ampState": "Encendido",
+      "photoRequired": false,
+      "currentValue": "252",
+      "allowPhoto": true,
+      "requireNotesOnFailure": false,
+      "isCritical": false,
+      "measurementFields": [
+        {
+          "ampState": "Encendido",
+          "photoMode": "normal",
+          "unit": "PSI",
+          "includeButtons": false,
+          "allowPhoto": true,
+          "value": "252",
+          "id": "1",
+          "lastNonZeroValue": 252
+        }
+      ],
+      "unit": "PSI",
+      "type": "numeric",
+      "includeStatusButtons": false,
+      "notes": "",
+      "id": "chk-tpl-1789054060776-tynz",
+      "lastNonZeroValue": 0,
+      "allowNotes": true,
+      "photoMode": "normal"
+    },
+    {
+      "ampState": "Encendido",
+      "buttonActions": {},
+      "measurementFields": [
+        {
+          "value": "27.66",
+          "unit": "VDC",
+          "lastNonZeroValue": 27.66,
+          "ampState": "Encendido",
+          "includeButtons": false,
+          "allowPhoto": true,
+          "name": "Bateria 1",
+          "id": "1",
+          "photoMode": "normal"
+        },
+        {
+          "id": "1789059243278",
+          "photoMode": "normal",
+          "name": "Bateria 2",
+          "ampState": "Encendido",
+          "includeButtons": false,
+          "lastNonZeroValue": 27.66,
+          "unit": "VDC",
+          "value": "27.66",
+          "allowPhoto": true
+        }
+      ],
+      "requireNotesOnFailure": false,
+      "type": "numeric",
+      "unit": "VDC",
+      "category": "bateria",
+      "photoRequired": false,
+      "notes": "",
+      "photoMode": "normal",
+      "area": "Planta RCI S3",
+      "allowNotes": true,
+      "id": "chk-tpl-1789058977130-dsm2",
+      "title": "Baterias",
+      "lastNonZeroValue": 0,
+      "includeStatusButtons": false,
+      "allowPhoto": true,
+      "currentValue": "27.66",
+      "isCritical": false
+    },
+    {
+      "type": "numeric",
+      "photoMode": "normal",
+      "unit": "%",
+      "currentValue": "100",
+      "id": "chk-tpl-1789060493962-91iv",
+      "notes": "",
+      "measurementFields": [
+        {
+          "maxValue": 100,
+          "allowPhoto": true,
+          "name": "Nivel Combustible",
+          "value": "100",
+          "minValue": 61,
+          "ampState": "Encendido",
+          "unit": "%",
+          "lastNonZeroValue": 100,
+          "id": "1",
+          "photoMode": "normal",
+          "includeButtons": false
+        }
+      ],
+      "lastNonZeroValue": 61,
+      "includeStatusButtons": true,
+      "title": "Combustible",
+      "allowNotes": true,
+      "photoRequired": false,
+      "ampState": "Encendido",
+      "minValue": 61,
+      "options": [
+        "Sin Alarma",
+        "Sensor Alarmado"
+      ],
+      "category": "combustible",
+      "requireNotesOnFailure": false,
+      "allowPhoto": true,
+      "maxValue": 100,
+      "isCritical": false,
+      "area": "Planta RCI S3",
+      "buttonActions": {}
+    },
+    {
+      "unit": "PSI",
+      "type": "numeric",
+      "id": "chk-tpl-1789066766097-j1e5",
+      "allowNotes": true,
+      "notes": "",
+      "buttonActions": {},
+      "currentValue": "250",
+      "isCritical": false,
+      "photoRequired": false,
+      "allowPhoto": true,
+      "lastNonZeroValue": 250,
+      "minValue": 250,
+      "ampState": "Encendido",
+      "category": "manometro",
+      "includeStatusButtons": false,
+      "title": "Manometros Principales",
+      "area": "Planta RCI S3",
+      "measurementFields": [
+        {
+          "name": "Manometro 1",
+          "includeButtons": false,
+          "photoMode": "normal",
+          "minValue": 250,
+          "value": "250",
+          "ampState": "Encendido",
+          "allowPhoto": true,
+          "lastNonZeroValue": 250,
+          "unit": "PSI",
+          "id": "1",
+          "maxValue": 300
+        },
+        {
+          "lastNonZeroValue": 170,
+          "value": "170",
+          "allowPhoto": true,
+          "maxValue": 180,
+          "id": "1789066651541",
+          "unit": "PSI",
+          "includeButtons": false,
+          "minValue": 160,
+          "ampState": "Encendido",
+          "name": "Manometro 2",
+          "photoMode": "normal"
+        }
+      ],
+      "requireNotesOnFailure": false,
+      "maxValue": 300,
+      "photoMode": "normal"
+    },
+    {
+      "lastNonZeroValue": 12,
+      "unit": "A",
+      "type": "numeric",
+      "measurementFields": [
+        {
+          "name": "BOM-1",
+          "value": 0,
+          "lastNonZeroValue": 16,
+          "minValue": 12,
+          "includeButtons": false,
+          "ampState": "Apagado",
+          "photoMode": "normal",
+          "allowPhoto": true,
+          "id": "1",
+          "maxValue": 20,
+          "unit": "A"
+        }
+      ],
+      "requireNotesOnFailure": false,
+      "options": [
+        "Encendido",
+        "Apagado"
+      ],
+      "title": "BOM-1-S3",
+      "id": "chk-tpl-1789071231392-wx5f",
+      "area": "Bombas De Impulción S3",
+      "currentValue": 0,
+      "minValue": 12,
+      "statusValue": "Apagado",
+      "ampState": "Apagado",
+      "buttonActions": {
+        "Apagado": {
+          "color": "slate",
+          "actionType": "turn_off"
+        },
+        "Encendido": {
+          "color": "emerald",
+          "actionType": "turn_on"
+        }
+      },
+      "allowNotes": true,
+      "notes": "",
+      "includeStatusButtons": true,
+      "allowPhoto": true,
+      "isCritical": false,
+      "category": "hidraulico",
+      "photoMode": "normal",
+      "photoRequired": false,
+      "maxValue": 20
+    },
+    {
+      "statusValue": "Apagado",
+      "ampState": "Apagado",
+      "minValue": 12,
+      "allowPhoto": true,
+      "isCritical": false,
+      "allowNotes": true,
+      "notes": "",
+      "category": "hidraulico",
+      "area": "Bombas De Impulción S3",
+      "lastNonZeroValue": 12,
+      "maxValue": 20,
+      "currentValue": 0,
+      "title": "BOM-2-S3",
+      "measurementFields": [
+        {
+          "photoMode": "normal",
+          "allowPhoto": true,
+          "id": "1",
+          "name": "BOM-2",
+          "ampState": "Apagado",
+          "minValue": 12,
+          "includeButtons": false,
+          "maxValue": 20,
+          "lastNonZeroValue": 16,
+          "unit": "A",
+          "value": 0
+        }
+      ],
+      "includeStatusButtons": true,
+      "unit": "A",
+      "buttonActions": {},
+      "type": "numeric",
+      "id": "chk-tpl-1789072528074-19rc",
+      "photoMode": "normal",
+      "requireNotesOnFailure": false,
+      "photoRequired": false,
+      "options": [
+        "Encendido",
+        "Apagado"
+      ]
+    },
+    {
+      "measurementFields": [
+        {
+          "name": "Bateria-",
+          "id": "1",
+          "photoMode": "normal",
+          "lastNonZeroValue": 27.6,
+          "allowPhoto": true,
+          "includeButtons": false,
+          "ampState": "Encendido",
+          "unit": "VDC",
+          "value": "27.6"
+        }
+      ],
+      "type": "numeric",
+      "unit": "VDC",
+      "ampState": "Encendido",
+      "requireNotesOnFailure": false,
+      "photoMode": "normal",
+      "notes": "",
+      "category": "bateria",
+      "includeStatusButtons": false,
+      "title": "Batería",
+      "allowNotes": true,
+      "currentValue": "27.6",
+      "photoRequired": false,
+      "area": "Planta De Emergencia S2",
+      "lastNonZeroValue": 0,
+      "allowPhoto": true,
+      "isCritical": false,
+      "buttonActions": {},
+      "id": "chk-tpl-1789072918083-tj8j"
+    },
+    {
+      "area": "Planta De Emergencia S2",
+      "category": "combustible",
+      "lastNonZeroValue": 0,
+      "allowPhoto": true,
+      "currentValue": "62",
+      "isCritical": false,
+      "allowNotes": true,
+      "includeStatusButtons": false,
+      "id": "chk-tpl-1789082124733-70s2",
+      "title": "Combustible",
+      "measurementFields": [
+        {
+          "value": "62",
+          "unit": "%",
+          "name": "Combustible",
+          "includeButtons": false,
+          "ampState": "Encendido",
+          "lastNonZeroValue": 62,
+          "allowPhoto": true,
+          "photoMode": "normal",
+          "id": "1"
+        }
+      ],
+      "ampState": "Encendido",
+      "photoRequired": false,
+      "notes": "",
+      "buttonActions": {},
+      "type": "numeric",
+      "requireNotesOnFailure": false,
+      "unit": "%",
+      "photoMode": "normal"
+    },
+    {
+      "requireNotesOnFailure": false,
+      "notes": "",
+      "measurementFields": [
+        {
+          "name": "Temperatura",
+          "value": "46",
+          "includeButtons": false,
+          "allowPhoto": true,
+          "photoMode": "normal",
+          "id": "1",
+          "lastNonZeroValue": 46,
+          "ampState": "Encendido",
+          "unit": "°C"
+        }
+      ],
+      "allowPhoto": true,
+      "isCritical": false,
+      "unit": "°C",
+      "type": "numeric",
+      "category": "temperatura",
+      "photoMode": "normal",
+      "buttonActions": {},
+      "includeStatusButtons": false,
+      "ampState": "Encendido",
+      "currentValue": "46",
+      "allowNotes": true,
+      "lastNonZeroValue": 0,
+      "photoRequired": false,
+      "id": "chk-tpl-1789082328250-puzo",
+      "title": "Temperatura",
+      "area": "Planta De Emergencia S2"
+    },
+    {
+      "photoMode": "normal",
+      "currentValue": "7.5",
+      "category": "tanque",
+      "requireNotesOnFailure": false,
+      "id": "chk-tpl-1789181196563-joap",
+      "title": "Tanques",
+      "unit": "m³",
+      "type": "numeric",
+      "ampState": "Encendido",
+      "allowNotes": true,
+      "lastNonZeroValue": 7.5,
+      "buttonActions": {},
+      "notes": "Y en el momento están llenado los tanques ",
+      "area": "Terraza Piso 18",
+      "includeStatusButtons": false,
+      "photoRequired": false,
+      "measurementFields": [
+        {
+          "id": "1",
+          "ampState": "Encendido",
+          "value": "7.5",
+          "photoMode": "normal",
+          "allowPhoto": true,
+          "unit": "m³",
+          "lastNonZeroValue": 7.5,
+          "name": "Tanques Hotel",
+          "includeButtons": false
+        },
+        {
+          "photoMode": "normal",
+          "ampState": "Encendido",
+          "value": "2.5",
+          "unit": "m³",
+          "lastNonZeroValue": 2.5,
+          "allowPhoto": true,
+          "name": "Tanques Apto",
+          "id": "1789181031815",
+          "includeButtons": false
+        }
+      ],
+      "allowPhoto": true,
+      "isCritical": false
+    },
+    {
+      "type": "numeric",
+      "title": "Condensadores",
+      "unit": "FP",
+      "lastNonZeroValue": 0,
+      "measurementFields": [
+        {
+          "name": "Condensadores",
+          "ampState": "Encendido",
+          "allowPhoto": true,
+          "lastNonZeroValue": 0.998,
+          "photoMode": "normal",
+          "value": "0.998",
+          "id": "1",
+          "includeButtons": false,
+          "unit": "FP"
+        }
+      ],
+      "ampState": "Encendido",
+      "category": "condensador",
+      "currentValue": "0.998",
+      "buttonActions": {},
+      "allowNotes": true,
+      "includeStatusButtons": false,
+      "photoMode": "normal",
+      "photoRequired": false,
+      "area": "Planta De Emergencia S2",
+      "allowPhoto": true,
+      "notes": "",
+      "isCritical": false,
+      "id": "chk-tpl-1789181948808-tk08",
+      "requireNotesOnFailure": false
+    },
+    {
+      "category": "hidraulico",
+      "photoMode": "normal",
+      "allowPhoto": true,
+      "isCritical": false,
+      "type": "numeric",
+      "maxValue": 60,
+      "unit": "PSI",
+      "currentValue": "55",
+      "lastNonZeroValue": 42,
+      "photoRequired": false,
+      "id": "chk-tpl-1789183131928-5ogv",
+      "notes": "",
+      "allowNotes": true,
+      "buttonActions": {},
+      "includeStatusButtons": false,
+      "ampState": "Encendido",
+      "measurementFields": [
+        {
+          "allowPhoto": true,
+          "lastNonZeroValue": 55,
+          "unit": "PSI",
+          "buttonActions": {
+            "Apagado": {
+              "color": "slate",
+              "actionType": "default"
+            },
+            "Encendido": {
+              "actionType": "default",
+              "color": "emerald"
+            }
+          },
+          "maxValue": 60,
+          "ampState": "Encendido",
+          "options": [
+            "Encendido",
+            "Apagado",
+            "Alarmado"
+          ],
+          "minValue": 42,
+          "includeButtons": true,
+          "id": "1",
+          "statusValue": "Encendido",
+          "value": "55",
+          "photoMode": "normal",
+          "name": "Precion"
+        }
+      ],
+      "minValue": 42,
+      "title": "Bombas De Presión",
+      "requireNotesOnFailure": false,
+      "area": "Terraza Piso 18"
+    },
+    {
+      "unit": "°C",
+      "id": "chk-tpl-1789184914843-8qeh",
+      "type": "numeric",
+      "allowNotes": true,
+      "notes": "",
+      "isCritical": false,
+      "allowPhoto": true,
+      "includeStatusButtons": false,
+      "ampState": "Encendido",
+      "currentValue": "60",
+      "buttonActions": {},
+      "photoMode": "normal",
+      "measurementFields": [
+        {
+          "includeButtons": true,
+          "id": "1",
+          "unit": "°C",
+          "ampState": "Encendido",
+          "statusValue": "Encendido",
+          "photoMode": "normal",
+          "options": [
+            "Encendido",
+            "Apagado"
+          ],
+          "value": "60",
+          "buttonActions": {
+            "Apagado": {
+              "actionType": "turn_off",
+              "color": "slate"
+            },
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "default"
+            }
+          },
+          "name": "Temperatura/Sauna",
+          "lastNonZeroValue": 60,
+          "allowPhoto": true
+        },
+        {
+          "includeButtons": true,
+          "statusValue": "Encendido",
+          "value": "9.5",
+          "unit": "°C",
+          "buttonActions": {
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "default"
+            },
+            "Apagado": {
+              "color": "slate",
+              "actionType": "default"
+            }
+          },
+          "id": "1789184871874",
+          "photoMode": "normal",
+          "lastNonZeroValue": 9.5,
+          "options": [
+            "Encendido",
+            "Apagado"
+          ],
+          "allowPhoto": true,
+          "name": "Cold Plungue",
+          "ampState": "Encendido"
+        }
+      ],
+      "area": "Zona Húmeda/Piso 6",
+      "title": "Sauna/Cold Plungue",
+      "lastNonZeroValue": 0,
+      "requireNotesOnFailure": false,
+      "category": "sauna_cold_plunge",
+      "photoRequired": false
+    },
+    {
+      "ampState": "Encendido",
+      "buttonActions": {},
+      "type": "ok_nok",
+      "suggestedNotes": [
+        "Musica Ascensores Ok",
+        "Musica Gym Ok",
+        "Televisor Gym Ok",
+        "Musica Piscina Ok",
+        "Musica Silo Ok",
+        "Musica Sastra Ok",
+        "Musica Sauna Ok"
+      ],
+      "notes": "",
+      "photoRequired": false,
+      "category": "musica",
+      "photoMode": "normal",
+      "isCritical": false,
+      "requireNotesOnFailure": false,
+      "allowPhoto": true,
+      "title": "Musica",
+      "options": [
+        "Todo Ok",
+        "NO OK"
+      ],
+      "area": "Zona Húmeda/Piso 6",
+      "lastNonZeroValue": 0,
+      "statusValue": "Todo Ok",
+      "id": "chk-tpl-1789186187266-j679",
+      "currentValue": "Todo Ok",
+      "allowNotes": true
+    },
+    {
+      "buttonActions": {},
+      "notes": "",
+      "includeStatusButtons": false,
+      "category": "refrigeracion",
+      "requireNotesOnFailure": false,
+      "ampState": "Encendido",
+      "measurementFields": [
+        {
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "buttonActions": {
+            "Apagado": {
+              "color": "slate",
+              "actionType": "turn_off"
+            },
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "turn_on"
+            }
+          },
+          "ampState": "Encendido",
+          "id": "1",
+          "name": "Botellero Ventanal",
+          "statusValue": "OK",
+          "allowPhoto": true,
+          "unit": "°C",
+          "includeButtons": true,
+          "photoMode": "normal",
+          "lastNonZeroValue": 1.4,
+          "value": "1.4"
+        },
+        {
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "allowPhoto": true,
+          "name": "Nevera Cafetera",
+          "lastNonZeroValue": 18,
+          "id": "1789227261860",
+          "buttonActions": {
+            "Encendido": {
+              "actionType": "turn_on",
+              "color": "emerald"
+            },
+            "Apagado": {
+              "color": "slate",
+              "actionType": "turn_off"
+            }
+          },
+          "ampState": "Encendido",
+          "photoMode": "normal",
+          "statusValue": "OK",
+          "value": "18",
+          "unit": "°C",
+          "includeButtons": true
+        },
+        {
+          "ampState": "Encendido",
+          "lastNonZeroValue": 35,
+          "statusValue": "OK",
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "name": "Botellero Entrada Derecha",
+          "id": "1789227309459",
+          "value": "35",
+          "allowPhoto": true,
+          "unit": "°F",
+          "photoMode": "normal",
+          "includeButtons": true,
+          "buttonActions": {
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "turn_on"
+            },
+            "Apagado": {
+              "actionType": "turn_off",
+              "color": "slate"
+            }
+          }
+        },
+        {
+          "value": "34",
+          "ampState": "Encendido",
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "unit": "°F",
+          "allowPhoto": true,
+          "buttonActions": {
+            "Apagado": {
+              "color": "slate",
+              "actionType": "turn_off"
+            },
+            "Encendido": {
+              "actionType": "turn_on",
+              "color": "emerald"
+            }
+          },
+          "includeButtons": true,
+          "name": "Botellero Entrada Izquierda",
+          "photoMode": "normal",
+          "lastNonZeroValue": 34,
+          "statusValue": "OK",
+          "id": "1789227538808"
+        }
+      ],
+      "photoRequired": false,
+      "id": "chk-tpl-1789227609185-rbqi",
+      "unit": "°C",
+      "currentValue": "1.4",
+      "type": "numeric",
+      "lastNonZeroValue": 0,
+      "isCritical": false,
+      "allowPhoto": true,
+      "area": "Bar/ Piso 6",
+      "photoMode": "normal",
+      "allowNotes": true,
+      "title": "Equipos Del Bar"
+    },
+    {
+      "notes": "",
+      "allowPhoto": true,
+      "isCritical": false,
+      "area": "Cuarto De Bombas",
+      "currentValue": "46.4",
+      "allowNotes": true,
+      "requireNotesOnFailure": false,
+      "type": "numeric",
+      "category": "caldera",
+      "unit": "°C",
+      "buttonActions": {},
+      "lastNonZeroValue": 0,
+      "measurementFields": [
+        {
+          "id": "1",
+          "ampState": "Encendido",
+          "name": "Bombas/Presurisacion",
+          "statusValue": "OK",
+          "lastNonZeroValue": 46.4,
+          "unit": "°C",
+          "includeButtons": true,
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "allowPhoto": true,
+          "buttonActions": {
+            "Encendido": {
+              "actionType": "turn_on",
+              "color": "emerald"
+            },
+            "Apagado": {
+              "color": "slate",
+              "actionType": "turn_off"
+            }
+          },
+          "value": "46.4",
+          "photoMode": "normal"
+        },
+        {
+          "includeButtons": true,
+          "unit": "°C",
+          "value": "53.4",
+          "lastNonZeroValue": 53.4,
+          "ampState": "Encendido",
+          "buttonActions": {
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "turn_on"
+            },
+            "Apagado": {
+              "actionType": "turn_off",
+              "color": "slate"
+            }
+          },
+          "allowPhoto": true,
+          "photoMode": "normal",
+          "id": "1789240544706",
+          "name": "Bomba/Resirculacion",
+          "statusValue": "OK",
+          "options": [
+            "OK",
+            "NO OK"
+          ]
+        },
+        {
+          "value": "50",
+          "ampState": "Encendido",
+          "includeButtons": false,
+          "allowPhoto": true,
+          "unit": "PSI",
+          "photoMode": "normal",
+          "name": "Manometros De Bombas",
+          "lastNonZeroValue": 50,
+          "id": "1789240600468"
+        },
+        {
+          "allowPhoto": true,
+          "name": "Manometros Tanques",
+          "value": "65",
+          "includeButtons": false,
+          "id": "1789240637614",
+          "photoMode": "normal",
+          "unit": "PSI",
+          "lastNonZeroValue": 65,
+          "ampState": "Encendido"
+        }
+      ],
+      "photoRequired": false,
+      "title": "Sistema De Agua Caliente",
+      "ampState": "Encendido",
+      "photoMode": "normal",
+      "includeStatusButtons": false,
+      "id": "chk-tpl-1789240659096-ji6y"
+    },
+    {
+      "buttonActions": {},
+      "area": "Ascensores",
+      "statusValue": "Operativo",
+      "photoRequired": false,
+      "currentValue": "Operativo",
+      "requireNotesOnFailure": false,
+      "notes": "",
+      "category": "extraccion",
+      "allowNotes": true,
+      "id": "chk-tpl-1789423733318-xfh6",
+      "photoMode": "normal",
+      "title": "Ascensor Apto",
+      "type": "ok_nok",
+      "options": [
+        "Operativo",
+        "Bloqueado"
+      ],
+      "allowPhoto": true,
+      "isCritical": false,
+      "ampState": "Encendido",
+      "lastNonZeroValue": 0
+    },
+    {
+      "notes": "",
+      "buttonActions": {
+        "Nivel Bajo": {
+          "color": "auto",
+          "actionType": "failure"
+        }
+      },
+      "statusValue": "Nivel Alto",
+      "id": "chk-tpl-1789428026446-qnuc",
+      "photoRequired": false,
+      "lastNonZeroValue": 0,
+      "photoMode": "normal",
+      "area": "Bombas De Impulción S3",
+      "type": "ok_nok",
+      "allowNotes": true,
+      "ampState": "Encendido",
+      "requireNotesOnFailure": false,
+      "allowPhoto": true,
+      "isCritical": false,
+      "title": "Tanques De Agua Potable",
+      "category": "tanque",
+      "options": [
+        "Nivel Bajo",
+        "Nivel Medio",
+        "Nivel Alto"
+      ],
+      "currentValue": "Nivel Alto"
+    },
+    {
+      "category": "extraccion",
+      "title": "Ascensor Hotel",
+      "buttonActions": {},
+      "requireNotesOnFailure": false,
+      "type": "ok_nok",
+      "ampState": "Encendido",
+      "currentValue": "Operativo",
+      "photoRequired": false,
+      "allowPhoto": true,
+      "isCritical": false,
+      "area": "Ascensores",
+      "statusValue": "Operativo",
+      "photoMode": "normal",
+      "options": [
+        "Operativo",
+        "Bloqueado"
+      ],
+      "lastNonZeroValue": 0,
+      "allowNotes": true,
+      "id": "chk-tpl-1789428185062-g11h",
+      "notes": ""
+    },
+    {
+      "photoMode": "normal",
+      "type": "ok_nok",
+      "buttonActions": {},
+      "ampState": "Encendido",
+      "category": "extraccion",
+      "title": "Ascensor De Servicio",
+      "id": "chk-tpl-1789428511011-x67z",
+      "photoRequired": false,
+      "lastNonZeroValue": 0,
+      "notes": "",
+      "statusValue": "Operativo",
+      "requireNotesOnFailure": false,
+      "allowPhoto": true,
+      "isCritical": false,
+      "allowNotes": true,
+      "area": "Ascensores",
+      "options": [
+        "Operativo",
+        "Bloqueado"
+      ],
+      "currentValue": "Operativo"
+    },
+    {
+      "statusValue": "Energía EPM",
+      "category": "subestacion",
+      "notes": "",
+      "ampState": "Encendido",
+      "type": "ok_nok",
+      "allowNotes": true,
+      "currentValue": "Energía EPM",
+      "buttonActions": {
+        "Bloqueado": {
+          "color": "auto",
+          "actionType": "failure"
+        }
+      },
+      "area": "Planta De Emergencia S2",
+      "requireNotesOnFailure": false,
+      "photoRequired": false,
+      "id": "chk-tpl-1789435170225-zr6y",
+      "title": "Transferencia De Energia",
+      "lastNonZeroValue": 0,
+      "allowPhoto": true,
+      "options": [
+        "Energía EPM",
+        "Energia/Planta",
+        "Bloqueado"
+      ],
+      "isCritical": false,
+      "photoMode": "normal"
+    },
+    {
+      "id": "chk-tpl-1789470717933-t9gy",
+      "photoRequired": false,
+      "photoMode": "normal",
+      "category": "refrigeracion",
+      "ampState": "Encendido",
+      "area": "Cocina/Silo",
+      "title": "Neveras",
+      "requireNotesOnFailure": false,
+      "includeStatusButtons": false,
+      "buttonActions": {},
+      "measurementFields": [
+        {
+          "photoMode": "normal",
+          "id": "1",
+          "includeButtons": true,
+          "buttonActions": {
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "turn_on"
+            },
+            "Apagado": {
+              "actionType": "turn_off",
+              "color": "slate"
+            }
+          },
+          "name": "Nevera 1",
+          "lastNonZeroValue": 3,
+          "allowPhoto": true,
+          "unit": "°C",
+          "ampState": "Encendido",
+          "value": "3",
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "statusValue": "OK"
+        },
+        {
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "id": "1789470556027",
+          "includeButtons": true,
+          "ampState": "Encendido",
+          "photoMode": "normal",
+          "lastNonZeroValue": 2,
+          "unit": "°C",
+          "buttonActions": {
+            "Encendido": {
+              "actionType": "turn_on",
+              "color": "emerald"
+            },
+            "Apagado": {
+              "color": "slate",
+              "actionType": "turn_off"
+            }
+          },
+          "statusValue": "OK",
+          "allowPhoto": true,
+          "value": "2",
+          "name": "Nevera 2"
+        },
+        {
+          "unit": "°C",
+          "id": "1789470602027",
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "allowPhoto": true,
+          "lastNonZeroValue": 4,
+          "buttonActions": {
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "turn_on"
+            },
+            "Apagado": {
+              "color": "slate",
+              "actionType": "turn_off"
+            }
+          },
+          "ampState": "Encendido",
+          "statusValue": "OK",
+          "value": "4",
+          "name": "Nevera 3",
+          "photoMode": "normal",
+          "includeButtons": true
+        },
+        {
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "allowPhoto": true,
+          "unit": "°F",
+          "lastNonZeroValue": 38,
+          "ampState": "Encendido",
+          "id": "1789470634919",
+          "value": "38",
+          "buttonActions": {
+            "Apagado": {
+              "color": "slate",
+              "actionType": "turn_off"
+            },
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "turn_on"
+            }
+          },
+          "statusValue": "OK",
+          "name": "Base Chef",
+          "photoMode": "normal",
+          "includeButtons": true
+        },
+        {
+          "includeButtons": true,
+          "lastNonZeroValue": 3,
+          "name": "Nevera De Entrada",
+          "value": "3",
+          "buttonActions": {
+            "Apagado": {
+              "actionType": "turn_off",
+              "color": "slate"
+            },
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "turn_on"
+            }
+          },
+          "photoMode": "normal",
+          "ampState": "Encendido",
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "allowPhoto": true,
+          "unit": "°F",
+          "id": "1789470671546",
+          "statusValue": "OK"
+        }
+      ],
+      "type": "numeric",
+      "unit": "°C",
+      "notes": "",
+      "allowNotes": true,
+      "lastNonZeroValue": 0,
+      "allowPhoto": true,
+      "isCritical": false,
+      "currentValue": "3"
+    }
+  ],
+  "technicianName": "Carlos Manuel/ Técnico",
+  "technicianSignature": "Carlos Manuel",
+  "progress": 100,
+  "completedAt": "2026-10-29T21:30:00.000Z"
+},
+{
+  "id": "rnd-1793041800000",
+  "completedAt": "2026-10-26T21:48:30.000Z",
+  "date": "2026-10-26",
+  "userEmail": "ferneyalonso44@gmail.com",
+  "lastHeartbeat": "2026-10-08T13:05:16.807Z",
+  "shift": "tarde",
+  "checkpoints": [
+    {
+      "currentValue": "-12.8",
+      "buttonActions": {},
+      "lastNonZeroValue": -25,
+      "isAlarmActive": false,
+      "photoRequired": false,
+      "type": "numeric",
+      "unit": "°C",
+      "id": "chk-tpl-1788985535314-nua3",
+      "area": "Cocina S4",
+      "maxValue": 80,
+      "isCritical": false,
+      "allowPhoto": true,
+      "measurementFields": [
+        {
+          "lastNonZeroValue": -12.4,
+          "photoMode": "normal",
+          "name": "Cava Congelación",
+          "id": "1",
+          "value": "-12.8",
+          "minValue": -25,
+          "ampState": "Encendido",
+          "allowPhoto": true,
+          "includeButtons": false,
+          "maxValue": 80,
+          "unit": "°C"
+        }
+      ],
+      "title": "Cava De Congelación",
+      "category": "refrigeracion",
+      "includeStatusButtons": false,
+      "photoMode": "normal",
+      "ampState": "Encendido",
+      "requireNotesOnFailure": false,
+      "minValue": -25,
+      "allowNotes": true
+    },
+    {
+      "requireNotesOnFailure": false,
+      "buttonActions": {},
+      "unit": "°C",
+      "type": "numeric",
+      "isAlarmActive": false,
+      "photoRequired": false,
+      "measurementFields": [
+        {
+          "allowPhoto": true,
+          "value": "2.1",
+          "minValue": 0,
+          "includeButtons": false,
+          "ampState": "Encendido",
+          "unit": "°C",
+          "lastNonZeroValue": 2.3,
+          "photoMode": "normal",
+          "name": "Cava Refrigeracion",
+          "id": "1",
+          "maxValue": 50
+        }
+      ],
+      "photoMode": "normal",
+      "lastNonZeroValue": 0,
+      "minValue": 0,
+      "isCritical": false,
+      "currentValue": "2.1",
+      "ampState": "Encendido",
+      "allowPhoto": true,
+      "includeStatusButtons": false,
+      "title": "Cava De Refrigeración",
+      "id": "chk-tpl-1788988056429-c66o",
+      "maxValue": 50,
+      "area": "Cocina S4",
+      "allowNotes": true,
+      "category": "refrigeracion"
+    },
+    {
+      "minValue": 0,
+      "ampState": "Encendido",
+      "allowNotes": true,
+      "lastNonZeroValue": 0,
+      "unit": "°C",
+      "type": "numeric",
+      "photoRequired": false,
+      "includeStatusButtons": false,
+      "title": "Cava De Refrigeración",
+      "isAlarmActive": false,
+      "maxValue": 50,
+      "isCritical": false,
+      "allowPhoto": true,
+      "buttonActions": {},
+      "category": "refrigeracion",
+      "id": "chk-tpl-1788988080039-nkgi",
+      "photoMode": "normal",
+      "currentValue": "2.9",
+      "measurementFields": [
+        {
+          "unit": "°C",
+          "id": "1",
+          "maxValue": 50,
+          "allowPhoto": true,
+          "lastNonZeroValue": 2.1,
+          "ampState": "Encendido",
+          "minValue": 0,
+          "value": "2.9",
+          "includeButtons": false,
+          "photoMode": "normal",
+          "name": "Cava Refrigeracion"
+        }
+      ],
+      "requireNotesOnFailure": false,
+      "area": "Cocina S4"
+    },
+    {
+      "isAlarmActive": false,
+      "ampState": "Apagado",
+      "requireNotesOnFailure": false,
+      "photoMode": "normal",
+      "buttonActions": {},
+      "area": "Cocina S4",
+      "title": "Extracción",
+      "photoRequired": false,
+      "statusValue": "Apagado",
+      "category": "extraccion",
+      "type": "ok_nok",
+      "allowNotes": true,
+      "notes": "Sin novedad ",
+      "lastNonZeroValue": 0,
+      "id": "chk-tpl-1788989380312-s3ia",
+      "options": [
+        "Encendido",
+        "Apagado",
+        "Alarmado"
+      ],
+      "currentValue": "Apagado",
+      "isCritical": false,
+      "allowPhoto": true
+    },
+    {
+      "type": "numeric",
+      "unit": "PSI",
+      "currentValue": "279",
+      "isCritical": false,
+      "title": "Bomba Jockey",
+      "allowPhoto": true,
+      "includeStatusButtons": false,
+      "measurementFields": [
+        {
+          "id": "1",
+          "photoMode": "normal",
+          "unit": "PSI",
+          "value": "279",
+          "lastNonZeroValue": 253,
+          "allowPhoto": true,
+          "ampState": "Encendido",
+          "includeButtons": false
+        }
+      ],
+      "allowNotes": true,
+      "category": "hidraulico",
+      "photoMode": "normal",
+      "isAlarmActive": false,
+      "buttonActions": {},
+      "id": "chk-tpl-1789054060776-tynz",
+      "lastNonZeroValue": 0,
+      "area": "Planta RCI S3",
+      "ampState": "Encendido",
+      "photoRequired": false,
+      "requireNotesOnFailure": false
+    },
+    {
+      "title": "Baterias",
+      "photoMode": "normal",
+      "isAlarmActive": false,
+      "lastNonZeroValue": 0,
+      "requireNotesOnFailure": false,
+      "type": "numeric",
+      "measurementFields": [
+        {
+          "allowPhoto": true,
+          "name": "Bateria 1",
+          "id": "1",
+          "value": "27.66",
+          "includeButtons": false,
+          "photoMode": "normal",
+          "unit": "VDC",
+          "lastNonZeroValue": 27.66,
+          "ampState": "Encendido"
+        },
+        {
+          "value": "27.66",
+          "photoMode": "normal",
+          "includeButtons": false,
+          "unit": "VDC",
+          "id": "1789059243278",
+          "ampState": "Encendido",
+          "name": "Bateria 2",
+          "lastNonZeroValue": 27.66,
+          "allowPhoto": true
+        }
+      ],
+      "buttonActions": {},
+      "unit": "VDC",
+      "photoRequired": false,
+      "id": "chk-tpl-1789058977130-dsm2",
+      "includeStatusButtons": false,
+      "currentValue": "27.66",
+      "ampState": "Encendido",
+      "allowPhoto": true,
+      "isCritical": false,
+      "category": "bateria",
+      "allowNotes": true,
+      "area": "Planta RCI S3"
+    },
+    {
+      "allowPhoto": true,
+      "id": "chk-tpl-1789060493962-91iv",
+      "isCritical": false,
+      "area": "Planta RCI S3",
+      "buttonActions": {},
+      "ampState": "Encendido",
+      "minValue": 61,
+      "isAlarmActive": false,
+      "title": "Combustible",
+      "photoRequired": false,
+      "requireNotesOnFailure": false,
+      "category": "combustible",
+      "allowNotes": true,
+      "options": [
+        "Sin Alarma",
+        "Sensor Alarmado"
+      ],
+      "maxValue": 100,
+      "currentValue": "100",
+      "photoMode": "normal",
+      "unit": "%",
+      "includeStatusButtons": true,
+      "type": "numeric",
+      "lastNonZeroValue": 100,
+      "measurementFields": [
+        {
+          "name": "Nivel Combustible",
+          "photoMode": "normal",
+          "maxValue": 100,
+          "lastNonZeroValue": 100,
+          "includeButtons": false,
+          "id": "1",
+          "allowPhoto": true,
+          "value": "100",
+          "unit": "%",
+          "ampState": "Encendido",
+          "minValue": 61
+        }
+      ],
+      "statusValue": "Sin Alarma"
+    },
+    {
+      "currentValue": "270",
+      "isAlarmActive": false,
+      "buttonActions": {},
+      "unit": "PSI",
+      "type": "numeric",
+      "photoRequired": false,
+      "includeStatusButtons": false,
+      "title": "Manometros Principales",
+      "lastNonZeroValue": 250,
+      "area": "Planta RCI S3",
+      "category": "manometro",
+      "allowPhoto": true,
+      "isCritical": false,
+      "maxValue": 300,
+      "photoMode": "normal",
+      "id": "chk-tpl-1789066766097-j1e5",
+      "measurementFields": [
+        {
+          "allowPhoto": true,
+          "maxValue": 300,
+          "unit": "PSI",
+          "includeButtons": false,
+          "lastNonZeroValue": 250,
+          "photoMode": "normal",
+          "ampState": "Encendido",
+          "minValue": 250,
+          "id": "1",
+          "value": "270",
+          "name": "Manometro 1"
+        },
+        {
+          "maxValue": 180,
+          "photoMode": "normal",
+          "lastNonZeroValue": 170,
+          "name": "Manometro 2",
+          "id": "1789066651541",
+          "allowPhoto": true,
+          "unit": "PSI",
+          "ampState": "Encendido",
+          "minValue": 160,
+          "includeButtons": false,
+          "value": "170"
+        }
+      ],
+      "allowNotes": true,
+      "requireNotesOnFailure": false,
+      "minValue": 250,
+      "ampState": "Encendido"
+    },
+    {
+      "isAlarmActive": false,
+      "area": "Bombas De Impulción S3",
+      "buttonActions": {
+        "Encendido": {
+          "color": "emerald",
+          "actionType": "turn_on"
+        },
+        "Apagado": {
+          "actionType": "turn_off",
+          "color": "slate"
+        }
+      },
+      "options": [
+        "Encendido",
+        "Apagado"
+      ],
+      "photoMode": "normal",
+      "id": "chk-tpl-1789071231392-wx5f",
+      "photoRequired": false,
+      "includeStatusButtons": true,
+      "minValue": 12,
+      "ampState": "Encendido",
+      "lastNonZeroValue": 12,
+      "allowNotes": true,
+      "statusValue": "Encendido",
+      "requireNotesOnFailure": false,
+      "currentValue": "16.0",
+      "isCritical": false,
+      "allowPhoto": true,
+      "maxValue": 20,
+      "measurementFields": [
+        {
+          "lastNonZeroValue": 19.2,
+          "value": "16.0",
+          "photoMode": "normal",
+          "unit": "A",
+          "maxValue": 20,
+          "includeButtons": false,
+          "id": "1",
+          "name": "BOM-1",
+          "minValue": 12,
+          "allowPhoto": true,
+          "ampState": "Encendido"
+        }
+      ],
+      "title": "BOM-1-S3",
+      "type": "numeric",
+      "unit": "A",
+      "category": "hidraulico"
+    },
+    {
+      "area": "Bombas De Impulción S3",
+      "measurementFields": [
+        {
+          "minValue": 12,
+          "allowPhoto": true,
+          "ampState": "Apagado",
+          "id": "1",
+          "value": 0,
+          "name": "BOM-2",
+          "unit": "A",
+          "includeButtons": false,
+          "lastNonZeroValue": 16,
+          "photoMode": "normal",
+          "maxValue": 20
+        }
+      ],
+      "maxValue": 20,
+      "includeStatusButtons": true,
+      "photoRequired": false,
+      "category": "hidraulico",
+      "buttonActions": {},
+      "minValue": 12,
+      "ampState": "Apagado",
+      "isAlarmActive": false,
+      "title": "BOM-2-S3",
+      "photoMode": "normal",
+      "options": [
+        "Encendido",
+        "Apagado"
+      ],
+      "lastNonZeroValue": 12,
+      "notes": "En automático ",
+      "currentValue": 0,
+      "isCritical": false,
+      "allowPhoto": true,
+      "allowNotes": true,
+      "type": "numeric",
+      "unit": "A",
+      "statusValue": "Apagado",
+      "requireNotesOnFailure": false,
+      "id": "chk-tpl-1789072528074-19rc"
+    },
+    {
+      "title": "Batería",
+      "type": "numeric",
+      "unit": "VDC",
+      "requireNotesOnFailure": false,
+      "id": "chk-tpl-1789072918083-tj8j",
+      "currentValue": "27.6",
+      "lastNonZeroValue": 0,
+      "ampState": "Encendido",
+      "photoMode": "normal",
+      "allowNotes": true,
+      "photoRequired": false,
+      "isAlarmActive": false,
+      "isCritical": false,
+      "category": "bateria",
+      "allowPhoto": true,
+      "includeStatusButtons": false,
+      "measurementFields": [
+        {
+          "lastNonZeroValue": 27.6,
+          "name": "Bateria-",
+          "includeButtons": false,
+          "id": "1",
+          "ampState": "Encendido",
+          "allowPhoto": true,
+          "value": "27.6",
+          "unit": "VDC",
+          "photoMode": "normal"
+        }
+      ],
+      "buttonActions": {},
+      "area": "Planta De Emergencia S2"
+    },
+    {
+      "currentValue": "62",
+      "buttonActions": {},
+      "requireNotesOnFailure": false,
+      "id": "chk-tpl-1789082124733-70s2",
+      "isAlarmActive": false,
+      "category": "combustible",
+      "title": "Combustible",
+      "ampState": "Encendido",
+      "type": "numeric",
+      "unit": "%",
+      "photoRequired": false,
+      "lastNonZeroValue": 0,
+      "photoMode": "normal",
+      "area": "Planta De Emergencia S2",
+      "allowNotes": true,
+      "measurementFields": [
+        {
+          "photoMode": "normal",
+          "ampState": "Encendido",
+          "allowPhoto": true,
+          "unit": "%",
+          "value": "62",
+          "name": "Combustible",
+          "includeButtons": false,
+          "id": "1",
+          "lastNonZeroValue": 62
+        }
+      ],
+      "includeStatusButtons": false,
+      "isCritical": false,
+      "allowPhoto": true
+    },
+    {
+      "photoRequired": false,
+      "ampState": "Encendido",
+      "isCritical": false,
+      "allowPhoto": true,
+      "area": "Planta De Emergencia S2",
+      "title": "Temperatura",
+      "currentValue": "47",
+      "buttonActions": {},
+      "allowNotes": true,
+      "requireNotesOnFailure": false,
+      "includeStatusButtons": false,
+      "category": "temperatura",
+      "isAlarmActive": false,
+      "type": "numeric",
+      "unit": "°C",
+      "lastNonZeroValue": 0,
+      "photoMode": "normal",
+      "measurementFields": [
+        {
+          "includeButtons": false,
+          "allowPhoto": true,
+          "name": "Temperatura",
+          "ampState": "Encendido",
+          "id": "1",
+          "photoMode": "normal",
+          "lastNonZeroValue": 47,
+          "unit": "°C",
+          "value": "47"
+        }
+      ],
+      "id": "chk-tpl-1789082328250-puzo"
+    },
+    {
+      "id": "chk-tpl-1789181196563-joap",
+      "allowPhoto": true,
+      "measurementFields": [
+        {
+          "lastNonZeroValue": 8,
+          "unit": "m³",
+          "value": "10.000",
+          "ampState": "Encendido",
+          "name": "Tanques Hotel",
+          "includeButtons": false,
+          "allowPhoto": true,
+          "id": "1",
+          "photoMode": "normal"
+        },
+        {
+          "lastNonZeroValue": 2,
+          "ampState": "Encendido",
+          "value": "2500",
+          "unit": "m³",
+          "includeButtons": false,
+          "photoMode": "normal",
+          "name": "Tanques Apto",
+          "id": "1789181031815",
+          "allowPhoto": true
+        }
+      ],
+      "isCritical": false,
+      "requireNotesOnFailure": false,
+      "unit": "m³",
+      "allowNotes": true,
+      "type": "numeric",
+      "includeStatusButtons": false,
+      "currentValue": "10.000",
+      "lastNonZeroValue": 0,
+      "isAlarmActive": false,
+      "category": "tanque",
+      "buttonActions": {},
+      "photoMode": "normal",
+      "area": "Terraza Piso 18",
+      "title": "Tanques",
+      "ampState": "Encendido",
+      "photoRequired": false
+    },
+    {
+      "ampState": "Encendido",
+      "currentValue": "0.997",
+      "allowNotes": true,
+      "isCritical": false,
+      "allowPhoto": true,
+      "area": "Planta De Emergencia S2",
+      "includeStatusButtons": false,
+      "category": "condensador",
+      "measurementFields": [
+        {
+          "value": 0.997,
+          "id": "1",
+          "unit": "FP",
+          "ampState": "Encendido",
+          "includeButtons": false,
+          "name": "Condensadores",
+          "allowPhoto": true,
+          "photoMode": "normal",
+          "lastNonZeroValue": 0.995
+        }
+      ],
+      "requireNotesOnFailure": false,
+      "unit": "FP",
+      "photoRequired": false,
+      "type": "numeric",
+      "lastNonZeroValue": 0,
+      "title": "Condensadores",
+      "id": "chk-tpl-1789181948808-tk08",
+      "buttonActions": {},
+      "photoMode": "normal",
+      "isAlarmActive": false
+    },
+    {
+      "id": "chk-tpl-1789183131928-5ogv",
+      "measurementFields": [
+        {
+          "lastNonZeroValue": 60,
+          "statusValue": "Encendido",
+          "id": "1",
+          "options": [
+            "Encendido",
+            "Apagado",
+            "Alarmado"
+          ],
+          "buttonActions": {
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "default"
+            },
+            "Apagado": {
+              "actionType": "default",
+              "color": "slate"
+            }
+          },
+          "unit": "PSI",
+          "name": "Precion",
+          "value": "60",
+          "minValue": 42,
+          "ampState": "Encendido",
+          "photoMode": "normal",
+          "allowPhoto": true,
+          "maxValue": 60,
+          "includeButtons": true
+        }
+      ],
+      "unit": "PSI",
+      "type": "numeric",
+      "lastNonZeroValue": 60,
+      "currentValue": "60",
+      "title": "Bombas De Presión",
+      "photoRequired": false,
+      "category": "hidraulico",
+      "area": "Terraza Piso 18",
+      "allowPhoto": true,
+      "isCritical": false,
+      "includeStatusButtons": false,
+      "notes": "Sin novedad ",
+      "maxValue": 60,
+      "buttonActions": {},
+      "requireNotesOnFailure": false,
+      "allowNotes": true,
+      "isAlarmActive": false,
+      "minValue": 42,
+      "photoMode": "normal",
+      "ampState": "Encendido"
+    },
+    {
+      "photoRequired": false,
+      "allowNotes": true,
+      "category": "sauna_cold_plunge",
+      "ampState": "Encendido",
+      "id": "chk-tpl-1789184914843-8qeh",
+      "lastNonZeroValue": 0,
+      "isCritical": false,
+      "isAlarmActive": false,
+      "currentValue": 44,
+      "allowPhoto": true,
+      "area": "Zona Húmeda/Piso 6",
+      "buttonActions": {},
+      "title": "Sauna/Cold Plungue",
+      "requireNotesOnFailure": false,
+      "unit": "°C",
+      "type": "numeric",
+      "includeStatusButtons": false,
+      "measurementFields": [
+        {
+          "includeButtons": true,
+          "buttonActions": {
+            "Apagado": {
+              "color": "slate",
+              "actionType": "turn_off"
+            },
+            "Encendido": {
+              "actionType": "default",
+              "color": "emerald"
+            }
+          },
+          "name": "Temperatura/Sauna",
+          "lastNonZeroValue": 44,
+          "value": 44,
+          "photoMode": "normal",
+          "ampState": "Encendido",
+          "unit": "°C",
+          "id": "1",
+          "allowPhoto": true,
+          "statusValue": "Encendido",
+          "options": [
+            "Encendido",
+            "Apagado"
+          ]
+        },
+        {
+          "includeButtons": true,
+          "ampState": "Encendido",
+          "buttonActions": {
+            "Apagado": {
+              "color": "slate",
+              "actionType": "default"
+            },
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "default"
+            }
+          },
+          "lastNonZeroValue": 11.5,
+          "name": "Cold Plungue",
+          "value": 11.5,
+          "photoMode": "normal",
+          "statusValue": "Encendido",
+          "unit": "°C",
+          "id": "1789184871874",
+          "allowPhoto": true,
+          "options": [
+            "Encendido",
+            "Apagado"
+          ]
+        }
+      ],
+      "photoMode": "normal"
+    },
+    {
+      "statusValue": "Todo Ok",
+      "photoMode": "normal",
+      "area": "Zona Húmeda/Piso 6",
+      "options": [
+        "Todo Ok",
+        "NO OK"
+      ],
+      "allowNotes": true,
+      "isCritical": false,
+      "allowPhoto": true,
+      "title": "Musica",
+      "ampState": "Encendido",
+      "isAlarmActive": false,
+      "currentValue": "Todo Ok",
+      "requireNotesOnFailure": false,
+      "notes": "Televisor Gym Ok",
+      "buttonActions": {},
+      "id": "chk-tpl-1789186187266-j679",
+      "suggestedNotes": [
+        "Musica Ascensores Ok",
+        "Musica Gym Ok",
+        "Televisor Gym Ok",
+        "Musica Piscina Ok",
+        "Musica Silo Ok",
+        "Musica Sastra Ok",
+        "Musica Sauna Ok"
+      ],
+      "type": "ok_nok",
+      "photoRequired": false,
+      "lastNonZeroValue": 0,
+      "category": "musica"
+    },
+    {
+      "notes": "Todo está ok ",
+      "includeStatusButtons": false,
+      "id": "chk-tpl-1789227609185-rbqi",
+      "photoMode": "normal",
+      "requireNotesOnFailure": false,
+      "unit": "°C",
+      "type": "numeric",
+      "lastNonZeroValue": -4.3,
+      "area": "Bar/ Piso 6",
+      "allowPhoto": true,
+      "category": "refrigeracion",
+      "isCritical": false,
+      "measurementFields": [
+        {
+          "unit": "°C",
+          "photoMode": "normal",
+          "includeButtons": true,
+          "id": "1",
+          "lastNonZeroValue": -4.3,
+          "buttonActions": {
+            "Encendido": {
+              "actionType": "turn_on",
+              "color": "emerald"
+            },
+            "Apagado": {
+              "actionType": "turn_off",
+              "color": "slate"
+            }
+          },
+          "value": -4.3,
+          "allowPhoto": true,
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "statusValue": "OK",
+          "ampState": "Encendido",
+          "name": "Botellero Ventanal"
+        },
+        {
+          "includeButtons": true,
+          "statusValue": "OK",
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "name": "Nevera Cafetera",
+          "allowPhoto": true,
+          "lastNonZeroValue": -17,
+          "unit": "°C",
+          "ampState": "Encendido",
+          "photoMode": "normal",
+          "id": "1789227261860",
+          "value": -17,
+          "buttonActions": {
+            "Encendido": {
+              "actionType": "turn_on",
+              "color": "emerald"
+            },
+            "Apagado": {
+              "actionType": "turn_off",
+              "color": "slate"
+            }
+          }
+        },
+        {
+          "name": "Botellero Entrada Derecha",
+          "allowPhoto": true,
+          "lastNonZeroValue": 37,
+          "ampState": "Encendido",
+          "includeButtons": true,
+          "photoMode": "normal",
+          "buttonActions": {
+            "Apagado": {
+              "actionType": "turn_off",
+              "color": "slate"
+            },
+            "Encendido": {
+              "actionType": "turn_on",
+              "color": "emerald"
+            }
+          },
+          "statusValue": "OK",
+          "value": 37,
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "id": "1789227309459",
+          "unit": "°F"
+        },
+        {
+          "photoMode": "normal",
+          "name": "Botellero Entrada Izquierda",
+          "statusValue": "OK",
+          "includeButtons": true,
+          "buttonActions": {
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "turn_on"
+            },
+            "Apagado": {
+              "color": "slate",
+              "actionType": "turn_off"
+            }
+          },
+          "allowPhoto": true,
+          "ampState": "Encendido",
+          "id": "1789227538808",
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "value": 34,
+          "lastNonZeroValue": 34,
+          "unit": "°F"
+        }
+      ],
+      "photoRequired": false,
+      "isAlarmActive": false,
+      "allowNotes": true,
+      "currentValue": -4.3,
+      "ampState": "Encendido",
+      "buttonActions": {},
+      "title": "Equipos Del Bar"
+    },
+    {
+      "ampState": "Encendido",
+      "requireNotesOnFailure": false,
+      "measurementFields": [
+        {
+          "includeButtons": true,
+          "statusValue": "OK",
+          "value": 46.8,
+          "unit": "°C",
+          "allowPhoto": true,
+          "id": "1",
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "photoMode": "normal",
+          "ampState": "Encendido",
+          "lastNonZeroValue": 46.8,
+          "name": "Bombas/Presurisacion",
+          "buttonActions": {
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "turn_on"
+            },
+            "Apagado": {
+              "actionType": "turn_off",
+              "color": "slate"
+            }
+          }
+        },
+        {
+          "lastNonZeroValue": 46.5,
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "photoMode": "normal",
+          "name": "Bomba/Resirculacion",
+          "value": 46.5,
+          "statusValue": "OK",
+          "unit": "°C",
+          "id": "1789240544706",
+          "allowPhoto": true,
+          "buttonActions": {
+            "Encendido": {
+              "actionType": "turn_on",
+              "color": "emerald"
+            },
+            "Apagado": {
+              "color": "slate",
+              "actionType": "turn_off"
+            }
+          },
+          "includeButtons": true,
+          "ampState": "Encendido"
+        },
+        {
+          "id": "1789240600468",
+          "name": "Manometros De Bombas",
+          "includeButtons": false,
+          "unit": "PSI",
+          "photoMode": "normal",
+          "allowPhoto": true,
+          "lastNonZeroValue": 90,
+          "ampState": "Encendido",
+          "value": 90
+        },
+        {
+          "name": "Manometros Tanques",
+          "id": "1789240637614",
+          "includeButtons": false,
+          "allowPhoto": true,
+          "lastNonZeroValue": 50,
+          "unit": "PSI",
+          "value": 50,
+          "ampState": "Encendido",
+          "photoMode": "normal"
+        }
+      ],
+      "photoRequired": false,
+      "isAlarmActive": false,
+      "category": "caldera",
+      "currentValue": 46.8,
+      "buttonActions": {},
+      "photoMode": "normal",
+      "area": "Cuarto De Bombas",
+      "title": "Sistema De Agua Caliente",
+      "allowPhoto": true,
+      "isCritical": false,
+      "unit": "°C",
+      "type": "numeric",
+      "id": "chk-tpl-1789240659096-ji6y",
+      "lastNonZeroValue": 0,
+      "includeStatusButtons": false,
+      "allowNotes": true
+    },
+    {
+      "category": "extraccion",
+      "photoMode": "normal",
+      "allowPhoto": true,
+      "isCritical": false,
+      "type": "ok_nok",
+      "allowNotes": true,
+      "ampState": "Encendido",
+      "currentValue": "Operativo",
+      "lastNonZeroValue": 0,
+      "isAlarmActive": false,
+      "title": "Ascensor Apto",
+      "id": "chk-tpl-1789423733318-xfh6",
+      "buttonActions": {},
+      "area": "Ascensores",
+      "requireNotesOnFailure": false,
+      "options": [
+        "Operativo",
+        "Bloqueado"
+      ],
+      "statusValue": "Operativo",
+      "photoRequired": false
+    },
+    {
+      "area": "Bombas De Impulción S3",
+      "isCritical": false,
+      "category": "tanque",
+      "allowPhoto": true,
+      "photoMode": "normal",
+      "lastNonZeroValue": 0,
+      "currentValue": "Nivel Alto",
+      "ampState": "Encendido",
+      "allowNotes": true,
+      "title": "Tanques De Agua Potable",
+      "id": "chk-tpl-1789428026446-qnuc",
+      "requireNotesOnFailure": false,
+      "buttonActions": {
+        "Nivel Bajo": {
+          "color": "auto",
+          "actionType": "failure"
+        }
+      },
+      "options": [
+        "Nivel Bajo",
+        "Nivel Medio",
+        "Nivel Alto"
+      ],
+      "isAlarmActive": false,
+      "statusValue": "Nivel Alto",
+      "photoRequired": false,
+      "type": "ok_nok"
+    },
+    {
+      "area": "Ascensores",
+      "id": "chk-tpl-1789428185062-g11h",
+      "category": "extraccion",
+      "currentValue": "Operativo",
+      "photoMode": "normal",
+      "ampState": "Encendido",
+      "statusValue": "Operativo",
+      "requireNotesOnFailure": false,
+      "photoRequired": false,
+      "options": [
+        "Operativo",
+        "Bloqueado"
+      ],
+      "isCritical": false,
+      "allowPhoto": true,
+      "type": "ok_nok",
+      "allowNotes": true,
+      "buttonActions": {},
+      "lastNonZeroValue": 0,
+      "isAlarmActive": false,
+      "title": "Ascensor Hotel"
+    },
+    {
+      "options": [
+        "Operativo",
+        "Bloqueado"
+      ],
+      "currentValue": "Operativo",
+      "isCritical": false,
+      "allowPhoto": true,
+      "statusValue": "Operativo",
+      "lastNonZeroValue": 0,
+      "area": "Ascensores",
+      "requireNotesOnFailure": false,
+      "allowNotes": true,
+      "id": "chk-tpl-1789428511011-x67z",
+      "isAlarmActive": false,
+      "ampState": "Encendido",
+      "title": "Ascensor De Servicio",
+      "photoMode": "normal",
+      "buttonActions": {},
+      "category": "extraccion",
+      "type": "ok_nok",
+      "photoRequired": false
+    },
+    {
+      "isAlarmActive": false,
+      "photoMode": "normal",
+      "requireNotesOnFailure": false,
+      "buttonActions": {
+        "Bloqueado": {
+          "actionType": "failure",
+          "color": "auto"
+        }
+      },
+      "ampState": "Encendido",
+      "currentValue": "Energía EPM",
+      "category": "subestacion",
+      "options": [
+        "Energía EPM",
+        "Energia/Planta",
+        "Bloqueado"
+      ],
+      "title": "Transferencia De Energia",
+      "photoRequired": false,
+      "type": "ok_nok",
+      "statusValue": "Energía EPM",
+      "allowNotes": true,
+      "notes": "📸 Foto de evidencia adjunta",
+      "lastNonZeroValue": 0,
+      "area": "Planta De Emergencia S2",
+      "id": "chk-tpl-1789435170225-zr6y",
+      "allowPhoto": true,
+      "isCritical": false
+    },
+    {
+      "ampState": "Encendido",
+      "measurementFields": [
+        {
+          "includeButtons": true,
+          "name": "Nevera 1",
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "value": 1,
+          "statusValue": "OK",
+          "ampState": "Encendido",
+          "allowPhoto": true,
+          "buttonActions": {
+            "Apagado": {
+              "actionType": "turn_off",
+              "color": "slate"
+            },
+            "Encendido": {
+              "actionType": "turn_on",
+              "color": "emerald"
+            }
+          },
+          "lastNonZeroValue": 1,
+          "photoMode": "normal",
+          "id": "1",
+          "unit": "°C"
+        },
+        {
+          "value": 3,
+          "unit": "°C",
+          "photoMode": "normal",
+          "ampState": "Encendido",
+          "allowPhoto": true,
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "id": "1789470556027",
+          "statusValue": "OK",
+          "includeButtons": true,
+          "name": "Nevera 2",
+          "buttonActions": {
+            "Apagado": {
+              "actionType": "turn_off",
+              "color": "slate"
+            },
+            "Encendido": {
+              "actionType": "turn_on",
+              "color": "emerald"
+            }
+          },
+          "lastNonZeroValue": 3
+        },
+        {
+          "statusValue": "OK",
+          "allowPhoto": true,
+          "includeButtons": true,
+          "buttonActions": {
+            "Apagado": {
+              "actionType": "turn_off",
+              "color": "slate"
+            },
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "turn_on"
+            }
+          },
+          "id": "1789470602027",
+          "ampState": "Encendido",
+          "value": 5,
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "name": "Nevera 3",
+          "lastNonZeroValue": 5,
+          "photoMode": "normal",
+          "unit": "°C"
+        },
+        {
+          "ampState": "Encendido",
+          "statusValue": "OK",
+          "photoMode": "normal",
+          "lastNonZeroValue": 32,
+          "allowPhoto": true,
+          "name": "Base Chef",
+          "unit": "°F",
+          "buttonActions": {
+            "Apagado": {
+              "actionType": "turn_off",
+              "color": "slate"
+            },
+            "Encendido": {
+              "actionType": "turn_on",
+              "color": "emerald"
+            }
+          },
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "value": 32,
+          "id": "1789470634919",
+          "includeButtons": true
+        },
+        {
+          "photoMode": "normal",
+          "buttonActions": {
+            "Apagado": {
+              "actionType": "turn_off",
+              "color": "slate"
+            },
+            "Encendido": {
+              "actionType": "turn_on",
+              "color": "emerald"
+            }
+          },
+          "id": "1789470671546",
+          "lastNonZeroValue": -3,
+          "name": "Nevera De Entrada",
+          "includeButtons": true,
+          "unit": "°F",
+          "statusValue": "OK",
+          "ampState": "Encendido",
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "allowPhoto": true,
+          "value": -3
+        }
+      ],
+      "notes": "Todo está ok ",
+      "area": "Cocina/Silo",
+      "category": "refrigeracion",
+      "requireNotesOnFailure": false,
+      "photoRequired": false,
+      "title": "Neveras",
+      "lastNonZeroValue": 1,
+      "allowPhoto": true,
+      "isCritical": false,
+      "unit": "°C",
+      "type": "numeric",
+      "id": "chk-tpl-1789470717933-t9gy",
+      "currentValue": 1,
+      "allowNotes": true,
+      "buttonActions": {},
+      "photoMode": "normal",
+      "includeStatusButtons": false,
+      "isAlarmActive": false
+    }
+  ],
+  "userId": "usr-1789437863324",
+  "anomalies": [],
+  "generalNotes": "Ronda de tarde ejecutada con normalidad. Todos los sistemas y equipos inspeccionados al 100%.",
+  "technicianName": "Ferney Alonso/Supervisor",
+  "time": "21:30",
+  "compliancePercentage": 100,
+  "lastUpdated": "2026-10-08T13:05:16.807Z",
+  "technicianSignature": "Ferney Alonso",
+  "meterReadings": {
+    "mainWaterPressurePsi": 72,
+    "hotWaterSupplyTempC": 60,
+    "hotWaterReturnTempC": 53.5,
+    "waterCubicMeters": 48925,
+    "electricKwh": 341950,
+    "gasCubicMeters": 18215,
+    "poolPh": 7.35,
+    "poolChlorinePpm": 2.1
+  },
+  "anomaliesCount": 0,
+  "status": "completada",
+  "progress": 100
+},
+{
+  "id": "rnd-1086",
+  "status": "completada",
+  "compliancePercentage": 100,
+  "userEmail": "juanmateoramosramos44@gmail.com",
+  "anomaliesCount": 0,
+  "meterReadings": {
+    "waterCubicMeters": 1574.8,
+    "electricKwh": 42770,
+    "gasCubicMeters": 1039.2
+  },
+  "time": "08:00",
+  "lastUpdated": "2026-09-15T12:08:58.846Z",
+  "technicianName": "Técnico de Mantenimiento",
+  "userId": "usr-1789230683226",
+  "shift": "manana",
+  "technicianSignature": "Juan Mateo/Técnico",
+  "date": "2026-10-26",
+  "anomalies": [],
+  "lastHeartbeat": "2026-09-15T12:08:36.712Z",
+  "generalNotes": "",
+  "checkpoints": [
+    {
+      "allowNotes": true,
+      "notes": "Estava Descongelando, Ya Está Prendida",
+      "id": "chk-tpl-1788985535314-nua3",
+      "requireNotesOnFailure": false,
+      "minValue": -25,
+      "ampState": "Encendido",
+      "category": "refrigeracion",
+      "lastNonZeroValue": 47,
+      "area": "Cocina S4",
+      "isCritical": false,
+      "maxValue": 50,
+      "includeStatusButtons": false,
+      "type": "numeric",
+      "currentValue": 47,
+      "unit": "°C",
+      "buttonActions": {},
+      "measurementFields": [
+        {
+          "minValue": -25,
+          "ampState": "Encendido",
+          "includeButtons": false,
+          "name": "Cava Congelación",
+          "value": 47,
+          "unit": "°C",
+          "maxValue": 50,
+          "lastNonZeroValue": 47,
+          "id": "1"
+        }
+      ],
+      "title": "Cava De Congelación",
+      "isAlarmActive": false
+    },
+    {
+      "includeStatusButtons": false,
+      "ampState": "Encendido",
+      "minValue": 0,
+      "isAlarmActive": false,
+      "maxValue": 50,
+      "requireNotesOnFailure": false,
+      "lastNonZeroValue": 0,
+      "buttonActions": {},
+      "measurementFields": [
+        {
+          "minValue": 0,
+          "ampState": "Encendido",
+          "value": 0,
+          "id": "1",
+          "unit": "°C",
+          "name": "Cava Refrigeracion",
+          "maxValue": 50,
+          "lastNonZeroValue": 25,
+          "includeButtons": false
+        }
+      ],
+      "type": "numeric",
+      "category": "refrigeracion",
+      "unit": "°C",
+      "title": "Cava De Refrigeración",
+      "area": "Cocina S4",
+      "allowNotes": true,
+      "isCritical": false,
+      "id": "chk-tpl-1788988056429-c66o",
+      "currentValue": 0
+    },
+    {
+      "unit": "°C",
+      "type": "numeric",
+      "minValue": 0,
+      "measurementFields": [
+        {
+          "minValue": 0,
+          "ampState": "Encendido",
+          "name": "Cava Refrigeracion",
+          "unit": "°C",
+          "id": "1",
+          "maxValue": 50,
+          "lastNonZeroValue": 2.7,
+          "includeButtons": false,
+          "value": 2.7
+        }
+      ],
+      "id": "chk-tpl-1788988080039-nkgi",
+      "ampState": "Encendido",
+      "buttonActions": {},
+      "maxValue": 50,
+      "includeStatusButtons": false,
+      "category": "refrigeracion",
+      "isAlarmActive": false,
+      "currentValue": 2.7,
+      "requireNotesOnFailure": false,
+      "lastNonZeroValue": 0,
+      "isCritical": false,
+      "area": "Cocina S4",
+      "title": "Cava De Refrigeración",
+      "allowNotes": true
+    },
+    {
+      "type": "ok_nok",
+      "ampState": "Apagado",
+      "title": "Extracción",
+      "allowNotes": true,
+      "isCritical": false,
+      "buttonActions": {},
+      "currentValue": "Apagado",
+      "category": "extraccion",
+      "id": "chk-tpl-1788989380312-s3ia",
+      "statusValue": "Apagado",
+      "isAlarmActive": false,
+      "options": [
+        "Encendido",
+        "Apagado",
+        "Alarmado"
+      ],
+      "requireNotesOnFailure": false,
+      "area": "Cocina S4",
+      "lastNonZeroValue": 0
+    },
+    {
+      "category": "hidraulico",
+      "area": "Planta RCI S3",
+      "allowNotes": true,
+      "isAlarmActive": false,
+      "isCritical": false,
+      "id": "chk-tpl-1789054060776-tynz",
+      "ampState": "Encendido",
+      "currentValue": 273,
+      "title": "Bomba Jockey",
+      "requireNotesOnFailure": false,
+      "unit": "PSI",
+      "type": "numeric",
+      "lastNonZeroValue": 273
+    },
+    {
+      "ampState": "Encendido",
+      "id": "chk-tpl-1789058977130-dsm2",
+      "measurementFields": [
+        {
+          "value": 27.66,
+          "unit": "VDC",
+          "id": "1",
+          "name": "Bateria 1",
+          "ampState": "Encendido",
+          "lastNonZeroValue": 27.66
+        },
+        {
+          "ampState": "Encendido",
+          "lastNonZeroValue": 27.66,
+          "unit": "VDC",
+          "id": "1789059243278",
+          "name": "Bateria 2",
+          "value": 27.66
+        }
+      ],
+      "title": "Baterias",
+      "currentValue": 27.66,
+      "area": "Planta RCI S3",
+      "requireNotesOnFailure": false,
+      "category": "bateria",
+      "lastNonZeroValue": 0,
+      "allowNotes": true,
+      "isCritical": false,
+      "isAlarmActive": false,
+      "unit": "VDC",
+      "type": "numeric",
+      "includeStatusButtons": false
+    },
+    {
+      "options": [
+        "Sin Alarma",
+        "Sensor Alarmado"
+      ],
+      "id": "chk-tpl-1789060493962-91iv",
+      "requireNotesOnFailure": false,
+      "area": "Planta RCI S3",
+      "lastNonZeroValue": 61,
+      "isAlarmActive": true,
+      "measurementFields": [
+        {
+          "maxValue": 100,
+          "lastNonZeroValue": 60,
+          "ampState": "Encendido",
+          "minValue": 61,
+          "unit": "%",
+          "id": "1",
+          "name": "Nivel Combustible",
+          "value": 60
+        }
+      ],
+      "alarmReason": "Botón de alarma activado: \"Sensor Alarmado\"",
+      "statusValue": "Sensor Alarmado",
+      "allowNotes": true,
+      "ampState": "Encendido",
+      "minValue": 61,
+      "includeStatusButtons": true,
+      "title": "Combustible",
+      "maxValue": 100,
+      "currentValue": 60,
+      "unit": "%",
+      "category": "combustible",
+      "type": "numeric",
+      "isCritical": false
+    },
+    {
+      "currentValue": 260,
+      "area": "Planta RCI S3",
+      "lastNonZeroValue": 250,
+      "includeStatusButtons": false,
+      "requireNotesOnFailure": false,
+      "maxValue": 300,
+      "title": "Manometros Principales",
+      "allowNotes": true,
+      "isAlarmActive": false,
+      "category": "manometro",
+      "ampState": "Encendido",
+      "minValue": 250,
+      "measurementFields": [
+        {
+          "lastNonZeroValue": 260,
+          "value": 260,
+          "unit": "PSI",
+          "ampState": "Encendido",
+          "id": "1",
+          "name": "Manometro 1",
+          "minValue": 250,
+          "maxValue": 300
+        },
+        {
+          "maxValue": 180,
+          "id": "1789066651541",
+          "unit": "PSI",
+          "lastNonZeroValue": 170,
+          "ampState": "Encendido",
+          "minValue": 160,
+          "name": "Manometro 2",
+          "value": 170
+        }
+      ],
+      "id": "chk-tpl-1789066766097-j1e5",
+      "isCritical": false,
+      "unit": "PSI",
+      "type": "numeric"
+    },
+    {
+      "buttonActions": {
+        "Encendido": {
+          "actionType": "turn_on",
+          "color": "emerald"
+        },
+        "Apagado": {
+          "color": "slate",
+          "actionType": "turn_off"
+        }
+      },
+      "statusValue": "Encendido",
+      "isAlarmActive": false,
+      "requireNotesOnFailure": false,
+      "includeStatusButtons": true,
+      "lastNonZeroValue": 12,
+      "measurementFields": [
+        {
+          "name": "BOM-1",
+          "lastNonZeroValue": 19,
+          "value": 19,
+          "ampState": "Encendido",
+          "minValue": 12,
+          "id": "1",
+          "includeButtons": false,
+          "maxValue": 20,
+          "unit": "A"
+        }
+      ],
+      "unit": "A",
+      "type": "numeric",
+      "title": "BOM-1-S3",
+      "currentValue": 19,
+      "id": "chk-tpl-1789071231392-wx5f",
+      "maxValue": 20,
+      "isCritical": false,
+      "category": "hidraulico",
+      "area": "Bombas De Impulción S3",
+      "options": [
+        "Encendido",
+        "Apagado"
+      ],
+      "minValue": 12,
+      "ampState": "Encendido",
+      "allowNotes": true
+    },
+    {
+      "measurementFields": [
+        {
+          "ampState": "Apagado",
+          "unit": "A",
+          "minValue": 12,
+          "id": "1",
+          "lastNonZeroValue": 16,
+          "maxValue": 20,
+          "value": 0,
+          "name": "BOM-2",
+          "includeButtons": false
+        }
+      ],
+      "title": "BOM-2-S3",
+      "lastNonZeroValue": 12,
+      "currentValue": 0,
+      "type": "numeric",
+      "unit": "A",
+      "statusValue": "Apagado",
+      "isAlarmActive": false,
+      "includeStatusButtons": true,
+      "buttonActions": {},
+      "area": "Bombas De Impulción S3",
+      "maxValue": 20,
+      "isCritical": false,
+      "options": [
+        "Encendido",
+        "Apagado"
+      ],
+      "category": "hidraulico",
+      "id": "chk-tpl-1789072528074-19rc",
+      "ampState": "Apagado",
+      "minValue": 12,
+      "allowNotes": true,
+      "requireNotesOnFailure": false
+    },
+    {
+      "requireNotesOnFailure": false,
+      "category": "bateria",
+      "buttonActions": {},
+      "lastNonZeroValue": 0,
+      "isAlarmActive": false,
+      "type": "numeric",
+      "includeStatusButtons": false,
+      "unit": "VDC",
+      "ampState": "Encendido",
+      "id": "chk-tpl-1789072918083-tj8j",
+      "title": "Batería",
+      "allowNotes": true,
+      "area": "Planta De Emergencia S2",
+      "isCritical": false,
+      "currentValue": 27.6,
+      "measurementFields": [
+        {
+          "value": 27.6,
+          "name": "Bateria-",
+          "ampState": "Encendido",
+          "lastNonZeroValue": 27.6,
+          "id": "1",
+          "includeButtons": false,
+          "unit": "VDC"
+        }
+      ]
+    },
+    {
+      "id": "chk-tpl-1789082124733-70s2",
+      "lastNonZeroValue": 0,
+      "isCritical": false,
+      "unit": "%",
+      "type": "numeric",
+      "allowNotes": true,
+      "includeStatusButtons": false,
+      "isAlarmActive": false,
+      "currentValue": 62,
+      "category": "combustible",
+      "area": "Planta De Emergencia S2",
+      "measurementFields": [
+        {
+          "ampState": "Encendido",
+          "unit": "%",
+          "value": 62,
+          "id": "1",
+          "lastNonZeroValue": 62,
+          "name": "Combustible"
+        }
+      ],
+      "requireNotesOnFailure": false,
+      "ampState": "Encendido",
+      "title": "Combustible"
+    },
+    {
+      "measurementFields": [
+        {
+          "unit": "°C",
+          "lastNonZeroValue": 47,
+          "id": "1",
+          "ampState": "Encendido",
+          "value": 47,
+          "name": "Temperatura"
+        }
+      ],
+      "id": "chk-tpl-1789082328250-puzo",
+      "buttonActions": {},
+      "allowNotes": true,
+      "unit": "°C",
+      "type": "numeric",
+      "category": "temperatura",
+      "isAlarmActive": false,
+      "includeStatusButtons": false,
+      "currentValue": 47,
+      "requireNotesOnFailure": false,
+      "ampState": "Encendido",
+      "isCritical": false,
+      "lastNonZeroValue": 0,
+      "title": "Temperatura",
+      "area": "Planta De Emergencia S2"
+    },
+    {
+      "unit": "m³",
+      "type": "numeric",
+      "ampState": "Encendido",
+      "currentValue": 9.5,
+      "buttonActions": {},
+      "category": "tanque",
+      "isAlarmActive": false,
+      "id": "chk-tpl-1789181196563-joap",
+      "allowNotes": true,
+      "requireNotesOnFailure": false,
+      "includeStatusButtons": false,
+      "isCritical": false,
+      "title": "Tanques",
+      "area": "Terraza Piso 18",
+      "measurementFields": [
+        {
+          "includeButtons": false,
+          "unit": "m³",
+          "id": "1",
+          "lastNonZeroValue": 9.5,
+          "ampState": "Encendido",
+          "value": 9.5,
+          "name": "Tanques Hotel"
+        },
+        {
+          "ampState": "Encendido",
+          "name": "Tanques Apto",
+          "value": 2,
+          "unit": "m³",
+          "lastNonZeroValue": 2,
+          "includeButtons": false,
+          "id": "1789181031815"
+        }
+      ],
+      "lastNonZeroValue": 0
+    },
+    {
+      "ampState": "Encendido",
+      "allowNotes": true,
+      "isCritical": false,
+      "area": "Planta De Emergencia S2",
+      "title": "Condensadores",
+      "currentValue": 0.996,
+      "lastNonZeroValue": 0,
+      "category": "condensador",
+      "type": "numeric",
+      "unit": "FP",
+      "measurementFields": [
+        {
+          "value": 0.996,
+          "name": "Condensadores",
+          "includeButtons": false,
+          "ampState": "Encendido",
+          "lastNonZeroValue": 0.996,
+          "id": "1",
+          "unit": "FP"
+        }
+      ],
+      "isAlarmActive": false,
+      "buttonActions": {},
+      "id": "chk-tpl-1789181948808-tk08",
+      "requireNotesOnFailure": false,
+      "includeStatusButtons": false
+    },
+    {
+      "isAlarmActive": false,
+      "measurementFields": [
+        {
+          "maxValue": 60,
+          "buttonActions": {
+            "Apagado": {
+              "color": "slate",
+              "actionType": "default"
+            },
+            "Encendido": {
+              "actionType": "default",
+              "color": "emerald"
+            }
+          },
+          "lastNonZeroValue": 54,
+          "id": "1",
+          "name": "Precion",
+          "unit": "PSI",
+          "options": [
+            "Encendido",
+            "Apagado",
+            "Alarmado"
+          ],
+          "statusValue": "Encendido",
+          "ampState": "Encendido",
+          "minValue": 42,
+          "includeButtons": true,
+          "value": 54
+        }
+      ],
+      "minValue": 42,
+      "buttonActions": {},
+      "requireNotesOnFailure": false,
+      "isCritical": false,
+      "ampState": "Encendido",
+      "area": "Terraza Piso 18",
+      "allowNotes": true,
+      "currentValue": 54,
+      "category": "hidraulico",
+      "id": "chk-tpl-1789183131928-5ogv",
+      "maxValue": 60,
+      "type": "numeric",
+      "unit": "PSI",
+      "lastNonZeroValue": 42,
+      "includeStatusButtons": false,
+      "title": "Bombas De Presión"
+    },
+    {
+      "ampState": "Encendido",
+      "measurementFields": [
+        {
+          "value": 36.8,
+          "ampState": "Encendido",
+          "unit": "°C",
+          "name": "Temperatura/Sauna",
+          "buttonActions": {
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "default"
+            },
+            "Apagado": {
+              "actionType": "default",
+              "color": "slate"
+            }
+          },
+          "options": [
+            "Encendido",
+            "Apagado"
+          ],
+          "statusValue": "Encendido",
+          "lastNonZeroValue": 36.8,
+          "id": "1",
+          "includeButtons": true
+        },
+        {
+          "id": "1789184871874",
+          "lastNonZeroValue": 11.5,
+          "name": "Cold Plungue",
+          "includeButtons": true,
+          "unit": "°C",
+          "statusValue": "Encendido",
+          "buttonActions": {
+            "Apagado": {
+              "color": "slate",
+              "actionType": "default"
+            },
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "default"
+            }
+          },
+          "ampState": "Encendido",
+          "options": [
+            "Encendido",
+            "Apagado"
+          ],
+          "value": 11.5
+        }
+      ],
+      "area": "Zona Húmeda/Piso 6",
+      "category": "sauna_cold_plunge",
+      "requireNotesOnFailure": false,
+      "title": "Sauna/Cold Plungue",
+      "lastNonZeroValue": 0,
+      "isCritical": false,
+      "unit": "°C",
+      "type": "numeric",
+      "id": "chk-tpl-1789184914843-8qeh",
+      "currentValue": 36.8,
+      "allowNotes": true,
+      "buttonActions": {},
+      "includeStatusButtons": false,
+      "isAlarmActive": false
+    },
+    {
+      "type": "ok_nok",
+      "ampState": "Encendido",
+      "isCritical": false,
+      "suggestedNotes": [
+        "Musica Ascensores Ok",
+        "Musica Gym Ok",
+        "Televisor Gym Ok",
+        "Musica Piscina Ok",
+        "Musica Silo Ok",
+        "Musica Sastra Ok",
+        "Musica Sauna Ok"
+      ],
+      "buttonActions": {},
+      "title": "Musica",
+      "allowNotes": true,
+      "isAlarmActive": false,
+      "category": "musica",
+      "id": "chk-tpl-1789186187266-j679",
+      "requireNotesOnFailure": false,
+      "options": [
+        "Todo Ok",
+        "NO OK"
+      ],
+      "statusValue": "Todo Ok",
+      "currentValue": "Todo Ok",
+      "lastNonZeroValue": 0,
+      "area": "Zona Húmeda/Piso 6"
+    },
+    {
+      "measurementFields": [
+        {
+          "name": "Botellero Ventanal",
+          "value": -5,
+          "lastNonZeroValue": -5,
+          "buttonActions": {
+            "Encendido": {
+              "actionType": "turn_on",
+              "color": "emerald"
+            },
+            "Apagado": {
+              "actionType": "turn_off",
+              "color": "slate"
+            }
+          },
+          "includeButtons": true,
+          "statusValue": "OK",
+          "ampState": "Encendido",
+          "id": "1",
+          "unit": "°C",
+          "options": [
+            "OK",
+            "NO OK"
+          ]
+        },
+        {
+          "unit": "°C",
+          "statusValue": "OK",
+          "id": "1789227261860",
+          "ampState": "Encendido",
+          "includeButtons": true,
+          "lastNonZeroValue": -17,
+          "value": -17,
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "buttonActions": {
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "turn_on"
+            },
+            "Apagado": {
+              "color": "slate",
+              "actionType": "turn_off"
+            }
+          },
+          "name": "Nevera Cafetera"
+        },
+        {
+          "includeButtons": true,
+          "name": "Botellero Entrada Derecha",
+          "statusValue": "OK",
+          "lastNonZeroValue": 42,
+          "buttonActions": {
+            "Apagado": {
+              "actionType": "turn_off",
+              "color": "slate"
+            },
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "turn_on"
+            }
+          },
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "ampState": "Encendido",
+          "id": "1789227309459",
+          "value": 42,
+          "unit": "°F"
+        },
+        {
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "id": "1789227538808",
+          "statusValue": "OK",
+          "includeButtons": true,
+          "name": "Botellero Entrada Izquierda",
+          "unit": "°F",
+          "lastNonZeroValue": 34,
+          "buttonActions": {
+            "Apagado": {
+              "actionType": "turn_off",
+              "color": "slate"
+            },
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "turn_on"
+            }
+          },
+          "ampState": "Encendido",
+          "value": 34
+        }
+      ],
+      "requireNotesOnFailure": false,
+      "area": "Bar/ Piso 6",
+      "currentValue": -5,
+      "includeStatusButtons": false,
+      "category": "refrigeracion",
+      "isCritical": false,
+      "id": "chk-tpl-1789227609185-rbqi",
+      "type": "numeric",
+      "unit": "°C",
+      "isAlarmActive": false,
+      "allowNotes": true,
+      "buttonActions": {},
+      "lastNonZeroValue": 0,
+      "title": "Equipos Del Bar",
+      "ampState": "Encendido"
+    },
+    {
+      "category": "caldera",
+      "isAlarmActive": false,
+      "measurementFields": [
+        {
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "lastNonZeroValue": 50.8,
+          "unit": "°C",
+          "buttonActions": {
+            "Apagado": {
+              "actionType": "turn_off",
+              "color": "slate"
+            },
+            "Encendido": {
+              "actionType": "turn_on",
+              "color": "emerald"
+            }
+          },
+          "includeButtons": true,
+          "ampState": "Encendido",
+          "value": 50.8,
+          "name": "Bombas/Presurisacion",
+          "id": "1",
+          "statusValue": "OK"
+        },
+        {
+          "lastNonZeroValue": 47.9,
+          "id": "1789240544706",
+          "ampState": "Encendido",
+          "unit": "°C",
+          "statusValue": "OK",
+          "includeButtons": true,
+          "value": 47.9,
+          "name": "Bomba/Resirculacion",
+          "buttonActions": {
+            "Apagado": {
+              "color": "slate",
+              "actionType": "turn_off"
+            },
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "turn_on"
+            }
+          },
+          "options": [
+            "OK",
+            "NO OK"
+          ]
+        },
+        {
+          "unit": "PSI",
+          "ampState": "Encendido",
+          "lastNonZeroValue": 50,
+          "includeButtons": false,
+          "id": "1789240600468",
+          "name": "Manometros De Bombas",
+          "value": 50
+        },
+        {
+          "unit": "PSI",
+          "value": 50,
+          "id": "1789240637614",
+          "name": "Manometros Tanques",
+          "lastNonZeroValue": 50,
+          "ampState": "Encendido",
+          "includeButtons": false
+        }
+      ],
+      "buttonActions": {},
+      "requireNotesOnFailure": false,
+      "type": "numeric",
+      "unit": "°C",
+      "id": "chk-tpl-1789240659096-ji6y",
+      "ampState": "Encendido",
+      "area": "Cuarto De Bombas",
+      "isCritical": false,
+      "title": "Sistema De Agua Caliente",
+      "currentValue": 50.8,
+      "lastNonZeroValue": 0,
+      "includeStatusButtons": false,
+      "allowNotes": true
+    },
+    {
+      "allowNotes": true,
+      "statusValue": "Operativo",
+      "requireNotesOnFailure": false,
+      "title": "Ascensor Apto",
+      "type": "ok_nok",
+      "isCritical": false,
+      "id": "chk-tpl-1789423733318-xfh6",
+      "isAlarmActive": false,
+      "category": "extraccion",
+      "buttonActions": {},
+      "area": "Ascensores",
+      "ampState": "Encendido",
+      "lastNonZeroValue": 0,
+      "currentValue": "Operativo",
+      "options": [
+        "Operativo",
+        "Bloqueado"
+      ]
+    },
+    {
+      "options": [
+        "Nivel Bajo",
+        "Nivel Medio",
+        "Nivel Alto"
+      ],
+      "statusValue": "Nivel Alto",
+      "currentValue": "Nivel Alto",
+      "type": "ok_nok",
+      "lastNonZeroValue": 0,
+      "isCritical": false,
+      "category": "extraccion",
+      "requireNotesOnFailure": false,
+      "id": "chk-tpl-1789428026446-qnuc",
+      "title": "Tanques De Agua Potable",
+      "allowNotes": true,
+      "ampState": "Encendido",
+      "buttonActions": {
+        "Nivel Bajo": {
+          "color": "auto",
+          "actionType": "failure"
+        }
+      },
+      "isAlarmActive": false,
+      "area": "Bombas De Impulción S3"
+    },
+    {
+      "title": "Ascensor Hotel",
+      "type": "ok_nok",
+      "allowNotes": true,
+      "requireNotesOnFailure": false,
+      "statusValue": "Operativo",
+      "isCritical": false,
+      "id": "chk-tpl-1789428185062-g11h",
+      "options": [
+        "Operativo",
+        "Bloqueado"
+      ],
+      "isAlarmActive": false,
+      "ampState": "Encendido",
+      "currentValue": "Operativo",
+      "buttonActions": {},
+      "lastNonZeroValue": 0,
+      "area": "Ascensores",
+      "category": "extraccion"
+    },
+    {
+      "id": "chk-tpl-1789428511011-x67z",
+      "options": [
+        "Operativo",
+        "Bloqueado"
+      ],
+      "ampState": "Encendido",
+      "type": "ok_nok",
+      "category": "extraccion",
+      "area": "Ascensores",
+      "isCritical": false,
+      "lastNonZeroValue": 0,
+      "isAlarmActive": false,
+      "allowNotes": true,
+      "buttonActions": {},
+      "statusValue": "Operativo",
+      "currentValue": "Operativo",
+      "requireNotesOnFailure": false,
+      "title": "Ascensor De Servicio"
+    },
+    {
+      "options": [
+        "Energia/EMP",
+        "Energia/Planta",
+        "Bloqueado"
+      ],
+      "requireNotesOnFailure": false,
+      "id": "chk-tpl-1789435170225-zr6y",
+      "category": "subestacion",
+      "currentValue": "Energia/EMP",
+      "area": "Planta De Emergencia S2",
+      "ampState": "Encendido",
+      "allowNotes": true,
+      "type": "ok_nok",
+      "buttonActions": {
+        "Bloqueado": {
+          "actionType": "failure",
+          "color": "auto"
+        }
+      },
+      "isAlarmActive": false,
+      "statusValue": "Energia/EMP",
+      "lastNonZeroValue": 0,
+      "title": "Transferencia De Energia",
+      "isCritical": false
+    },
+    {
+      "currentValue": 2,
+      "area": "Cocina/Silo",
+      "measurementFields": [
+        {
+          "unit": "°C",
+          "lastNonZeroValue": 2,
+          "id": "1",
+          "statusValue": "OK",
+          "buttonActions": {
+            "Encendido": {
+              "actionType": "turn_on",
+              "color": "emerald"
+            },
+            "Apagado": {
+              "color": "slate",
+              "actionType": "turn_off"
+            }
+          },
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "value": 2,
+          "includeButtons": true,
+          "name": "Nevera 1",
+          "ampState": "Encendido"
+        },
+        {
+          "statusValue": "OK",
+          "name": "Nevera 2",
+          "ampState": "Encendido",
+          "value": 5,
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "id": "1789470556027",
+          "lastNonZeroValue": 5,
+          "unit": "°C",
+          "buttonActions": {
+            "Apagado": {
+              "actionType": "turn_off",
+              "color": "slate"
+            },
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "turn_on"
+            }
+          },
+          "includeButtons": true
+        },
+        {
+          "value": 4,
+          "includeButtons": true,
+          "buttonActions": {
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "turn_on"
+            },
+            "Apagado": {
+              "color": "slate",
+              "actionType": "turn_off"
+            }
+          },
+          "unit": "°C",
+          "name": "Nevera 3",
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "statusValue": "OK",
+          "ampState": "Encendido",
+          "lastNonZeroValue": 4,
+          "id": "1789470602027"
+        },
+        {
+          "ampState": "Encendido",
+          "id": "1789470634919",
+          "name": "Base Chef",
+          "lastNonZeroValue": 36,
+          "statusValue": "OK",
+          "unit": "°F",
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "buttonActions": {
+            "Apagado": {
+              "color": "slate",
+              "actionType": "turn_off"
+            },
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "turn_on"
+            }
+          },
+          "includeButtons": true,
+          "value": 36
+        },
+        {
+          "name": "Nevera De Entrada",
+          "includeButtons": true,
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "statusValue": "OK",
+          "ampState": "Encendido",
+          "id": "1789470671546",
+          "value": -4,
+          "buttonActions": {
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "turn_on"
+            },
+            "Apagado": {
+              "actionType": "turn_off",
+              "color": "slate"
+            }
+          },
+          "lastNonZeroValue": -4,
+          "unit": "°F"
+        }
+      ],
+      "isAlarmActive": false,
+      "ampState": "Encendido",
+      "buttonActions": {},
+      "lastNonZeroValue": 0,
+      "isCritical": false,
+      "allowNotes": true,
+      "requireNotesOnFailure": false,
+      "category": "refrigeracion",
+      "title": "Neveras",
+      "id": "chk-tpl-1789470717933-t9gy",
+      "includeStatusButtons": false,
+      "type": "numeric",
+      "unit": "°C"
+    }
+  ],
+  "progress": 100,
+  "completedAt": "2026-10-26T10:30:00Z"
+},
+{
+  "id": "rnd-1087",
+  "status": "completada",
+  "compliancePercentage": 100,
+  "userEmail": "juanmateoramosramos44@gmail.com",
+  "anomaliesCount": 0,
+  "meterReadings": {
+    "waterCubicMeters": 1576.6,
+    "electricKwh": 42815,
+    "gasCubicMeters": 1041.4
+  },
+  "time": "08:00",
+  "lastUpdated": "2026-09-15T12:08:58.846Z",
+  "technicianName": "Técnico de Mantenimiento",
+  "userId": "usr-1789230683226",
+  "shift": "tarde",
+  "technicianSignature": "Juan Mateo/Técnico",
+  "date": "2026-10-27",
+  "anomalies": [],
+  "lastHeartbeat": "2026-09-15T12:08:36.712Z",
+  "generalNotes": "",
+  "checkpoints": [
+    {
+      "allowNotes": true,
+      "notes": "Estava Descongelando, Ya Está Prendida",
+      "id": "chk-tpl-1788985535314-nua3",
+      "requireNotesOnFailure": false,
+      "minValue": -25,
+      "ampState": "Encendido",
+      "category": "refrigeracion",
+      "lastNonZeroValue": 47,
+      "area": "Cocina S4",
+      "isCritical": false,
+      "maxValue": 50,
+      "includeStatusButtons": false,
+      "type": "numeric",
+      "currentValue": 47,
+      "unit": "°C",
+      "buttonActions": {},
+      "measurementFields": [
+        {
+          "minValue": -25,
+          "ampState": "Encendido",
+          "includeButtons": false,
+          "name": "Cava Congelación",
+          "value": 47,
+          "unit": "°C",
+          "maxValue": 50,
+          "lastNonZeroValue": 47,
+          "id": "1"
+        }
+      ],
+      "title": "Cava De Congelación",
+      "isAlarmActive": false
+    },
+    {
+      "includeStatusButtons": false,
+      "ampState": "Encendido",
+      "minValue": 0,
+      "isAlarmActive": false,
+      "maxValue": 50,
+      "requireNotesOnFailure": false,
+      "lastNonZeroValue": 0,
+      "buttonActions": {},
+      "measurementFields": [
+        {
+          "minValue": 0,
+          "ampState": "Encendido",
+          "value": 0,
+          "id": "1",
+          "unit": "°C",
+          "name": "Cava Refrigeracion",
+          "maxValue": 50,
+          "lastNonZeroValue": 25,
+          "includeButtons": false
+        }
+      ],
+      "type": "numeric",
+      "category": "refrigeracion",
+      "unit": "°C",
+      "title": "Cava De Refrigeración",
+      "area": "Cocina S4",
+      "allowNotes": true,
+      "isCritical": false,
+      "id": "chk-tpl-1788988056429-c66o",
+      "currentValue": 0
+    },
+    {
+      "unit": "°C",
+      "type": "numeric",
+      "minValue": 0,
+      "measurementFields": [
+        {
+          "minValue": 0,
+          "ampState": "Encendido",
+          "name": "Cava Refrigeracion",
+          "unit": "°C",
+          "id": "1",
+          "maxValue": 50,
+          "lastNonZeroValue": 2.7,
+          "includeButtons": false,
+          "value": 2.7
+        }
+      ],
+      "id": "chk-tpl-1788988080039-nkgi",
+      "ampState": "Encendido",
+      "buttonActions": {},
+      "maxValue": 50,
+      "includeStatusButtons": false,
+      "category": "refrigeracion",
+      "isAlarmActive": false,
+      "currentValue": 2.7,
+      "requireNotesOnFailure": false,
+      "lastNonZeroValue": 0,
+      "isCritical": false,
+      "area": "Cocina S4",
+      "title": "Cava De Refrigeración",
+      "allowNotes": true
+    },
+    {
+      "type": "ok_nok",
+      "ampState": "Apagado",
+      "title": "Extracción",
+      "allowNotes": true,
+      "isCritical": false,
+      "buttonActions": {},
+      "currentValue": "Apagado",
+      "category": "extraccion",
+      "id": "chk-tpl-1788989380312-s3ia",
+      "statusValue": "Apagado",
+      "isAlarmActive": false,
+      "options": [
+        "Encendido",
+        "Apagado",
+        "Alarmado"
+      ],
+      "requireNotesOnFailure": false,
+      "area": "Cocina S4",
+      "lastNonZeroValue": 0
+    },
+    {
+      "category": "hidraulico",
+      "area": "Planta RCI S3",
+      "allowNotes": true,
+      "isAlarmActive": false,
+      "isCritical": false,
+      "id": "chk-tpl-1789054060776-tynz",
+      "ampState": "Encendido",
+      "currentValue": 273,
+      "title": "Bomba Jockey",
+      "requireNotesOnFailure": false,
+      "unit": "PSI",
+      "type": "numeric",
+      "lastNonZeroValue": 273
+    },
+    {
+      "ampState": "Encendido",
+      "id": "chk-tpl-1789058977130-dsm2",
+      "measurementFields": [
+        {
+          "value": 27.66,
+          "unit": "VDC",
+          "id": "1",
+          "name": "Bateria 1",
+          "ampState": "Encendido",
+          "lastNonZeroValue": 27.66
+        },
+        {
+          "ampState": "Encendido",
+          "lastNonZeroValue": 27.66,
+          "unit": "VDC",
+          "id": "1789059243278",
+          "name": "Bateria 2",
+          "value": 27.66
+        }
+      ],
+      "title": "Baterias",
+      "currentValue": 27.66,
+      "area": "Planta RCI S3",
+      "requireNotesOnFailure": false,
+      "category": "bateria",
+      "lastNonZeroValue": 0,
+      "allowNotes": true,
+      "isCritical": false,
+      "isAlarmActive": false,
+      "unit": "VDC",
+      "type": "numeric",
+      "includeStatusButtons": false
+    },
+    {
+      "options": [
+        "Sin Alarma",
+        "Sensor Alarmado"
+      ],
+      "id": "chk-tpl-1789060493962-91iv",
+      "requireNotesOnFailure": false,
+      "area": "Planta RCI S3",
+      "lastNonZeroValue": 61,
+      "isAlarmActive": true,
+      "measurementFields": [
+        {
+          "maxValue": 100,
+          "lastNonZeroValue": 60,
+          "ampState": "Encendido",
+          "minValue": 61,
+          "unit": "%",
+          "id": "1",
+          "name": "Nivel Combustible",
+          "value": 60
+        }
+      ],
+      "alarmReason": "Botón de alarma activado: \"Sensor Alarmado\"",
+      "statusValue": "Sensor Alarmado",
+      "allowNotes": true,
+      "ampState": "Encendido",
+      "minValue": 61,
+      "includeStatusButtons": true,
+      "title": "Combustible",
+      "maxValue": 100,
+      "currentValue": 60,
+      "unit": "%",
+      "category": "combustible",
+      "type": "numeric",
+      "isCritical": false
+    },
+    {
+      "currentValue": 260,
+      "area": "Planta RCI S3",
+      "lastNonZeroValue": 250,
+      "includeStatusButtons": false,
+      "requireNotesOnFailure": false,
+      "maxValue": 300,
+      "title": "Manometros Principales",
+      "allowNotes": true,
+      "isAlarmActive": false,
+      "category": "manometro",
+      "ampState": "Encendido",
+      "minValue": 250,
+      "measurementFields": [
+        {
+          "lastNonZeroValue": 260,
+          "value": 260,
+          "unit": "PSI",
+          "ampState": "Encendido",
+          "id": "1",
+          "name": "Manometro 1",
+          "minValue": 250,
+          "maxValue": 300
+        },
+        {
+          "maxValue": 180,
+          "id": "1789066651541",
+          "unit": "PSI",
+          "lastNonZeroValue": 170,
+          "ampState": "Encendido",
+          "minValue": 160,
+          "name": "Manometro 2",
+          "value": 170
+        }
+      ],
+      "id": "chk-tpl-1789066766097-j1e5",
+      "isCritical": false,
+      "unit": "PSI",
+      "type": "numeric"
+    },
+    {
+      "buttonActions": {
+        "Encendido": {
+          "actionType": "turn_on",
+          "color": "emerald"
+        },
+        "Apagado": {
+          "color": "slate",
+          "actionType": "turn_off"
+        }
+      },
+      "statusValue": "Encendido",
+      "isAlarmActive": false,
+      "requireNotesOnFailure": false,
+      "includeStatusButtons": true,
+      "lastNonZeroValue": 12,
+      "measurementFields": [
+        {
+          "name": "BOM-1",
+          "lastNonZeroValue": 19,
+          "value": 19,
+          "ampState": "Encendido",
+          "minValue": 12,
+          "id": "1",
+          "includeButtons": false,
+          "maxValue": 20,
+          "unit": "A"
+        }
+      ],
+      "unit": "A",
+      "type": "numeric",
+      "title": "BOM-1-S3",
+      "currentValue": 19,
+      "id": "chk-tpl-1789071231392-wx5f",
+      "maxValue": 20,
+      "isCritical": false,
+      "category": "hidraulico",
+      "area": "Bombas De Impulción S3",
+      "options": [
+        "Encendido",
+        "Apagado"
+      ],
+      "minValue": 12,
+      "ampState": "Encendido",
+      "allowNotes": true
+    },
+    {
+      "measurementFields": [
+        {
+          "ampState": "Apagado",
+          "unit": "A",
+          "minValue": 12,
+          "id": "1",
+          "lastNonZeroValue": 16,
+          "maxValue": 20,
+          "value": 0,
+          "name": "BOM-2",
+          "includeButtons": false
+        }
+      ],
+      "title": "BOM-2-S3",
+      "lastNonZeroValue": 12,
+      "currentValue": 0,
+      "type": "numeric",
+      "unit": "A",
+      "statusValue": "Apagado",
+      "isAlarmActive": false,
+      "includeStatusButtons": true,
+      "buttonActions": {},
+      "area": "Bombas De Impulción S3",
+      "maxValue": 20,
+      "isCritical": false,
+      "options": [
+        "Encendido",
+        "Apagado"
+      ],
+      "category": "hidraulico",
+      "id": "chk-tpl-1789072528074-19rc",
+      "ampState": "Apagado",
+      "minValue": 12,
+      "allowNotes": true,
+      "requireNotesOnFailure": false
+    },
+    {
+      "requireNotesOnFailure": false,
+      "category": "bateria",
+      "buttonActions": {},
+      "lastNonZeroValue": 0,
+      "isAlarmActive": false,
+      "type": "numeric",
+      "includeStatusButtons": false,
+      "unit": "VDC",
+      "ampState": "Encendido",
+      "id": "chk-tpl-1789072918083-tj8j",
+      "title": "Batería",
+      "allowNotes": true,
+      "area": "Planta De Emergencia S2",
+      "isCritical": false,
+      "currentValue": 27.6,
+      "measurementFields": [
+        {
+          "value": 27.6,
+          "name": "Bateria-",
+          "ampState": "Encendido",
+          "lastNonZeroValue": 27.6,
+          "id": "1",
+          "includeButtons": false,
+          "unit": "VDC"
+        }
+      ]
+    },
+    {
+      "id": "chk-tpl-1789082124733-70s2",
+      "lastNonZeroValue": 0,
+      "isCritical": false,
+      "unit": "%",
+      "type": "numeric",
+      "allowNotes": true,
+      "includeStatusButtons": false,
+      "isAlarmActive": false,
+      "currentValue": 62,
+      "category": "combustible",
+      "area": "Planta De Emergencia S2",
+      "measurementFields": [
+        {
+          "ampState": "Encendido",
+          "unit": "%",
+          "value": 62,
+          "id": "1",
+          "lastNonZeroValue": 62,
+          "name": "Combustible"
+        }
+      ],
+      "requireNotesOnFailure": false,
+      "ampState": "Encendido",
+      "title": "Combustible"
+    },
+    {
+      "measurementFields": [
+        {
+          "unit": "°C",
+          "lastNonZeroValue": 47,
+          "id": "1",
+          "ampState": "Encendido",
+          "value": 47,
+          "name": "Temperatura"
+        }
+      ],
+      "id": "chk-tpl-1789082328250-puzo",
+      "buttonActions": {},
+      "allowNotes": true,
+      "unit": "°C",
+      "type": "numeric",
+      "category": "temperatura",
+      "isAlarmActive": false,
+      "includeStatusButtons": false,
+      "currentValue": 47,
+      "requireNotesOnFailure": false,
+      "ampState": "Encendido",
+      "isCritical": false,
+      "lastNonZeroValue": 0,
+      "title": "Temperatura",
+      "area": "Planta De Emergencia S2"
+    },
+    {
+      "unit": "m³",
+      "type": "numeric",
+      "ampState": "Encendido",
+      "currentValue": 9.5,
+      "buttonActions": {},
+      "category": "tanque",
+      "isAlarmActive": false,
+      "id": "chk-tpl-1789181196563-joap",
+      "allowNotes": true,
+      "requireNotesOnFailure": false,
+      "includeStatusButtons": false,
+      "isCritical": false,
+      "title": "Tanques",
+      "area": "Terraza Piso 18",
+      "measurementFields": [
+        {
+          "includeButtons": false,
+          "unit": "m³",
+          "id": "1",
+          "lastNonZeroValue": 9.5,
+          "ampState": "Encendido",
+          "value": 9.5,
+          "name": "Tanques Hotel"
+        },
+        {
+          "ampState": "Encendido",
+          "name": "Tanques Apto",
+          "value": 2,
+          "unit": "m³",
+          "lastNonZeroValue": 2,
+          "includeButtons": false,
+          "id": "1789181031815"
+        }
+      ],
+      "lastNonZeroValue": 0
+    },
+    {
+      "ampState": "Encendido",
+      "allowNotes": true,
+      "isCritical": false,
+      "area": "Planta De Emergencia S2",
+      "title": "Condensadores",
+      "currentValue": 0.996,
+      "lastNonZeroValue": 0,
+      "category": "condensador",
+      "type": "numeric",
+      "unit": "FP",
+      "measurementFields": [
+        {
+          "value": 0.996,
+          "name": "Condensadores",
+          "includeButtons": false,
+          "ampState": "Encendido",
+          "lastNonZeroValue": 0.996,
+          "id": "1",
+          "unit": "FP"
+        }
+      ],
+      "isAlarmActive": false,
+      "buttonActions": {},
+      "id": "chk-tpl-1789181948808-tk08",
+      "requireNotesOnFailure": false,
+      "includeStatusButtons": false
+    },
+    {
+      "isAlarmActive": false,
+      "measurementFields": [
+        {
+          "maxValue": 60,
+          "buttonActions": {
+            "Apagado": {
+              "color": "slate",
+              "actionType": "default"
+            },
+            "Encendido": {
+              "actionType": "default",
+              "color": "emerald"
+            }
+          },
+          "lastNonZeroValue": 54,
+          "id": "1",
+          "name": "Precion",
+          "unit": "PSI",
+          "options": [
+            "Encendido",
+            "Apagado",
+            "Alarmado"
+          ],
+          "statusValue": "Encendido",
+          "ampState": "Encendido",
+          "minValue": 42,
+          "includeButtons": true,
+          "value": 54
+        }
+      ],
+      "minValue": 42,
+      "buttonActions": {},
+      "requireNotesOnFailure": false,
+      "isCritical": false,
+      "ampState": "Encendido",
+      "area": "Terraza Piso 18",
+      "allowNotes": true,
+      "currentValue": 54,
+      "category": "hidraulico",
+      "id": "chk-tpl-1789183131928-5ogv",
+      "maxValue": 60,
+      "type": "numeric",
+      "unit": "PSI",
+      "lastNonZeroValue": 42,
+      "includeStatusButtons": false,
+      "title": "Bombas De Presión"
+    },
+    {
+      "ampState": "Encendido",
+      "measurementFields": [
+        {
+          "value": 36.8,
+          "ampState": "Encendido",
+          "unit": "°C",
+          "name": "Temperatura/Sauna",
+          "buttonActions": {
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "default"
+            },
+            "Apagado": {
+              "actionType": "default",
+              "color": "slate"
+            }
+          },
+          "options": [
+            "Encendido",
+            "Apagado"
+          ],
+          "statusValue": "Encendido",
+          "lastNonZeroValue": 36.8,
+          "id": "1",
+          "includeButtons": true
+        },
+        {
+          "id": "1789184871874",
+          "lastNonZeroValue": 11.5,
+          "name": "Cold Plungue",
+          "includeButtons": true,
+          "unit": "°C",
+          "statusValue": "Encendido",
+          "buttonActions": {
+            "Apagado": {
+              "color": "slate",
+              "actionType": "default"
+            },
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "default"
+            }
+          },
+          "ampState": "Encendido",
+          "options": [
+            "Encendido",
+            "Apagado"
+          ],
+          "value": 11.5
+        }
+      ],
+      "area": "Zona Húmeda/Piso 6",
+      "category": "sauna_cold_plunge",
+      "requireNotesOnFailure": false,
+      "title": "Sauna/Cold Plungue",
+      "lastNonZeroValue": 0,
+      "isCritical": false,
+      "unit": "°C",
+      "type": "numeric",
+      "id": "chk-tpl-1789184914843-8qeh",
+      "currentValue": 36.8,
+      "allowNotes": true,
+      "buttonActions": {},
+      "includeStatusButtons": false,
+      "isAlarmActive": false
+    },
+    {
+      "type": "ok_nok",
+      "ampState": "Encendido",
+      "isCritical": false,
+      "suggestedNotes": [
+        "Musica Ascensores Ok",
+        "Musica Gym Ok",
+        "Televisor Gym Ok",
+        "Musica Piscina Ok",
+        "Musica Silo Ok",
+        "Musica Sastra Ok",
+        "Musica Sauna Ok"
+      ],
+      "buttonActions": {},
+      "title": "Musica",
+      "allowNotes": true,
+      "isAlarmActive": false,
+      "category": "musica",
+      "id": "chk-tpl-1789186187266-j679",
+      "requireNotesOnFailure": false,
+      "options": [
+        "Todo Ok",
+        "NO OK"
+      ],
+      "statusValue": "Todo Ok",
+      "currentValue": "Todo Ok",
+      "lastNonZeroValue": 0,
+      "area": "Zona Húmeda/Piso 6"
+    },
+    {
+      "measurementFields": [
+        {
+          "name": "Botellero Ventanal",
+          "value": -5,
+          "lastNonZeroValue": -5,
+          "buttonActions": {
+            "Encendido": {
+              "actionType": "turn_on",
+              "color": "emerald"
+            },
+            "Apagado": {
+              "actionType": "turn_off",
+              "color": "slate"
+            }
+          },
+          "includeButtons": true,
+          "statusValue": "OK",
+          "ampState": "Encendido",
+          "id": "1",
+          "unit": "°C",
+          "options": [
+            "OK",
+            "NO OK"
+          ]
+        },
+        {
+          "unit": "°C",
+          "statusValue": "OK",
+          "id": "1789227261860",
+          "ampState": "Encendido",
+          "includeButtons": true,
+          "lastNonZeroValue": -17,
+          "value": -17,
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "buttonActions": {
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "turn_on"
+            },
+            "Apagado": {
+              "color": "slate",
+              "actionType": "turn_off"
+            }
+          },
+          "name": "Nevera Cafetera"
+        },
+        {
+          "includeButtons": true,
+          "name": "Botellero Entrada Derecha",
+          "statusValue": "OK",
+          "lastNonZeroValue": 42,
+          "buttonActions": {
+            "Apagado": {
+              "actionType": "turn_off",
+              "color": "slate"
+            },
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "turn_on"
+            }
+          },
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "ampState": "Encendido",
+          "id": "1789227309459",
+          "value": 42,
+          "unit": "°F"
+        },
+        {
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "id": "1789227538808",
+          "statusValue": "OK",
+          "includeButtons": true,
+          "name": "Botellero Entrada Izquierda",
+          "unit": "°F",
+          "lastNonZeroValue": 34,
+          "buttonActions": {
+            "Apagado": {
+              "actionType": "turn_off",
+              "color": "slate"
+            },
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "turn_on"
+            }
+          },
+          "ampState": "Encendido",
+          "value": 34
+        }
+      ],
+      "requireNotesOnFailure": false,
+      "area": "Bar/ Piso 6",
+      "currentValue": -5,
+      "includeStatusButtons": false,
+      "category": "refrigeracion",
+      "isCritical": false,
+      "id": "chk-tpl-1789227609185-rbqi",
+      "type": "numeric",
+      "unit": "°C",
+      "isAlarmActive": false,
+      "allowNotes": true,
+      "buttonActions": {},
+      "lastNonZeroValue": 0,
+      "title": "Equipos Del Bar",
+      "ampState": "Encendido"
+    },
+    {
+      "category": "caldera",
+      "isAlarmActive": false,
+      "measurementFields": [
+        {
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "lastNonZeroValue": 50.8,
+          "unit": "°C",
+          "buttonActions": {
+            "Apagado": {
+              "actionType": "turn_off",
+              "color": "slate"
+            },
+            "Encendido": {
+              "actionType": "turn_on",
+              "color": "emerald"
+            }
+          },
+          "includeButtons": true,
+          "ampState": "Encendido",
+          "value": 50.8,
+          "name": "Bombas/Presurisacion",
+          "id": "1",
+          "statusValue": "OK"
+        },
+        {
+          "lastNonZeroValue": 47.9,
+          "id": "1789240544706",
+          "ampState": "Encendido",
+          "unit": "°C",
+          "statusValue": "OK",
+          "includeButtons": true,
+          "value": 47.9,
+          "name": "Bomba/Resirculacion",
+          "buttonActions": {
+            "Apagado": {
+              "color": "slate",
+              "actionType": "turn_off"
+            },
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "turn_on"
+            }
+          },
+          "options": [
+            "OK",
+            "NO OK"
+          ]
+        },
+        {
+          "unit": "PSI",
+          "ampState": "Encendido",
+          "lastNonZeroValue": 50,
+          "includeButtons": false,
+          "id": "1789240600468",
+          "name": "Manometros De Bombas",
+          "value": 50
+        },
+        {
+          "unit": "PSI",
+          "value": 50,
+          "id": "1789240637614",
+          "name": "Manometros Tanques",
+          "lastNonZeroValue": 50,
+          "ampState": "Encendido",
+          "includeButtons": false
+        }
+      ],
+      "buttonActions": {},
+      "requireNotesOnFailure": false,
+      "type": "numeric",
+      "unit": "°C",
+      "id": "chk-tpl-1789240659096-ji6y",
+      "ampState": "Encendido",
+      "area": "Cuarto De Bombas",
+      "isCritical": false,
+      "title": "Sistema De Agua Caliente",
+      "currentValue": 50.8,
+      "lastNonZeroValue": 0,
+      "includeStatusButtons": false,
+      "allowNotes": true
+    },
+    {
+      "allowNotes": true,
+      "statusValue": "Operativo",
+      "requireNotesOnFailure": false,
+      "title": "Ascensor Apto",
+      "type": "ok_nok",
+      "isCritical": false,
+      "id": "chk-tpl-1789423733318-xfh6",
+      "isAlarmActive": false,
+      "category": "extraccion",
+      "buttonActions": {},
+      "area": "Ascensores",
+      "ampState": "Encendido",
+      "lastNonZeroValue": 0,
+      "currentValue": "Operativo",
+      "options": [
+        "Operativo",
+        "Bloqueado"
+      ]
+    },
+    {
+      "options": [
+        "Nivel Bajo",
+        "Nivel Medio",
+        "Nivel Alto"
+      ],
+      "statusValue": "Nivel Alto",
+      "currentValue": "Nivel Alto",
+      "type": "ok_nok",
+      "lastNonZeroValue": 0,
+      "isCritical": false,
+      "category": "extraccion",
+      "requireNotesOnFailure": false,
+      "id": "chk-tpl-1789428026446-qnuc",
+      "title": "Tanques De Agua Potable",
+      "allowNotes": true,
+      "ampState": "Encendido",
+      "buttonActions": {
+        "Nivel Bajo": {
+          "color": "auto",
+          "actionType": "failure"
+        }
+      },
+      "isAlarmActive": false,
+      "area": "Bombas De Impulción S3"
+    },
+    {
+      "title": "Ascensor Hotel",
+      "type": "ok_nok",
+      "allowNotes": true,
+      "requireNotesOnFailure": false,
+      "statusValue": "Operativo",
+      "isCritical": false,
+      "id": "chk-tpl-1789428185062-g11h",
+      "options": [
+        "Operativo",
+        "Bloqueado"
+      ],
+      "isAlarmActive": false,
+      "ampState": "Encendido",
+      "currentValue": "Operativo",
+      "buttonActions": {},
+      "lastNonZeroValue": 0,
+      "area": "Ascensores",
+      "category": "extraccion"
+    },
+    {
+      "id": "chk-tpl-1789428511011-x67z",
+      "options": [
+        "Operativo",
+        "Bloqueado"
+      ],
+      "ampState": "Encendido",
+      "type": "ok_nok",
+      "category": "extraccion",
+      "area": "Ascensores",
+      "isCritical": false,
+      "lastNonZeroValue": 0,
+      "isAlarmActive": false,
+      "allowNotes": true,
+      "buttonActions": {},
+      "statusValue": "Operativo",
+      "currentValue": "Operativo",
+      "requireNotesOnFailure": false,
+      "title": "Ascensor De Servicio"
+    },
+    {
+      "options": [
+        "Energia/EMP",
+        "Energia/Planta",
+        "Bloqueado"
+      ],
+      "requireNotesOnFailure": false,
+      "id": "chk-tpl-1789435170225-zr6y",
+      "category": "subestacion",
+      "currentValue": "Energia/EMP",
+      "area": "Planta De Emergencia S2",
+      "ampState": "Encendido",
+      "allowNotes": true,
+      "type": "ok_nok",
+      "buttonActions": {
+        "Bloqueado": {
+          "actionType": "failure",
+          "color": "auto"
+        }
+      },
+      "isAlarmActive": false,
+      "statusValue": "Energia/EMP",
+      "lastNonZeroValue": 0,
+      "title": "Transferencia De Energia",
+      "isCritical": false
+    },
+    {
+      "currentValue": 2,
+      "area": "Cocina/Silo",
+      "measurementFields": [
+        {
+          "unit": "°C",
+          "lastNonZeroValue": 2,
+          "id": "1",
+          "statusValue": "OK",
+          "buttonActions": {
+            "Encendido": {
+              "actionType": "turn_on",
+              "color": "emerald"
+            },
+            "Apagado": {
+              "color": "slate",
+              "actionType": "turn_off"
+            }
+          },
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "value": 2,
+          "includeButtons": true,
+          "name": "Nevera 1",
+          "ampState": "Encendido"
+        },
+        {
+          "statusValue": "OK",
+          "name": "Nevera 2",
+          "ampState": "Encendido",
+          "value": 5,
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "id": "1789470556027",
+          "lastNonZeroValue": 5,
+          "unit": "°C",
+          "buttonActions": {
+            "Apagado": {
+              "actionType": "turn_off",
+              "color": "slate"
+            },
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "turn_on"
+            }
+          },
+          "includeButtons": true
+        },
+        {
+          "value": 4,
+          "includeButtons": true,
+          "buttonActions": {
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "turn_on"
+            },
+            "Apagado": {
+              "color": "slate",
+              "actionType": "turn_off"
+            }
+          },
+          "unit": "°C",
+          "name": "Nevera 3",
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "statusValue": "OK",
+          "ampState": "Encendido",
+          "lastNonZeroValue": 4,
+          "id": "1789470602027"
+        },
+        {
+          "ampState": "Encendido",
+          "id": "1789470634919",
+          "name": "Base Chef",
+          "lastNonZeroValue": 36,
+          "statusValue": "OK",
+          "unit": "°F",
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "buttonActions": {
+            "Apagado": {
+              "color": "slate",
+              "actionType": "turn_off"
+            },
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "turn_on"
+            }
+          },
+          "includeButtons": true,
+          "value": 36
+        },
+        {
+          "name": "Nevera De Entrada",
+          "includeButtons": true,
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "statusValue": "OK",
+          "ampState": "Encendido",
+          "id": "1789470671546",
+          "value": -4,
+          "buttonActions": {
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "turn_on"
+            },
+            "Apagado": {
+              "actionType": "turn_off",
+              "color": "slate"
+            }
+          },
+          "lastNonZeroValue": -4,
+          "unit": "°F"
+        }
+      ],
+      "isAlarmActive": false,
+      "ampState": "Encendido",
+      "buttonActions": {},
+      "lastNonZeroValue": 0,
+      "isCritical": false,
+      "allowNotes": true,
+      "requireNotesOnFailure": false,
+      "category": "refrigeracion",
+      "title": "Neveras",
+      "id": "chk-tpl-1789470717933-t9gy",
+      "includeStatusButtons": false,
+      "type": "numeric",
+      "unit": "°C"
+    }
+  ],
+  "progress": 100,
+  "completedAt": "2026-10-27T10:30:00Z"
+},
+{
+  "id": "rnd-1088",
+  "status": "completada",
+  "compliancePercentage": 100,
+  "userEmail": "juanmateoramosramos44@gmail.com",
+  "anomaliesCount": 0,
+  "meterReadings": {
+    "waterCubicMeters": 1578.4,
+    "electricKwh": 42860,
+    "gasCubicMeters": 1043.6
+  },
+  "time": "08:00",
+  "lastUpdated": "2026-09-15T12:08:58.846Z",
+  "technicianName": "Técnico de Mantenimiento",
+  "userId": "usr-1789230683226",
+  "shift": "manana",
+  "technicianSignature": "Juan Mateo/Técnico",
+  "date": "2026-10-28",
+  "anomalies": [],
+  "lastHeartbeat": "2026-09-15T12:08:36.712Z",
+  "generalNotes": "",
+  "checkpoints": [
+    {
+      "allowNotes": true,
+      "notes": "Estava Descongelando, Ya Está Prendida",
+      "id": "chk-tpl-1788985535314-nua3",
+      "requireNotesOnFailure": false,
+      "minValue": -25,
+      "ampState": "Encendido",
+      "category": "refrigeracion",
+      "lastNonZeroValue": 47,
+      "area": "Cocina S4",
+      "isCritical": false,
+      "maxValue": 50,
+      "includeStatusButtons": false,
+      "type": "numeric",
+      "currentValue": 47,
+      "unit": "°C",
+      "buttonActions": {},
+      "measurementFields": [
+        {
+          "minValue": -25,
+          "ampState": "Encendido",
+          "includeButtons": false,
+          "name": "Cava Congelación",
+          "value": 47,
+          "unit": "°C",
+          "maxValue": 50,
+          "lastNonZeroValue": 47,
+          "id": "1"
+        }
+      ],
+      "title": "Cava De Congelación",
+      "isAlarmActive": false
+    },
+    {
+      "includeStatusButtons": false,
+      "ampState": "Encendido",
+      "minValue": 0,
+      "isAlarmActive": false,
+      "maxValue": 50,
+      "requireNotesOnFailure": false,
+      "lastNonZeroValue": 0,
+      "buttonActions": {},
+      "measurementFields": [
+        {
+          "minValue": 0,
+          "ampState": "Encendido",
+          "value": 0,
+          "id": "1",
+          "unit": "°C",
+          "name": "Cava Refrigeracion",
+          "maxValue": 50,
+          "lastNonZeroValue": 25,
+          "includeButtons": false
+        }
+      ],
+      "type": "numeric",
+      "category": "refrigeracion",
+      "unit": "°C",
+      "title": "Cava De Refrigeración",
+      "area": "Cocina S4",
+      "allowNotes": true,
+      "isCritical": false,
+      "id": "chk-tpl-1788988056429-c66o",
+      "currentValue": 0
+    },
+    {
+      "unit": "°C",
+      "type": "numeric",
+      "minValue": 0,
+      "measurementFields": [
+        {
+          "minValue": 0,
+          "ampState": "Encendido",
+          "name": "Cava Refrigeracion",
+          "unit": "°C",
+          "id": "1",
+          "maxValue": 50,
+          "lastNonZeroValue": 2.7,
+          "includeButtons": false,
+          "value": 2.7
+        }
+      ],
+      "id": "chk-tpl-1788988080039-nkgi",
+      "ampState": "Encendido",
+      "buttonActions": {},
+      "maxValue": 50,
+      "includeStatusButtons": false,
+      "category": "refrigeracion",
+      "isAlarmActive": false,
+      "currentValue": 2.7,
+      "requireNotesOnFailure": false,
+      "lastNonZeroValue": 0,
+      "isCritical": false,
+      "area": "Cocina S4",
+      "title": "Cava De Refrigeración",
+      "allowNotes": true
+    },
+    {
+      "type": "ok_nok",
+      "ampState": "Apagado",
+      "title": "Extracción",
+      "allowNotes": true,
+      "isCritical": false,
+      "buttonActions": {},
+      "currentValue": "Apagado",
+      "category": "extraccion",
+      "id": "chk-tpl-1788989380312-s3ia",
+      "statusValue": "Apagado",
+      "isAlarmActive": false,
+      "options": [
+        "Encendido",
+        "Apagado",
+        "Alarmado"
+      ],
+      "requireNotesOnFailure": false,
+      "area": "Cocina S4",
+      "lastNonZeroValue": 0
+    },
+    {
+      "category": "hidraulico",
+      "area": "Planta RCI S3",
+      "allowNotes": true,
+      "isAlarmActive": false,
+      "isCritical": false,
+      "id": "chk-tpl-1789054060776-tynz",
+      "ampState": "Encendido",
+      "currentValue": 273,
+      "title": "Bomba Jockey",
+      "requireNotesOnFailure": false,
+      "unit": "PSI",
+      "type": "numeric",
+      "lastNonZeroValue": 273
+    },
+    {
+      "ampState": "Encendido",
+      "id": "chk-tpl-1789058977130-dsm2",
+      "measurementFields": [
+        {
+          "value": 27.66,
+          "unit": "VDC",
+          "id": "1",
+          "name": "Bateria 1",
+          "ampState": "Encendido",
+          "lastNonZeroValue": 27.66
+        },
+        {
+          "ampState": "Encendido",
+          "lastNonZeroValue": 27.66,
+          "unit": "VDC",
+          "id": "1789059243278",
+          "name": "Bateria 2",
+          "value": 27.66
+        }
+      ],
+      "title": "Baterias",
+      "currentValue": 27.66,
+      "area": "Planta RCI S3",
+      "requireNotesOnFailure": false,
+      "category": "bateria",
+      "lastNonZeroValue": 0,
+      "allowNotes": true,
+      "isCritical": false,
+      "isAlarmActive": false,
+      "unit": "VDC",
+      "type": "numeric",
+      "includeStatusButtons": false
+    },
+    {
+      "options": [
+        "Sin Alarma",
+        "Sensor Alarmado"
+      ],
+      "id": "chk-tpl-1789060493962-91iv",
+      "requireNotesOnFailure": false,
+      "area": "Planta RCI S3",
+      "lastNonZeroValue": 61,
+      "isAlarmActive": true,
+      "measurementFields": [
+        {
+          "maxValue": 100,
+          "lastNonZeroValue": 60,
+          "ampState": "Encendido",
+          "minValue": 61,
+          "unit": "%",
+          "id": "1",
+          "name": "Nivel Combustible",
+          "value": 60
+        }
+      ],
+      "alarmReason": "Botón de alarma activado: \"Sensor Alarmado\"",
+      "statusValue": "Sensor Alarmado",
+      "allowNotes": true,
+      "ampState": "Encendido",
+      "minValue": 61,
+      "includeStatusButtons": true,
+      "title": "Combustible",
+      "maxValue": 100,
+      "currentValue": 60,
+      "unit": "%",
+      "category": "combustible",
+      "type": "numeric",
+      "isCritical": false
+    },
+    {
+      "currentValue": 260,
+      "area": "Planta RCI S3",
+      "lastNonZeroValue": 250,
+      "includeStatusButtons": false,
+      "requireNotesOnFailure": false,
+      "maxValue": 300,
+      "title": "Manometros Principales",
+      "allowNotes": true,
+      "isAlarmActive": false,
+      "category": "manometro",
+      "ampState": "Encendido",
+      "minValue": 250,
+      "measurementFields": [
+        {
+          "lastNonZeroValue": 260,
+          "value": 260,
+          "unit": "PSI",
+          "ampState": "Encendido",
+          "id": "1",
+          "name": "Manometro 1",
+          "minValue": 250,
+          "maxValue": 300
+        },
+        {
+          "maxValue": 180,
+          "id": "1789066651541",
+          "unit": "PSI",
+          "lastNonZeroValue": 170,
+          "ampState": "Encendido",
+          "minValue": 160,
+          "name": "Manometro 2",
+          "value": 170
+        }
+      ],
+      "id": "chk-tpl-1789066766097-j1e5",
+      "isCritical": false,
+      "unit": "PSI",
+      "type": "numeric"
+    },
+    {
+      "buttonActions": {
+        "Encendido": {
+          "actionType": "turn_on",
+          "color": "emerald"
+        },
+        "Apagado": {
+          "color": "slate",
+          "actionType": "turn_off"
+        }
+      },
+      "statusValue": "Encendido",
+      "isAlarmActive": false,
+      "requireNotesOnFailure": false,
+      "includeStatusButtons": true,
+      "lastNonZeroValue": 12,
+      "measurementFields": [
+        {
+          "name": "BOM-1",
+          "lastNonZeroValue": 19,
+          "value": 19,
+          "ampState": "Encendido",
+          "minValue": 12,
+          "id": "1",
+          "includeButtons": false,
+          "maxValue": 20,
+          "unit": "A"
+        }
+      ],
+      "unit": "A",
+      "type": "numeric",
+      "title": "BOM-1-S3",
+      "currentValue": 19,
+      "id": "chk-tpl-1789071231392-wx5f",
+      "maxValue": 20,
+      "isCritical": false,
+      "category": "hidraulico",
+      "area": "Bombas De Impulción S3",
+      "options": [
+        "Encendido",
+        "Apagado"
+      ],
+      "minValue": 12,
+      "ampState": "Encendido",
+      "allowNotes": true
+    },
+    {
+      "measurementFields": [
+        {
+          "ampState": "Apagado",
+          "unit": "A",
+          "minValue": 12,
+          "id": "1",
+          "lastNonZeroValue": 16,
+          "maxValue": 20,
+          "value": 0,
+          "name": "BOM-2",
+          "includeButtons": false
+        }
+      ],
+      "title": "BOM-2-S3",
+      "lastNonZeroValue": 12,
+      "currentValue": 0,
+      "type": "numeric",
+      "unit": "A",
+      "statusValue": "Apagado",
+      "isAlarmActive": false,
+      "includeStatusButtons": true,
+      "buttonActions": {},
+      "area": "Bombas De Impulción S3",
+      "maxValue": 20,
+      "isCritical": false,
+      "options": [
+        "Encendido",
+        "Apagado"
+      ],
+      "category": "hidraulico",
+      "id": "chk-tpl-1789072528074-19rc",
+      "ampState": "Apagado",
+      "minValue": 12,
+      "allowNotes": true,
+      "requireNotesOnFailure": false
+    },
+    {
+      "requireNotesOnFailure": false,
+      "category": "bateria",
+      "buttonActions": {},
+      "lastNonZeroValue": 0,
+      "isAlarmActive": false,
+      "type": "numeric",
+      "includeStatusButtons": false,
+      "unit": "VDC",
+      "ampState": "Encendido",
+      "id": "chk-tpl-1789072918083-tj8j",
+      "title": "Batería",
+      "allowNotes": true,
+      "area": "Planta De Emergencia S2",
+      "isCritical": false,
+      "currentValue": 27.6,
+      "measurementFields": [
+        {
+          "value": 27.6,
+          "name": "Bateria-",
+          "ampState": "Encendido",
+          "lastNonZeroValue": 27.6,
+          "id": "1",
+          "includeButtons": false,
+          "unit": "VDC"
+        }
+      ]
+    },
+    {
+      "id": "chk-tpl-1789082124733-70s2",
+      "lastNonZeroValue": 0,
+      "isCritical": false,
+      "unit": "%",
+      "type": "numeric",
+      "allowNotes": true,
+      "includeStatusButtons": false,
+      "isAlarmActive": false,
+      "currentValue": 62,
+      "category": "combustible",
+      "area": "Planta De Emergencia S2",
+      "measurementFields": [
+        {
+          "ampState": "Encendido",
+          "unit": "%",
+          "value": 62,
+          "id": "1",
+          "lastNonZeroValue": 62,
+          "name": "Combustible"
+        }
+      ],
+      "requireNotesOnFailure": false,
+      "ampState": "Encendido",
+      "title": "Combustible"
+    },
+    {
+      "measurementFields": [
+        {
+          "unit": "°C",
+          "lastNonZeroValue": 47,
+          "id": "1",
+          "ampState": "Encendido",
+          "value": 47,
+          "name": "Temperatura"
+        }
+      ],
+      "id": "chk-tpl-1789082328250-puzo",
+      "buttonActions": {},
+      "allowNotes": true,
+      "unit": "°C",
+      "type": "numeric",
+      "category": "temperatura",
+      "isAlarmActive": false,
+      "includeStatusButtons": false,
+      "currentValue": 47,
+      "requireNotesOnFailure": false,
+      "ampState": "Encendido",
+      "isCritical": false,
+      "lastNonZeroValue": 0,
+      "title": "Temperatura",
+      "area": "Planta De Emergencia S2"
+    },
+    {
+      "unit": "m³",
+      "type": "numeric",
+      "ampState": "Encendido",
+      "currentValue": 9.5,
+      "buttonActions": {},
+      "category": "tanque",
+      "isAlarmActive": false,
+      "id": "chk-tpl-1789181196563-joap",
+      "allowNotes": true,
+      "requireNotesOnFailure": false,
+      "includeStatusButtons": false,
+      "isCritical": false,
+      "title": "Tanques",
+      "area": "Terraza Piso 18",
+      "measurementFields": [
+        {
+          "includeButtons": false,
+          "unit": "m³",
+          "id": "1",
+          "lastNonZeroValue": 9.5,
+          "ampState": "Encendido",
+          "value": 9.5,
+          "name": "Tanques Hotel"
+        },
+        {
+          "ampState": "Encendido",
+          "name": "Tanques Apto",
+          "value": 2,
+          "unit": "m³",
+          "lastNonZeroValue": 2,
+          "includeButtons": false,
+          "id": "1789181031815"
+        }
+      ],
+      "lastNonZeroValue": 0
+    },
+    {
+      "ampState": "Encendido",
+      "allowNotes": true,
+      "isCritical": false,
+      "area": "Planta De Emergencia S2",
+      "title": "Condensadores",
+      "currentValue": 0.996,
+      "lastNonZeroValue": 0,
+      "category": "condensador",
+      "type": "numeric",
+      "unit": "FP",
+      "measurementFields": [
+        {
+          "value": 0.996,
+          "name": "Condensadores",
+          "includeButtons": false,
+          "ampState": "Encendido",
+          "lastNonZeroValue": 0.996,
+          "id": "1",
+          "unit": "FP"
+        }
+      ],
+      "isAlarmActive": false,
+      "buttonActions": {},
+      "id": "chk-tpl-1789181948808-tk08",
+      "requireNotesOnFailure": false,
+      "includeStatusButtons": false
+    },
+    {
+      "isAlarmActive": false,
+      "measurementFields": [
+        {
+          "maxValue": 60,
+          "buttonActions": {
+            "Apagado": {
+              "color": "slate",
+              "actionType": "default"
+            },
+            "Encendido": {
+              "actionType": "default",
+              "color": "emerald"
+            }
+          },
+          "lastNonZeroValue": 54,
+          "id": "1",
+          "name": "Precion",
+          "unit": "PSI",
+          "options": [
+            "Encendido",
+            "Apagado",
+            "Alarmado"
+          ],
+          "statusValue": "Encendido",
+          "ampState": "Encendido",
+          "minValue": 42,
+          "includeButtons": true,
+          "value": 54
+        }
+      ],
+      "minValue": 42,
+      "buttonActions": {},
+      "requireNotesOnFailure": false,
+      "isCritical": false,
+      "ampState": "Encendido",
+      "area": "Terraza Piso 18",
+      "allowNotes": true,
+      "currentValue": 54,
+      "category": "hidraulico",
+      "id": "chk-tpl-1789183131928-5ogv",
+      "maxValue": 60,
+      "type": "numeric",
+      "unit": "PSI",
+      "lastNonZeroValue": 42,
+      "includeStatusButtons": false,
+      "title": "Bombas De Presión"
+    },
+    {
+      "ampState": "Encendido",
+      "measurementFields": [
+        {
+          "value": 36.8,
+          "ampState": "Encendido",
+          "unit": "°C",
+          "name": "Temperatura/Sauna",
+          "buttonActions": {
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "default"
+            },
+            "Apagado": {
+              "actionType": "default",
+              "color": "slate"
+            }
+          },
+          "options": [
+            "Encendido",
+            "Apagado"
+          ],
+          "statusValue": "Encendido",
+          "lastNonZeroValue": 36.8,
+          "id": "1",
+          "includeButtons": true
+        },
+        {
+          "id": "1789184871874",
+          "lastNonZeroValue": 11.5,
+          "name": "Cold Plungue",
+          "includeButtons": true,
+          "unit": "°C",
+          "statusValue": "Encendido",
+          "buttonActions": {
+            "Apagado": {
+              "color": "slate",
+              "actionType": "default"
+            },
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "default"
+            }
+          },
+          "ampState": "Encendido",
+          "options": [
+            "Encendido",
+            "Apagado"
+          ],
+          "value": 11.5
+        }
+      ],
+      "area": "Zona Húmeda/Piso 6",
+      "category": "sauna_cold_plunge",
+      "requireNotesOnFailure": false,
+      "title": "Sauna/Cold Plungue",
+      "lastNonZeroValue": 0,
+      "isCritical": false,
+      "unit": "°C",
+      "type": "numeric",
+      "id": "chk-tpl-1789184914843-8qeh",
+      "currentValue": 36.8,
+      "allowNotes": true,
+      "buttonActions": {},
+      "includeStatusButtons": false,
+      "isAlarmActive": false
+    },
+    {
+      "type": "ok_nok",
+      "ampState": "Encendido",
+      "isCritical": false,
+      "suggestedNotes": [
+        "Musica Ascensores Ok",
+        "Musica Gym Ok",
+        "Televisor Gym Ok",
+        "Musica Piscina Ok",
+        "Musica Silo Ok",
+        "Musica Sastra Ok",
+        "Musica Sauna Ok"
+      ],
+      "buttonActions": {},
+      "title": "Musica",
+      "allowNotes": true,
+      "isAlarmActive": false,
+      "category": "musica",
+      "id": "chk-tpl-1789186187266-j679",
+      "requireNotesOnFailure": false,
+      "options": [
+        "Todo Ok",
+        "NO OK"
+      ],
+      "statusValue": "Todo Ok",
+      "currentValue": "Todo Ok",
+      "lastNonZeroValue": 0,
+      "area": "Zona Húmeda/Piso 6"
+    },
+    {
+      "measurementFields": [
+        {
+          "name": "Botellero Ventanal",
+          "value": -5,
+          "lastNonZeroValue": -5,
+          "buttonActions": {
+            "Encendido": {
+              "actionType": "turn_on",
+              "color": "emerald"
+            },
+            "Apagado": {
+              "actionType": "turn_off",
+              "color": "slate"
+            }
+          },
+          "includeButtons": true,
+          "statusValue": "OK",
+          "ampState": "Encendido",
+          "id": "1",
+          "unit": "°C",
+          "options": [
+            "OK",
+            "NO OK"
+          ]
+        },
+        {
+          "unit": "°C",
+          "statusValue": "OK",
+          "id": "1789227261860",
+          "ampState": "Encendido",
+          "includeButtons": true,
+          "lastNonZeroValue": -17,
+          "value": -17,
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "buttonActions": {
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "turn_on"
+            },
+            "Apagado": {
+              "color": "slate",
+              "actionType": "turn_off"
+            }
+          },
+          "name": "Nevera Cafetera"
+        },
+        {
+          "includeButtons": true,
+          "name": "Botellero Entrada Derecha",
+          "statusValue": "OK",
+          "lastNonZeroValue": 42,
+          "buttonActions": {
+            "Apagado": {
+              "actionType": "turn_off",
+              "color": "slate"
+            },
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "turn_on"
+            }
+          },
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "ampState": "Encendido",
+          "id": "1789227309459",
+          "value": 42,
+          "unit": "°F"
+        },
+        {
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "id": "1789227538808",
+          "statusValue": "OK",
+          "includeButtons": true,
+          "name": "Botellero Entrada Izquierda",
+          "unit": "°F",
+          "lastNonZeroValue": 34,
+          "buttonActions": {
+            "Apagado": {
+              "actionType": "turn_off",
+              "color": "slate"
+            },
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "turn_on"
+            }
+          },
+          "ampState": "Encendido",
+          "value": 34
+        }
+      ],
+      "requireNotesOnFailure": false,
+      "area": "Bar/ Piso 6",
+      "currentValue": -5,
+      "includeStatusButtons": false,
+      "category": "refrigeracion",
+      "isCritical": false,
+      "id": "chk-tpl-1789227609185-rbqi",
+      "type": "numeric",
+      "unit": "°C",
+      "isAlarmActive": false,
+      "allowNotes": true,
+      "buttonActions": {},
+      "lastNonZeroValue": 0,
+      "title": "Equipos Del Bar",
+      "ampState": "Encendido"
+    },
+    {
+      "category": "caldera",
+      "isAlarmActive": false,
+      "measurementFields": [
+        {
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "lastNonZeroValue": 50.8,
+          "unit": "°C",
+          "buttonActions": {
+            "Apagado": {
+              "actionType": "turn_off",
+              "color": "slate"
+            },
+            "Encendido": {
+              "actionType": "turn_on",
+              "color": "emerald"
+            }
+          },
+          "includeButtons": true,
+          "ampState": "Encendido",
+          "value": 50.8,
+          "name": "Bombas/Presurisacion",
+          "id": "1",
+          "statusValue": "OK"
+        },
+        {
+          "lastNonZeroValue": 47.9,
+          "id": "1789240544706",
+          "ampState": "Encendido",
+          "unit": "°C",
+          "statusValue": "OK",
+          "includeButtons": true,
+          "value": 47.9,
+          "name": "Bomba/Resirculacion",
+          "buttonActions": {
+            "Apagado": {
+              "color": "slate",
+              "actionType": "turn_off"
+            },
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "turn_on"
+            }
+          },
+          "options": [
+            "OK",
+            "NO OK"
+          ]
+        },
+        {
+          "unit": "PSI",
+          "ampState": "Encendido",
+          "lastNonZeroValue": 50,
+          "includeButtons": false,
+          "id": "1789240600468",
+          "name": "Manometros De Bombas",
+          "value": 50
+        },
+        {
+          "unit": "PSI",
+          "value": 50,
+          "id": "1789240637614",
+          "name": "Manometros Tanques",
+          "lastNonZeroValue": 50,
+          "ampState": "Encendido",
+          "includeButtons": false
+        }
+      ],
+      "buttonActions": {},
+      "requireNotesOnFailure": false,
+      "type": "numeric",
+      "unit": "°C",
+      "id": "chk-tpl-1789240659096-ji6y",
+      "ampState": "Encendido",
+      "area": "Cuarto De Bombas",
+      "isCritical": false,
+      "title": "Sistema De Agua Caliente",
+      "currentValue": 50.8,
+      "lastNonZeroValue": 0,
+      "includeStatusButtons": false,
+      "allowNotes": true
+    },
+    {
+      "allowNotes": true,
+      "statusValue": "Operativo",
+      "requireNotesOnFailure": false,
+      "title": "Ascensor Apto",
+      "type": "ok_nok",
+      "isCritical": false,
+      "id": "chk-tpl-1789423733318-xfh6",
+      "isAlarmActive": false,
+      "category": "extraccion",
+      "buttonActions": {},
+      "area": "Ascensores",
+      "ampState": "Encendido",
+      "lastNonZeroValue": 0,
+      "currentValue": "Operativo",
+      "options": [
+        "Operativo",
+        "Bloqueado"
+      ]
+    },
+    {
+      "options": [
+        "Nivel Bajo",
+        "Nivel Medio",
+        "Nivel Alto"
+      ],
+      "statusValue": "Nivel Alto",
+      "currentValue": "Nivel Alto",
+      "type": "ok_nok",
+      "lastNonZeroValue": 0,
+      "isCritical": false,
+      "category": "extraccion",
+      "requireNotesOnFailure": false,
+      "id": "chk-tpl-1789428026446-qnuc",
+      "title": "Tanques De Agua Potable",
+      "allowNotes": true,
+      "ampState": "Encendido",
+      "buttonActions": {
+        "Nivel Bajo": {
+          "color": "auto",
+          "actionType": "failure"
+        }
+      },
+      "isAlarmActive": false,
+      "area": "Bombas De Impulción S3"
+    },
+    {
+      "title": "Ascensor Hotel",
+      "type": "ok_nok",
+      "allowNotes": true,
+      "requireNotesOnFailure": false,
+      "statusValue": "Operativo",
+      "isCritical": false,
+      "id": "chk-tpl-1789428185062-g11h",
+      "options": [
+        "Operativo",
+        "Bloqueado"
+      ],
+      "isAlarmActive": false,
+      "ampState": "Encendido",
+      "currentValue": "Operativo",
+      "buttonActions": {},
+      "lastNonZeroValue": 0,
+      "area": "Ascensores",
+      "category": "extraccion"
+    },
+    {
+      "id": "chk-tpl-1789428511011-x67z",
+      "options": [
+        "Operativo",
+        "Bloqueado"
+      ],
+      "ampState": "Encendido",
+      "type": "ok_nok",
+      "category": "extraccion",
+      "area": "Ascensores",
+      "isCritical": false,
+      "lastNonZeroValue": 0,
+      "isAlarmActive": false,
+      "allowNotes": true,
+      "buttonActions": {},
+      "statusValue": "Operativo",
+      "currentValue": "Operativo",
+      "requireNotesOnFailure": false,
+      "title": "Ascensor De Servicio"
+    },
+    {
+      "options": [
+        "Energia/EMP",
+        "Energia/Planta",
+        "Bloqueado"
+      ],
+      "requireNotesOnFailure": false,
+      "id": "chk-tpl-1789435170225-zr6y",
+      "category": "subestacion",
+      "currentValue": "Energia/EMP",
+      "area": "Planta De Emergencia S2",
+      "ampState": "Encendido",
+      "allowNotes": true,
+      "type": "ok_nok",
+      "buttonActions": {
+        "Bloqueado": {
+          "actionType": "failure",
+          "color": "auto"
+        }
+      },
+      "isAlarmActive": false,
+      "statusValue": "Energia/EMP",
+      "lastNonZeroValue": 0,
+      "title": "Transferencia De Energia",
+      "isCritical": false
+    },
+    {
+      "currentValue": 2,
+      "area": "Cocina/Silo",
+      "measurementFields": [
+        {
+          "unit": "°C",
+          "lastNonZeroValue": 2,
+          "id": "1",
+          "statusValue": "OK",
+          "buttonActions": {
+            "Encendido": {
+              "actionType": "turn_on",
+              "color": "emerald"
+            },
+            "Apagado": {
+              "color": "slate",
+              "actionType": "turn_off"
+            }
+          },
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "value": 2,
+          "includeButtons": true,
+          "name": "Nevera 1",
+          "ampState": "Encendido"
+        },
+        {
+          "statusValue": "OK",
+          "name": "Nevera 2",
+          "ampState": "Encendido",
+          "value": 5,
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "id": "1789470556027",
+          "lastNonZeroValue": 5,
+          "unit": "°C",
+          "buttonActions": {
+            "Apagado": {
+              "actionType": "turn_off",
+              "color": "slate"
+            },
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "turn_on"
+            }
+          },
+          "includeButtons": true
+        },
+        {
+          "value": 4,
+          "includeButtons": true,
+          "buttonActions": {
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "turn_on"
+            },
+            "Apagado": {
+              "color": "slate",
+              "actionType": "turn_off"
+            }
+          },
+          "unit": "°C",
+          "name": "Nevera 3",
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "statusValue": "OK",
+          "ampState": "Encendido",
+          "lastNonZeroValue": 4,
+          "id": "1789470602027"
+        },
+        {
+          "ampState": "Encendido",
+          "id": "1789470634919",
+          "name": "Base Chef",
+          "lastNonZeroValue": 36,
+          "statusValue": "OK",
+          "unit": "°F",
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "buttonActions": {
+            "Apagado": {
+              "color": "slate",
+              "actionType": "turn_off"
+            },
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "turn_on"
+            }
+          },
+          "includeButtons": true,
+          "value": 36
+        },
+        {
+          "name": "Nevera De Entrada",
+          "includeButtons": true,
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "statusValue": "OK",
+          "ampState": "Encendido",
+          "id": "1789470671546",
+          "value": -4,
+          "buttonActions": {
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "turn_on"
+            },
+            "Apagado": {
+              "actionType": "turn_off",
+              "color": "slate"
+            }
+          },
+          "lastNonZeroValue": -4,
+          "unit": "°F"
+        }
+      ],
+      "isAlarmActive": false,
+      "ampState": "Encendido",
+      "buttonActions": {},
+      "lastNonZeroValue": 0,
+      "isCritical": false,
+      "allowNotes": true,
+      "requireNotesOnFailure": false,
+      "category": "refrigeracion",
+      "title": "Neveras",
+      "id": "chk-tpl-1789470717933-t9gy",
+      "includeStatusButtons": false,
+      "type": "numeric",
+      "unit": "°C"
+    }
+  ],
+  "progress": 100,
+  "completedAt": "2026-10-28T10:30:00Z"
+},
+{
+  "id": "rnd-1089",
+  "status": "completada",
+  "compliancePercentage": 100,
+  "userEmail": "juanmateoramosramos44@gmail.com",
+  "anomaliesCount": 0,
+  "meterReadings": {
+    "waterCubicMeters": 1580.2,
+    "electricKwh": 42905,
+    "gasCubicMeters": 1045.8
+  },
+  "time": "08:00",
+  "lastUpdated": "2026-09-15T12:08:58.846Z",
+  "technicianName": "Técnico de Mantenimiento",
+  "userId": "usr-1789230683226",
+  "shift": "tarde",
+  "technicianSignature": "Juan Mateo/Técnico",
+  "date": "2026-10-29",
+  "anomalies": [],
+  "lastHeartbeat": "2026-09-15T12:08:36.712Z",
+  "generalNotes": "",
+  "checkpoints": [
+    {
+      "allowNotes": true,
+      "notes": "Estava Descongelando, Ya Está Prendida",
+      "id": "chk-tpl-1788985535314-nua3",
+      "requireNotesOnFailure": false,
+      "minValue": -25,
+      "ampState": "Encendido",
+      "category": "refrigeracion",
+      "lastNonZeroValue": 47,
+      "area": "Cocina S4",
+      "isCritical": false,
+      "maxValue": 50,
+      "includeStatusButtons": false,
+      "type": "numeric",
+      "currentValue": 47,
+      "unit": "°C",
+      "buttonActions": {},
+      "measurementFields": [
+        {
+          "minValue": -25,
+          "ampState": "Encendido",
+          "includeButtons": false,
+          "name": "Cava Congelación",
+          "value": 47,
+          "unit": "°C",
+          "maxValue": 50,
+          "lastNonZeroValue": 47,
+          "id": "1"
+        }
+      ],
+      "title": "Cava De Congelación",
+      "isAlarmActive": false
+    },
+    {
+      "includeStatusButtons": false,
+      "ampState": "Encendido",
+      "minValue": 0,
+      "isAlarmActive": false,
+      "maxValue": 50,
+      "requireNotesOnFailure": false,
+      "lastNonZeroValue": 0,
+      "buttonActions": {},
+      "measurementFields": [
+        {
+          "minValue": 0,
+          "ampState": "Encendido",
+          "value": 0,
+          "id": "1",
+          "unit": "°C",
+          "name": "Cava Refrigeracion",
+          "maxValue": 50,
+          "lastNonZeroValue": 25,
+          "includeButtons": false
+        }
+      ],
+      "type": "numeric",
+      "category": "refrigeracion",
+      "unit": "°C",
+      "title": "Cava De Refrigeración",
+      "area": "Cocina S4",
+      "allowNotes": true,
+      "isCritical": false,
+      "id": "chk-tpl-1788988056429-c66o",
+      "currentValue": 0
+    },
+    {
+      "unit": "°C",
+      "type": "numeric",
+      "minValue": 0,
+      "measurementFields": [
+        {
+          "minValue": 0,
+          "ampState": "Encendido",
+          "name": "Cava Refrigeracion",
+          "unit": "°C",
+          "id": "1",
+          "maxValue": 50,
+          "lastNonZeroValue": 2.7,
+          "includeButtons": false,
+          "value": 2.7
+        }
+      ],
+      "id": "chk-tpl-1788988080039-nkgi",
+      "ampState": "Encendido",
+      "buttonActions": {},
+      "maxValue": 50,
+      "includeStatusButtons": false,
+      "category": "refrigeracion",
+      "isAlarmActive": false,
+      "currentValue": 2.7,
+      "requireNotesOnFailure": false,
+      "lastNonZeroValue": 0,
+      "isCritical": false,
+      "area": "Cocina S4",
+      "title": "Cava De Refrigeración",
+      "allowNotes": true
+    },
+    {
+      "type": "ok_nok",
+      "ampState": "Apagado",
+      "title": "Extracción",
+      "allowNotes": true,
+      "isCritical": false,
+      "buttonActions": {},
+      "currentValue": "Apagado",
+      "category": "extraccion",
+      "id": "chk-tpl-1788989380312-s3ia",
+      "statusValue": "Apagado",
+      "isAlarmActive": false,
+      "options": [
+        "Encendido",
+        "Apagado",
+        "Alarmado"
+      ],
+      "requireNotesOnFailure": false,
+      "area": "Cocina S4",
+      "lastNonZeroValue": 0
+    },
+    {
+      "category": "hidraulico",
+      "area": "Planta RCI S3",
+      "allowNotes": true,
+      "isAlarmActive": false,
+      "isCritical": false,
+      "id": "chk-tpl-1789054060776-tynz",
+      "ampState": "Encendido",
+      "currentValue": 273,
+      "title": "Bomba Jockey",
+      "requireNotesOnFailure": false,
+      "unit": "PSI",
+      "type": "numeric",
+      "lastNonZeroValue": 273
+    },
+    {
+      "ampState": "Encendido",
+      "id": "chk-tpl-1789058977130-dsm2",
+      "measurementFields": [
+        {
+          "value": 27.66,
+          "unit": "VDC",
+          "id": "1",
+          "name": "Bateria 1",
+          "ampState": "Encendido",
+          "lastNonZeroValue": 27.66
+        },
+        {
+          "ampState": "Encendido",
+          "lastNonZeroValue": 27.66,
+          "unit": "VDC",
+          "id": "1789059243278",
+          "name": "Bateria 2",
+          "value": 27.66
+        }
+      ],
+      "title": "Baterias",
+      "currentValue": 27.66,
+      "area": "Planta RCI S3",
+      "requireNotesOnFailure": false,
+      "category": "bateria",
+      "lastNonZeroValue": 0,
+      "allowNotes": true,
+      "isCritical": false,
+      "isAlarmActive": false,
+      "unit": "VDC",
+      "type": "numeric",
+      "includeStatusButtons": false
+    },
+    {
+      "options": [
+        "Sin Alarma",
+        "Sensor Alarmado"
+      ],
+      "id": "chk-tpl-1789060493962-91iv",
+      "requireNotesOnFailure": false,
+      "area": "Planta RCI S3",
+      "lastNonZeroValue": 61,
+      "isAlarmActive": true,
+      "measurementFields": [
+        {
+          "maxValue": 100,
+          "lastNonZeroValue": 60,
+          "ampState": "Encendido",
+          "minValue": 61,
+          "unit": "%",
+          "id": "1",
+          "name": "Nivel Combustible",
+          "value": 60
+        }
+      ],
+      "alarmReason": "Botón de alarma activado: \"Sensor Alarmado\"",
+      "statusValue": "Sensor Alarmado",
+      "allowNotes": true,
+      "ampState": "Encendido",
+      "minValue": 61,
+      "includeStatusButtons": true,
+      "title": "Combustible",
+      "maxValue": 100,
+      "currentValue": 60,
+      "unit": "%",
+      "category": "combustible",
+      "type": "numeric",
+      "isCritical": false
+    },
+    {
+      "currentValue": 260,
+      "area": "Planta RCI S3",
+      "lastNonZeroValue": 250,
+      "includeStatusButtons": false,
+      "requireNotesOnFailure": false,
+      "maxValue": 300,
+      "title": "Manometros Principales",
+      "allowNotes": true,
+      "isAlarmActive": false,
+      "category": "manometro",
+      "ampState": "Encendido",
+      "minValue": 250,
+      "measurementFields": [
+        {
+          "lastNonZeroValue": 260,
+          "value": 260,
+          "unit": "PSI",
+          "ampState": "Encendido",
+          "id": "1",
+          "name": "Manometro 1",
+          "minValue": 250,
+          "maxValue": 300
+        },
+        {
+          "maxValue": 180,
+          "id": "1789066651541",
+          "unit": "PSI",
+          "lastNonZeroValue": 170,
+          "ampState": "Encendido",
+          "minValue": 160,
+          "name": "Manometro 2",
+          "value": 170
+        }
+      ],
+      "id": "chk-tpl-1789066766097-j1e5",
+      "isCritical": false,
+      "unit": "PSI",
+      "type": "numeric"
+    },
+    {
+      "buttonActions": {
+        "Encendido": {
+          "actionType": "turn_on",
+          "color": "emerald"
+        },
+        "Apagado": {
+          "color": "slate",
+          "actionType": "turn_off"
+        }
+      },
+      "statusValue": "Encendido",
+      "isAlarmActive": false,
+      "requireNotesOnFailure": false,
+      "includeStatusButtons": true,
+      "lastNonZeroValue": 12,
+      "measurementFields": [
+        {
+          "name": "BOM-1",
+          "lastNonZeroValue": 19,
+          "value": 19,
+          "ampState": "Encendido",
+          "minValue": 12,
+          "id": "1",
+          "includeButtons": false,
+          "maxValue": 20,
+          "unit": "A"
+        }
+      ],
+      "unit": "A",
+      "type": "numeric",
+      "title": "BOM-1-S3",
+      "currentValue": 19,
+      "id": "chk-tpl-1789071231392-wx5f",
+      "maxValue": 20,
+      "isCritical": false,
+      "category": "hidraulico",
+      "area": "Bombas De Impulción S3",
+      "options": [
+        "Encendido",
+        "Apagado"
+      ],
+      "minValue": 12,
+      "ampState": "Encendido",
+      "allowNotes": true
+    },
+    {
+      "measurementFields": [
+        {
+          "ampState": "Apagado",
+          "unit": "A",
+          "minValue": 12,
+          "id": "1",
+          "lastNonZeroValue": 16,
+          "maxValue": 20,
+          "value": 0,
+          "name": "BOM-2",
+          "includeButtons": false
+        }
+      ],
+      "title": "BOM-2-S3",
+      "lastNonZeroValue": 12,
+      "currentValue": 0,
+      "type": "numeric",
+      "unit": "A",
+      "statusValue": "Apagado",
+      "isAlarmActive": false,
+      "includeStatusButtons": true,
+      "buttonActions": {},
+      "area": "Bombas De Impulción S3",
+      "maxValue": 20,
+      "isCritical": false,
+      "options": [
+        "Encendido",
+        "Apagado"
+      ],
+      "category": "hidraulico",
+      "id": "chk-tpl-1789072528074-19rc",
+      "ampState": "Apagado",
+      "minValue": 12,
+      "allowNotes": true,
+      "requireNotesOnFailure": false
+    },
+    {
+      "requireNotesOnFailure": false,
+      "category": "bateria",
+      "buttonActions": {},
+      "lastNonZeroValue": 0,
+      "isAlarmActive": false,
+      "type": "numeric",
+      "includeStatusButtons": false,
+      "unit": "VDC",
+      "ampState": "Encendido",
+      "id": "chk-tpl-1789072918083-tj8j",
+      "title": "Batería",
+      "allowNotes": true,
+      "area": "Planta De Emergencia S2",
+      "isCritical": false,
+      "currentValue": 27.6,
+      "measurementFields": [
+        {
+          "value": 27.6,
+          "name": "Bateria-",
+          "ampState": "Encendido",
+          "lastNonZeroValue": 27.6,
+          "id": "1",
+          "includeButtons": false,
+          "unit": "VDC"
+        }
+      ]
+    },
+    {
+      "id": "chk-tpl-1789082124733-70s2",
+      "lastNonZeroValue": 0,
+      "isCritical": false,
+      "unit": "%",
+      "type": "numeric",
+      "allowNotes": true,
+      "includeStatusButtons": false,
+      "isAlarmActive": false,
+      "currentValue": 62,
+      "category": "combustible",
+      "area": "Planta De Emergencia S2",
+      "measurementFields": [
+        {
+          "ampState": "Encendido",
+          "unit": "%",
+          "value": 62,
+          "id": "1",
+          "lastNonZeroValue": 62,
+          "name": "Combustible"
+        }
+      ],
+      "requireNotesOnFailure": false,
+      "ampState": "Encendido",
+      "title": "Combustible"
+    },
+    {
+      "measurementFields": [
+        {
+          "unit": "°C",
+          "lastNonZeroValue": 47,
+          "id": "1",
+          "ampState": "Encendido",
+          "value": 47,
+          "name": "Temperatura"
+        }
+      ],
+      "id": "chk-tpl-1789082328250-puzo",
+      "buttonActions": {},
+      "allowNotes": true,
+      "unit": "°C",
+      "type": "numeric",
+      "category": "temperatura",
+      "isAlarmActive": false,
+      "includeStatusButtons": false,
+      "currentValue": 47,
+      "requireNotesOnFailure": false,
+      "ampState": "Encendido",
+      "isCritical": false,
+      "lastNonZeroValue": 0,
+      "title": "Temperatura",
+      "area": "Planta De Emergencia S2"
+    },
+    {
+      "unit": "m³",
+      "type": "numeric",
+      "ampState": "Encendido",
+      "currentValue": 9.5,
+      "buttonActions": {},
+      "category": "tanque",
+      "isAlarmActive": false,
+      "id": "chk-tpl-1789181196563-joap",
+      "allowNotes": true,
+      "requireNotesOnFailure": false,
+      "includeStatusButtons": false,
+      "isCritical": false,
+      "title": "Tanques",
+      "area": "Terraza Piso 18",
+      "measurementFields": [
+        {
+          "includeButtons": false,
+          "unit": "m³",
+          "id": "1",
+          "lastNonZeroValue": 9.5,
+          "ampState": "Encendido",
+          "value": 9.5,
+          "name": "Tanques Hotel"
+        },
+        {
+          "ampState": "Encendido",
+          "name": "Tanques Apto",
+          "value": 2,
+          "unit": "m³",
+          "lastNonZeroValue": 2,
+          "includeButtons": false,
+          "id": "1789181031815"
+        }
+      ],
+      "lastNonZeroValue": 0
+    },
+    {
+      "ampState": "Encendido",
+      "allowNotes": true,
+      "isCritical": false,
+      "area": "Planta De Emergencia S2",
+      "title": "Condensadores",
+      "currentValue": 0.996,
+      "lastNonZeroValue": 0,
+      "category": "condensador",
+      "type": "numeric",
+      "unit": "FP",
+      "measurementFields": [
+        {
+          "value": 0.996,
+          "name": "Condensadores",
+          "includeButtons": false,
+          "ampState": "Encendido",
+          "lastNonZeroValue": 0.996,
+          "id": "1",
+          "unit": "FP"
+        }
+      ],
+      "isAlarmActive": false,
+      "buttonActions": {},
+      "id": "chk-tpl-1789181948808-tk08",
+      "requireNotesOnFailure": false,
+      "includeStatusButtons": false
+    },
+    {
+      "isAlarmActive": false,
+      "measurementFields": [
+        {
+          "maxValue": 60,
+          "buttonActions": {
+            "Apagado": {
+              "color": "slate",
+              "actionType": "default"
+            },
+            "Encendido": {
+              "actionType": "default",
+              "color": "emerald"
+            }
+          },
+          "lastNonZeroValue": 54,
+          "id": "1",
+          "name": "Precion",
+          "unit": "PSI",
+          "options": [
+            "Encendido",
+            "Apagado",
+            "Alarmado"
+          ],
+          "statusValue": "Encendido",
+          "ampState": "Encendido",
+          "minValue": 42,
+          "includeButtons": true,
+          "value": 54
+        }
+      ],
+      "minValue": 42,
+      "buttonActions": {},
+      "requireNotesOnFailure": false,
+      "isCritical": false,
+      "ampState": "Encendido",
+      "area": "Terraza Piso 18",
+      "allowNotes": true,
+      "currentValue": 54,
+      "category": "hidraulico",
+      "id": "chk-tpl-1789183131928-5ogv",
+      "maxValue": 60,
+      "type": "numeric",
+      "unit": "PSI",
+      "lastNonZeroValue": 42,
+      "includeStatusButtons": false,
+      "title": "Bombas De Presión"
+    },
+    {
+      "ampState": "Encendido",
+      "measurementFields": [
+        {
+          "value": 36.8,
+          "ampState": "Encendido",
+          "unit": "°C",
+          "name": "Temperatura/Sauna",
+          "buttonActions": {
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "default"
+            },
+            "Apagado": {
+              "actionType": "default",
+              "color": "slate"
+            }
+          },
+          "options": [
+            "Encendido",
+            "Apagado"
+          ],
+          "statusValue": "Encendido",
+          "lastNonZeroValue": 36.8,
+          "id": "1",
+          "includeButtons": true
+        },
+        {
+          "id": "1789184871874",
+          "lastNonZeroValue": 11.5,
+          "name": "Cold Plungue",
+          "includeButtons": true,
+          "unit": "°C",
+          "statusValue": "Encendido",
+          "buttonActions": {
+            "Apagado": {
+              "color": "slate",
+              "actionType": "default"
+            },
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "default"
+            }
+          },
+          "ampState": "Encendido",
+          "options": [
+            "Encendido",
+            "Apagado"
+          ],
+          "value": 11.5
+        }
+      ],
+      "area": "Zona Húmeda/Piso 6",
+      "category": "sauna_cold_plunge",
+      "requireNotesOnFailure": false,
+      "title": "Sauna/Cold Plungue",
+      "lastNonZeroValue": 0,
+      "isCritical": false,
+      "unit": "°C",
+      "type": "numeric",
+      "id": "chk-tpl-1789184914843-8qeh",
+      "currentValue": 36.8,
+      "allowNotes": true,
+      "buttonActions": {},
+      "includeStatusButtons": false,
+      "isAlarmActive": false
+    },
+    {
+      "type": "ok_nok",
+      "ampState": "Encendido",
+      "isCritical": false,
+      "suggestedNotes": [
+        "Musica Ascensores Ok",
+        "Musica Gym Ok",
+        "Televisor Gym Ok",
+        "Musica Piscina Ok",
+        "Musica Silo Ok",
+        "Musica Sastra Ok",
+        "Musica Sauna Ok"
+      ],
+      "buttonActions": {},
+      "title": "Musica",
+      "allowNotes": true,
+      "isAlarmActive": false,
+      "category": "musica",
+      "id": "chk-tpl-1789186187266-j679",
+      "requireNotesOnFailure": false,
+      "options": [
+        "Todo Ok",
+        "NO OK"
+      ],
+      "statusValue": "Todo Ok",
+      "currentValue": "Todo Ok",
+      "lastNonZeroValue": 0,
+      "area": "Zona Húmeda/Piso 6"
+    },
+    {
+      "measurementFields": [
+        {
+          "name": "Botellero Ventanal",
+          "value": -5,
+          "lastNonZeroValue": -5,
+          "buttonActions": {
+            "Encendido": {
+              "actionType": "turn_on",
+              "color": "emerald"
+            },
+            "Apagado": {
+              "actionType": "turn_off",
+              "color": "slate"
+            }
+          },
+          "includeButtons": true,
+          "statusValue": "OK",
+          "ampState": "Encendido",
+          "id": "1",
+          "unit": "°C",
+          "options": [
+            "OK",
+            "NO OK"
+          ]
+        },
+        {
+          "unit": "°C",
+          "statusValue": "OK",
+          "id": "1789227261860",
+          "ampState": "Encendido",
+          "includeButtons": true,
+          "lastNonZeroValue": -17,
+          "value": -17,
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "buttonActions": {
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "turn_on"
+            },
+            "Apagado": {
+              "color": "slate",
+              "actionType": "turn_off"
+            }
+          },
+          "name": "Nevera Cafetera"
+        },
+        {
+          "includeButtons": true,
+          "name": "Botellero Entrada Derecha",
+          "statusValue": "OK",
+          "lastNonZeroValue": 42,
+          "buttonActions": {
+            "Apagado": {
+              "actionType": "turn_off",
+              "color": "slate"
+            },
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "turn_on"
+            }
+          },
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "ampState": "Encendido",
+          "id": "1789227309459",
+          "value": 42,
+          "unit": "°F"
+        },
+        {
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "id": "1789227538808",
+          "statusValue": "OK",
+          "includeButtons": true,
+          "name": "Botellero Entrada Izquierda",
+          "unit": "°F",
+          "lastNonZeroValue": 34,
+          "buttonActions": {
+            "Apagado": {
+              "actionType": "turn_off",
+              "color": "slate"
+            },
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "turn_on"
+            }
+          },
+          "ampState": "Encendido",
+          "value": 34
+        }
+      ],
+      "requireNotesOnFailure": false,
+      "area": "Bar/ Piso 6",
+      "currentValue": -5,
+      "includeStatusButtons": false,
+      "category": "refrigeracion",
+      "isCritical": false,
+      "id": "chk-tpl-1789227609185-rbqi",
+      "type": "numeric",
+      "unit": "°C",
+      "isAlarmActive": false,
+      "allowNotes": true,
+      "buttonActions": {},
+      "lastNonZeroValue": 0,
+      "title": "Equipos Del Bar",
+      "ampState": "Encendido"
+    },
+    {
+      "category": "caldera",
+      "isAlarmActive": false,
+      "measurementFields": [
+        {
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "lastNonZeroValue": 50.8,
+          "unit": "°C",
+          "buttonActions": {
+            "Apagado": {
+              "actionType": "turn_off",
+              "color": "slate"
+            },
+            "Encendido": {
+              "actionType": "turn_on",
+              "color": "emerald"
+            }
+          },
+          "includeButtons": true,
+          "ampState": "Encendido",
+          "value": 50.8,
+          "name": "Bombas/Presurisacion",
+          "id": "1",
+          "statusValue": "OK"
+        },
+        {
+          "lastNonZeroValue": 47.9,
+          "id": "1789240544706",
+          "ampState": "Encendido",
+          "unit": "°C",
+          "statusValue": "OK",
+          "includeButtons": true,
+          "value": 47.9,
+          "name": "Bomba/Resirculacion",
+          "buttonActions": {
+            "Apagado": {
+              "color": "slate",
+              "actionType": "turn_off"
+            },
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "turn_on"
+            }
+          },
+          "options": [
+            "OK",
+            "NO OK"
+          ]
+        },
+        {
+          "unit": "PSI",
+          "ampState": "Encendido",
+          "lastNonZeroValue": 50,
+          "includeButtons": false,
+          "id": "1789240600468",
+          "name": "Manometros De Bombas",
+          "value": 50
+        },
+        {
+          "unit": "PSI",
+          "value": 50,
+          "id": "1789240637614",
+          "name": "Manometros Tanques",
+          "lastNonZeroValue": 50,
+          "ampState": "Encendido",
+          "includeButtons": false
+        }
+      ],
+      "buttonActions": {},
+      "requireNotesOnFailure": false,
+      "type": "numeric",
+      "unit": "°C",
+      "id": "chk-tpl-1789240659096-ji6y",
+      "ampState": "Encendido",
+      "area": "Cuarto De Bombas",
+      "isCritical": false,
+      "title": "Sistema De Agua Caliente",
+      "currentValue": 50.8,
+      "lastNonZeroValue": 0,
+      "includeStatusButtons": false,
+      "allowNotes": true
+    },
+    {
+      "allowNotes": true,
+      "statusValue": "Operativo",
+      "requireNotesOnFailure": false,
+      "title": "Ascensor Apto",
+      "type": "ok_nok",
+      "isCritical": false,
+      "id": "chk-tpl-1789423733318-xfh6",
+      "isAlarmActive": false,
+      "category": "extraccion",
+      "buttonActions": {},
+      "area": "Ascensores",
+      "ampState": "Encendido",
+      "lastNonZeroValue": 0,
+      "currentValue": "Operativo",
+      "options": [
+        "Operativo",
+        "Bloqueado"
+      ]
+    },
+    {
+      "options": [
+        "Nivel Bajo",
+        "Nivel Medio",
+        "Nivel Alto"
+      ],
+      "statusValue": "Nivel Alto",
+      "currentValue": "Nivel Alto",
+      "type": "ok_nok",
+      "lastNonZeroValue": 0,
+      "isCritical": false,
+      "category": "extraccion",
+      "requireNotesOnFailure": false,
+      "id": "chk-tpl-1789428026446-qnuc",
+      "title": "Tanques De Agua Potable",
+      "allowNotes": true,
+      "ampState": "Encendido",
+      "buttonActions": {
+        "Nivel Bajo": {
+          "color": "auto",
+          "actionType": "failure"
+        }
+      },
+      "isAlarmActive": false,
+      "area": "Bombas De Impulción S3"
+    },
+    {
+      "title": "Ascensor Hotel",
+      "type": "ok_nok",
+      "allowNotes": true,
+      "requireNotesOnFailure": false,
+      "statusValue": "Operativo",
+      "isCritical": false,
+      "id": "chk-tpl-1789428185062-g11h",
+      "options": [
+        "Operativo",
+        "Bloqueado"
+      ],
+      "isAlarmActive": false,
+      "ampState": "Encendido",
+      "currentValue": "Operativo",
+      "buttonActions": {},
+      "lastNonZeroValue": 0,
+      "area": "Ascensores",
+      "category": "extraccion"
+    },
+    {
+      "id": "chk-tpl-1789428511011-x67z",
+      "options": [
+        "Operativo",
+        "Bloqueado"
+      ],
+      "ampState": "Encendido",
+      "type": "ok_nok",
+      "category": "extraccion",
+      "area": "Ascensores",
+      "isCritical": false,
+      "lastNonZeroValue": 0,
+      "isAlarmActive": false,
+      "allowNotes": true,
+      "buttonActions": {},
+      "statusValue": "Operativo",
+      "currentValue": "Operativo",
+      "requireNotesOnFailure": false,
+      "title": "Ascensor De Servicio"
+    },
+    {
+      "options": [
+        "Energia/EMP",
+        "Energia/Planta",
+        "Bloqueado"
+      ],
+      "requireNotesOnFailure": false,
+      "id": "chk-tpl-1789435170225-zr6y",
+      "category": "subestacion",
+      "currentValue": "Energia/EMP",
+      "area": "Planta De Emergencia S2",
+      "ampState": "Encendido",
+      "allowNotes": true,
+      "type": "ok_nok",
+      "buttonActions": {
+        "Bloqueado": {
+          "actionType": "failure",
+          "color": "auto"
+        }
+      },
+      "isAlarmActive": false,
+      "statusValue": "Energia/EMP",
+      "lastNonZeroValue": 0,
+      "title": "Transferencia De Energia",
+      "isCritical": false
+    },
+    {
+      "currentValue": 2,
+      "area": "Cocina/Silo",
+      "measurementFields": [
+        {
+          "unit": "°C",
+          "lastNonZeroValue": 2,
+          "id": "1",
+          "statusValue": "OK",
+          "buttonActions": {
+            "Encendido": {
+              "actionType": "turn_on",
+              "color": "emerald"
+            },
+            "Apagado": {
+              "color": "slate",
+              "actionType": "turn_off"
+            }
+          },
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "value": 2,
+          "includeButtons": true,
+          "name": "Nevera 1",
+          "ampState": "Encendido"
+        },
+        {
+          "statusValue": "OK",
+          "name": "Nevera 2",
+          "ampState": "Encendido",
+          "value": 5,
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "id": "1789470556027",
+          "lastNonZeroValue": 5,
+          "unit": "°C",
+          "buttonActions": {
+            "Apagado": {
+              "actionType": "turn_off",
+              "color": "slate"
+            },
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "turn_on"
+            }
+          },
+          "includeButtons": true
+        },
+        {
+          "value": 4,
+          "includeButtons": true,
+          "buttonActions": {
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "turn_on"
+            },
+            "Apagado": {
+              "color": "slate",
+              "actionType": "turn_off"
+            }
+          },
+          "unit": "°C",
+          "name": "Nevera 3",
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "statusValue": "OK",
+          "ampState": "Encendido",
+          "lastNonZeroValue": 4,
+          "id": "1789470602027"
+        },
+        {
+          "ampState": "Encendido",
+          "id": "1789470634919",
+          "name": "Base Chef",
+          "lastNonZeroValue": 36,
+          "statusValue": "OK",
+          "unit": "°F",
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "buttonActions": {
+            "Apagado": {
+              "color": "slate",
+              "actionType": "turn_off"
+            },
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "turn_on"
+            }
+          },
+          "includeButtons": true,
+          "value": 36
+        },
+        {
+          "name": "Nevera De Entrada",
+          "includeButtons": true,
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "statusValue": "OK",
+          "ampState": "Encendido",
+          "id": "1789470671546",
+          "value": -4,
+          "buttonActions": {
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "turn_on"
+            },
+            "Apagado": {
+              "actionType": "turn_off",
+              "color": "slate"
+            }
+          },
+          "lastNonZeroValue": -4,
+          "unit": "°F"
+        }
+      ],
+      "isAlarmActive": false,
+      "ampState": "Encendido",
+      "buttonActions": {},
+      "lastNonZeroValue": 0,
+      "isCritical": false,
+      "allowNotes": true,
+      "requireNotesOnFailure": false,
+      "category": "refrigeracion",
+      "title": "Neveras",
+      "id": "chk-tpl-1789470717933-t9gy",
+      "includeStatusButtons": false,
+      "type": "numeric",
+      "unit": "°C"
+    }
+  ],
+  "progress": 100,
+  "completedAt": "2026-10-29T10:30:00Z"
+},
+{
+  "id": "rnd-1090",
+  "status": "completada",
+  "compliancePercentage": 100,
+  "userEmail": "juanmateoramosramos44@gmail.com",
+  "anomaliesCount": 0,
+  "meterReadings": {
+    "waterCubicMeters": 1582,
+    "electricKwh": 42950,
+    "gasCubicMeters": 1048
+  },
+  "time": "08:00",
+  "lastUpdated": "2026-09-15T12:08:58.846Z",
+  "technicianName": "Técnico de Mantenimiento",
+  "userId": "usr-1789230683226",
+  "shift": "manana",
+  "technicianSignature": "Juan Mateo/Técnico",
+  "date": "2026-10-30",
+  "anomalies": [],
+  "lastHeartbeat": "2026-09-15T12:08:36.712Z",
+  "generalNotes": "",
+  "checkpoints": [
+    {
+      "allowNotes": true,
+      "notes": "Estava Descongelando, Ya Está Prendida",
+      "id": "chk-tpl-1788985535314-nua3",
+      "requireNotesOnFailure": false,
+      "minValue": -25,
+      "ampState": "Encendido",
+      "category": "refrigeracion",
+      "lastNonZeroValue": 47,
+      "area": "Cocina S4",
+      "isCritical": false,
+      "maxValue": 50,
+      "includeStatusButtons": false,
+      "type": "numeric",
+      "currentValue": 47,
+      "unit": "°C",
+      "buttonActions": {},
+      "measurementFields": [
+        {
+          "minValue": -25,
+          "ampState": "Encendido",
+          "includeButtons": false,
+          "name": "Cava Congelación",
+          "value": 47,
+          "unit": "°C",
+          "maxValue": 50,
+          "lastNonZeroValue": 47,
+          "id": "1"
+        }
+      ],
+      "title": "Cava De Congelación",
+      "isAlarmActive": false
+    },
+    {
+      "includeStatusButtons": false,
+      "ampState": "Encendido",
+      "minValue": 0,
+      "isAlarmActive": false,
+      "maxValue": 50,
+      "requireNotesOnFailure": false,
+      "lastNonZeroValue": 0,
+      "buttonActions": {},
+      "measurementFields": [
+        {
+          "minValue": 0,
+          "ampState": "Encendido",
+          "value": 0,
+          "id": "1",
+          "unit": "°C",
+          "name": "Cava Refrigeracion",
+          "maxValue": 50,
+          "lastNonZeroValue": 25,
+          "includeButtons": false
+        }
+      ],
+      "type": "numeric",
+      "category": "refrigeracion",
+      "unit": "°C",
+      "title": "Cava De Refrigeración",
+      "area": "Cocina S4",
+      "allowNotes": true,
+      "isCritical": false,
+      "id": "chk-tpl-1788988056429-c66o",
+      "currentValue": 0
+    },
+    {
+      "unit": "°C",
+      "type": "numeric",
+      "minValue": 0,
+      "measurementFields": [
+        {
+          "minValue": 0,
+          "ampState": "Encendido",
+          "name": "Cava Refrigeracion",
+          "unit": "°C",
+          "id": "1",
+          "maxValue": 50,
+          "lastNonZeroValue": 2.7,
+          "includeButtons": false,
+          "value": 2.7
+        }
+      ],
+      "id": "chk-tpl-1788988080039-nkgi",
+      "ampState": "Encendido",
+      "buttonActions": {},
+      "maxValue": 50,
+      "includeStatusButtons": false,
+      "category": "refrigeracion",
+      "isAlarmActive": false,
+      "currentValue": 2.7,
+      "requireNotesOnFailure": false,
+      "lastNonZeroValue": 0,
+      "isCritical": false,
+      "area": "Cocina S4",
+      "title": "Cava De Refrigeración",
+      "allowNotes": true
+    },
+    {
+      "type": "ok_nok",
+      "ampState": "Apagado",
+      "title": "Extracción",
+      "allowNotes": true,
+      "isCritical": false,
+      "buttonActions": {},
+      "currentValue": "Apagado",
+      "category": "extraccion",
+      "id": "chk-tpl-1788989380312-s3ia",
+      "statusValue": "Apagado",
+      "isAlarmActive": false,
+      "options": [
+        "Encendido",
+        "Apagado",
+        "Alarmado"
+      ],
+      "requireNotesOnFailure": false,
+      "area": "Cocina S4",
+      "lastNonZeroValue": 0
+    },
+    {
+      "category": "hidraulico",
+      "area": "Planta RCI S3",
+      "allowNotes": true,
+      "isAlarmActive": false,
+      "isCritical": false,
+      "id": "chk-tpl-1789054060776-tynz",
+      "ampState": "Encendido",
+      "currentValue": 273,
+      "title": "Bomba Jockey",
+      "requireNotesOnFailure": false,
+      "unit": "PSI",
+      "type": "numeric",
+      "lastNonZeroValue": 273
+    },
+    {
+      "ampState": "Encendido",
+      "id": "chk-tpl-1789058977130-dsm2",
+      "measurementFields": [
+        {
+          "value": 27.66,
+          "unit": "VDC",
+          "id": "1",
+          "name": "Bateria 1",
+          "ampState": "Encendido",
+          "lastNonZeroValue": 27.66
+        },
+        {
+          "ampState": "Encendido",
+          "lastNonZeroValue": 27.66,
+          "unit": "VDC",
+          "id": "1789059243278",
+          "name": "Bateria 2",
+          "value": 27.66
+        }
+      ],
+      "title": "Baterias",
+      "currentValue": 27.66,
+      "area": "Planta RCI S3",
+      "requireNotesOnFailure": false,
+      "category": "bateria",
+      "lastNonZeroValue": 0,
+      "allowNotes": true,
+      "isCritical": false,
+      "isAlarmActive": false,
+      "unit": "VDC",
+      "type": "numeric",
+      "includeStatusButtons": false
+    },
+    {
+      "options": [
+        "Sin Alarma",
+        "Sensor Alarmado"
+      ],
+      "id": "chk-tpl-1789060493962-91iv",
+      "requireNotesOnFailure": false,
+      "area": "Planta RCI S3",
+      "lastNonZeroValue": 61,
+      "isAlarmActive": true,
+      "measurementFields": [
+        {
+          "maxValue": 100,
+          "lastNonZeroValue": 60,
+          "ampState": "Encendido",
+          "minValue": 61,
+          "unit": "%",
+          "id": "1",
+          "name": "Nivel Combustible",
+          "value": 60
+        }
+      ],
+      "alarmReason": "Botón de alarma activado: \"Sensor Alarmado\"",
+      "statusValue": "Sensor Alarmado",
+      "allowNotes": true,
+      "ampState": "Encendido",
+      "minValue": 61,
+      "includeStatusButtons": true,
+      "title": "Combustible",
+      "maxValue": 100,
+      "currentValue": 60,
+      "unit": "%",
+      "category": "combustible",
+      "type": "numeric",
+      "isCritical": false
+    },
+    {
+      "currentValue": 260,
+      "area": "Planta RCI S3",
+      "lastNonZeroValue": 250,
+      "includeStatusButtons": false,
+      "requireNotesOnFailure": false,
+      "maxValue": 300,
+      "title": "Manometros Principales",
+      "allowNotes": true,
+      "isAlarmActive": false,
+      "category": "manometro",
+      "ampState": "Encendido",
+      "minValue": 250,
+      "measurementFields": [
+        {
+          "lastNonZeroValue": 260,
+          "value": 260,
+          "unit": "PSI",
+          "ampState": "Encendido",
+          "id": "1",
+          "name": "Manometro 1",
+          "minValue": 250,
+          "maxValue": 300
+        },
+        {
+          "maxValue": 180,
+          "id": "1789066651541",
+          "unit": "PSI",
+          "lastNonZeroValue": 170,
+          "ampState": "Encendido",
+          "minValue": 160,
+          "name": "Manometro 2",
+          "value": 170
+        }
+      ],
+      "id": "chk-tpl-1789066766097-j1e5",
+      "isCritical": false,
+      "unit": "PSI",
+      "type": "numeric"
+    },
+    {
+      "buttonActions": {
+        "Encendido": {
+          "actionType": "turn_on",
+          "color": "emerald"
+        },
+        "Apagado": {
+          "color": "slate",
+          "actionType": "turn_off"
+        }
+      },
+      "statusValue": "Encendido",
+      "isAlarmActive": false,
+      "requireNotesOnFailure": false,
+      "includeStatusButtons": true,
+      "lastNonZeroValue": 12,
+      "measurementFields": [
+        {
+          "name": "BOM-1",
+          "lastNonZeroValue": 19,
+          "value": 19,
+          "ampState": "Encendido",
+          "minValue": 12,
+          "id": "1",
+          "includeButtons": false,
+          "maxValue": 20,
+          "unit": "A"
+        }
+      ],
+      "unit": "A",
+      "type": "numeric",
+      "title": "BOM-1-S3",
+      "currentValue": 19,
+      "id": "chk-tpl-1789071231392-wx5f",
+      "maxValue": 20,
+      "isCritical": false,
+      "category": "hidraulico",
+      "area": "Bombas De Impulción S3",
+      "options": [
+        "Encendido",
+        "Apagado"
+      ],
+      "minValue": 12,
+      "ampState": "Encendido",
+      "allowNotes": true
+    },
+    {
+      "measurementFields": [
+        {
+          "ampState": "Apagado",
+          "unit": "A",
+          "minValue": 12,
+          "id": "1",
+          "lastNonZeroValue": 16,
+          "maxValue": 20,
+          "value": 0,
+          "name": "BOM-2",
+          "includeButtons": false
+        }
+      ],
+      "title": "BOM-2-S3",
+      "lastNonZeroValue": 12,
+      "currentValue": 0,
+      "type": "numeric",
+      "unit": "A",
+      "statusValue": "Apagado",
+      "isAlarmActive": false,
+      "includeStatusButtons": true,
+      "buttonActions": {},
+      "area": "Bombas De Impulción S3",
+      "maxValue": 20,
+      "isCritical": false,
+      "options": [
+        "Encendido",
+        "Apagado"
+      ],
+      "category": "hidraulico",
+      "id": "chk-tpl-1789072528074-19rc",
+      "ampState": "Apagado",
+      "minValue": 12,
+      "allowNotes": true,
+      "requireNotesOnFailure": false
+    },
+    {
+      "requireNotesOnFailure": false,
+      "category": "bateria",
+      "buttonActions": {},
+      "lastNonZeroValue": 0,
+      "isAlarmActive": false,
+      "type": "numeric",
+      "includeStatusButtons": false,
+      "unit": "VDC",
+      "ampState": "Encendido",
+      "id": "chk-tpl-1789072918083-tj8j",
+      "title": "Batería",
+      "allowNotes": true,
+      "area": "Planta De Emergencia S2",
+      "isCritical": false,
+      "currentValue": 27.6,
+      "measurementFields": [
+        {
+          "value": 27.6,
+          "name": "Bateria-",
+          "ampState": "Encendido",
+          "lastNonZeroValue": 27.6,
+          "id": "1",
+          "includeButtons": false,
+          "unit": "VDC"
+        }
+      ]
+    },
+    {
+      "id": "chk-tpl-1789082124733-70s2",
+      "lastNonZeroValue": 0,
+      "isCritical": false,
+      "unit": "%",
+      "type": "numeric",
+      "allowNotes": true,
+      "includeStatusButtons": false,
+      "isAlarmActive": false,
+      "currentValue": 62,
+      "category": "combustible",
+      "area": "Planta De Emergencia S2",
+      "measurementFields": [
+        {
+          "ampState": "Encendido",
+          "unit": "%",
+          "value": 62,
+          "id": "1",
+          "lastNonZeroValue": 62,
+          "name": "Combustible"
+        }
+      ],
+      "requireNotesOnFailure": false,
+      "ampState": "Encendido",
+      "title": "Combustible"
+    },
+    {
+      "measurementFields": [
+        {
+          "unit": "°C",
+          "lastNonZeroValue": 47,
+          "id": "1",
+          "ampState": "Encendido",
+          "value": 47,
+          "name": "Temperatura"
+        }
+      ],
+      "id": "chk-tpl-1789082328250-puzo",
+      "buttonActions": {},
+      "allowNotes": true,
+      "unit": "°C",
+      "type": "numeric",
+      "category": "temperatura",
+      "isAlarmActive": false,
+      "includeStatusButtons": false,
+      "currentValue": 47,
+      "requireNotesOnFailure": false,
+      "ampState": "Encendido",
+      "isCritical": false,
+      "lastNonZeroValue": 0,
+      "title": "Temperatura",
+      "area": "Planta De Emergencia S2"
+    },
+    {
+      "unit": "m³",
+      "type": "numeric",
+      "ampState": "Encendido",
+      "currentValue": 9.5,
+      "buttonActions": {},
+      "category": "tanque",
+      "isAlarmActive": false,
+      "id": "chk-tpl-1789181196563-joap",
+      "allowNotes": true,
+      "requireNotesOnFailure": false,
+      "includeStatusButtons": false,
+      "isCritical": false,
+      "title": "Tanques",
+      "area": "Terraza Piso 18",
+      "measurementFields": [
+        {
+          "includeButtons": false,
+          "unit": "m³",
+          "id": "1",
+          "lastNonZeroValue": 9.5,
+          "ampState": "Encendido",
+          "value": 9.5,
+          "name": "Tanques Hotel"
+        },
+        {
+          "ampState": "Encendido",
+          "name": "Tanques Apto",
+          "value": 2,
+          "unit": "m³",
+          "lastNonZeroValue": 2,
+          "includeButtons": false,
+          "id": "1789181031815"
+        }
+      ],
+      "lastNonZeroValue": 0
+    },
+    {
+      "ampState": "Encendido",
+      "allowNotes": true,
+      "isCritical": false,
+      "area": "Planta De Emergencia S2",
+      "title": "Condensadores",
+      "currentValue": 0.996,
+      "lastNonZeroValue": 0,
+      "category": "condensador",
+      "type": "numeric",
+      "unit": "FP",
+      "measurementFields": [
+        {
+          "value": 0.996,
+          "name": "Condensadores",
+          "includeButtons": false,
+          "ampState": "Encendido",
+          "lastNonZeroValue": 0.996,
+          "id": "1",
+          "unit": "FP"
+        }
+      ],
+      "isAlarmActive": false,
+      "buttonActions": {},
+      "id": "chk-tpl-1789181948808-tk08",
+      "requireNotesOnFailure": false,
+      "includeStatusButtons": false
+    },
+    {
+      "isAlarmActive": false,
+      "measurementFields": [
+        {
+          "maxValue": 60,
+          "buttonActions": {
+            "Apagado": {
+              "color": "slate",
+              "actionType": "default"
+            },
+            "Encendido": {
+              "actionType": "default",
+              "color": "emerald"
+            }
+          },
+          "lastNonZeroValue": 54,
+          "id": "1",
+          "name": "Precion",
+          "unit": "PSI",
+          "options": [
+            "Encendido",
+            "Apagado",
+            "Alarmado"
+          ],
+          "statusValue": "Encendido",
+          "ampState": "Encendido",
+          "minValue": 42,
+          "includeButtons": true,
+          "value": 54
+        }
+      ],
+      "minValue": 42,
+      "buttonActions": {},
+      "requireNotesOnFailure": false,
+      "isCritical": false,
+      "ampState": "Encendido",
+      "area": "Terraza Piso 18",
+      "allowNotes": true,
+      "currentValue": 54,
+      "category": "hidraulico",
+      "id": "chk-tpl-1789183131928-5ogv",
+      "maxValue": 60,
+      "type": "numeric",
+      "unit": "PSI",
+      "lastNonZeroValue": 42,
+      "includeStatusButtons": false,
+      "title": "Bombas De Presión"
+    },
+    {
+      "ampState": "Encendido",
+      "measurementFields": [
+        {
+          "value": 36.8,
+          "ampState": "Encendido",
+          "unit": "°C",
+          "name": "Temperatura/Sauna",
+          "buttonActions": {
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "default"
+            },
+            "Apagado": {
+              "actionType": "default",
+              "color": "slate"
+            }
+          },
+          "options": [
+            "Encendido",
+            "Apagado"
+          ],
+          "statusValue": "Encendido",
+          "lastNonZeroValue": 36.8,
+          "id": "1",
+          "includeButtons": true
+        },
+        {
+          "id": "1789184871874",
+          "lastNonZeroValue": 11.5,
+          "name": "Cold Plungue",
+          "includeButtons": true,
+          "unit": "°C",
+          "statusValue": "Encendido",
+          "buttonActions": {
+            "Apagado": {
+              "color": "slate",
+              "actionType": "default"
+            },
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "default"
+            }
+          },
+          "ampState": "Encendido",
+          "options": [
+            "Encendido",
+            "Apagado"
+          ],
+          "value": 11.5
+        }
+      ],
+      "area": "Zona Húmeda/Piso 6",
+      "category": "sauna_cold_plunge",
+      "requireNotesOnFailure": false,
+      "title": "Sauna/Cold Plungue",
+      "lastNonZeroValue": 0,
+      "isCritical": false,
+      "unit": "°C",
+      "type": "numeric",
+      "id": "chk-tpl-1789184914843-8qeh",
+      "currentValue": 36.8,
+      "allowNotes": true,
+      "buttonActions": {},
+      "includeStatusButtons": false,
+      "isAlarmActive": false
+    },
+    {
+      "type": "ok_nok",
+      "ampState": "Encendido",
+      "isCritical": false,
+      "suggestedNotes": [
+        "Musica Ascensores Ok",
+        "Musica Gym Ok",
+        "Televisor Gym Ok",
+        "Musica Piscina Ok",
+        "Musica Silo Ok",
+        "Musica Sastra Ok",
+        "Musica Sauna Ok"
+      ],
+      "buttonActions": {},
+      "title": "Musica",
+      "allowNotes": true,
+      "isAlarmActive": false,
+      "category": "musica",
+      "id": "chk-tpl-1789186187266-j679",
+      "requireNotesOnFailure": false,
+      "options": [
+        "Todo Ok",
+        "NO OK"
+      ],
+      "statusValue": "Todo Ok",
+      "currentValue": "Todo Ok",
+      "lastNonZeroValue": 0,
+      "area": "Zona Húmeda/Piso 6"
+    },
+    {
+      "measurementFields": [
+        {
+          "name": "Botellero Ventanal",
+          "value": -5,
+          "lastNonZeroValue": -5,
+          "buttonActions": {
+            "Encendido": {
+              "actionType": "turn_on",
+              "color": "emerald"
+            },
+            "Apagado": {
+              "actionType": "turn_off",
+              "color": "slate"
+            }
+          },
+          "includeButtons": true,
+          "statusValue": "OK",
+          "ampState": "Encendido",
+          "id": "1",
+          "unit": "°C",
+          "options": [
+            "OK",
+            "NO OK"
+          ]
+        },
+        {
+          "unit": "°C",
+          "statusValue": "OK",
+          "id": "1789227261860",
+          "ampState": "Encendido",
+          "includeButtons": true,
+          "lastNonZeroValue": -17,
+          "value": -17,
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "buttonActions": {
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "turn_on"
+            },
+            "Apagado": {
+              "color": "slate",
+              "actionType": "turn_off"
+            }
+          },
+          "name": "Nevera Cafetera"
+        },
+        {
+          "includeButtons": true,
+          "name": "Botellero Entrada Derecha",
+          "statusValue": "OK",
+          "lastNonZeroValue": 42,
+          "buttonActions": {
+            "Apagado": {
+              "actionType": "turn_off",
+              "color": "slate"
+            },
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "turn_on"
+            }
+          },
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "ampState": "Encendido",
+          "id": "1789227309459",
+          "value": 42,
+          "unit": "°F"
+        },
+        {
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "id": "1789227538808",
+          "statusValue": "OK",
+          "includeButtons": true,
+          "name": "Botellero Entrada Izquierda",
+          "unit": "°F",
+          "lastNonZeroValue": 34,
+          "buttonActions": {
+            "Apagado": {
+              "actionType": "turn_off",
+              "color": "slate"
+            },
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "turn_on"
+            }
+          },
+          "ampState": "Encendido",
+          "value": 34
+        }
+      ],
+      "requireNotesOnFailure": false,
+      "area": "Bar/ Piso 6",
+      "currentValue": -5,
+      "includeStatusButtons": false,
+      "category": "refrigeracion",
+      "isCritical": false,
+      "id": "chk-tpl-1789227609185-rbqi",
+      "type": "numeric",
+      "unit": "°C",
+      "isAlarmActive": false,
+      "allowNotes": true,
+      "buttonActions": {},
+      "lastNonZeroValue": 0,
+      "title": "Equipos Del Bar",
+      "ampState": "Encendido"
+    },
+    {
+      "category": "caldera",
+      "isAlarmActive": false,
+      "measurementFields": [
+        {
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "lastNonZeroValue": 50.8,
+          "unit": "°C",
+          "buttonActions": {
+            "Apagado": {
+              "actionType": "turn_off",
+              "color": "slate"
+            },
+            "Encendido": {
+              "actionType": "turn_on",
+              "color": "emerald"
+            }
+          },
+          "includeButtons": true,
+          "ampState": "Encendido",
+          "value": 50.8,
+          "name": "Bombas/Presurisacion",
+          "id": "1",
+          "statusValue": "OK"
+        },
+        {
+          "lastNonZeroValue": 47.9,
+          "id": "1789240544706",
+          "ampState": "Encendido",
+          "unit": "°C",
+          "statusValue": "OK",
+          "includeButtons": true,
+          "value": 47.9,
+          "name": "Bomba/Resirculacion",
+          "buttonActions": {
+            "Apagado": {
+              "color": "slate",
+              "actionType": "turn_off"
+            },
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "turn_on"
+            }
+          },
+          "options": [
+            "OK",
+            "NO OK"
+          ]
+        },
+        {
+          "unit": "PSI",
+          "ampState": "Encendido",
+          "lastNonZeroValue": 50,
+          "includeButtons": false,
+          "id": "1789240600468",
+          "name": "Manometros De Bombas",
+          "value": 50
+        },
+        {
+          "unit": "PSI",
+          "value": 50,
+          "id": "1789240637614",
+          "name": "Manometros Tanques",
+          "lastNonZeroValue": 50,
+          "ampState": "Encendido",
+          "includeButtons": false
+        }
+      ],
+      "buttonActions": {},
+      "requireNotesOnFailure": false,
+      "type": "numeric",
+      "unit": "°C",
+      "id": "chk-tpl-1789240659096-ji6y",
+      "ampState": "Encendido",
+      "area": "Cuarto De Bombas",
+      "isCritical": false,
+      "title": "Sistema De Agua Caliente",
+      "currentValue": 50.8,
+      "lastNonZeroValue": 0,
+      "includeStatusButtons": false,
+      "allowNotes": true
+    },
+    {
+      "allowNotes": true,
+      "statusValue": "Operativo",
+      "requireNotesOnFailure": false,
+      "title": "Ascensor Apto",
+      "type": "ok_nok",
+      "isCritical": false,
+      "id": "chk-tpl-1789423733318-xfh6",
+      "isAlarmActive": false,
+      "category": "extraccion",
+      "buttonActions": {},
+      "area": "Ascensores",
+      "ampState": "Encendido",
+      "lastNonZeroValue": 0,
+      "currentValue": "Operativo",
+      "options": [
+        "Operativo",
+        "Bloqueado"
+      ]
+    },
+    {
+      "options": [
+        "Nivel Bajo",
+        "Nivel Medio",
+        "Nivel Alto"
+      ],
+      "statusValue": "Nivel Alto",
+      "currentValue": "Nivel Alto",
+      "type": "ok_nok",
+      "lastNonZeroValue": 0,
+      "isCritical": false,
+      "category": "extraccion",
+      "requireNotesOnFailure": false,
+      "id": "chk-tpl-1789428026446-qnuc",
+      "title": "Tanques De Agua Potable",
+      "allowNotes": true,
+      "ampState": "Encendido",
+      "buttonActions": {
+        "Nivel Bajo": {
+          "color": "auto",
+          "actionType": "failure"
+        }
+      },
+      "isAlarmActive": false,
+      "area": "Bombas De Impulción S3"
+    },
+    {
+      "title": "Ascensor Hotel",
+      "type": "ok_nok",
+      "allowNotes": true,
+      "requireNotesOnFailure": false,
+      "statusValue": "Operativo",
+      "isCritical": false,
+      "id": "chk-tpl-1789428185062-g11h",
+      "options": [
+        "Operativo",
+        "Bloqueado"
+      ],
+      "isAlarmActive": false,
+      "ampState": "Encendido",
+      "currentValue": "Operativo",
+      "buttonActions": {},
+      "lastNonZeroValue": 0,
+      "area": "Ascensores",
+      "category": "extraccion"
+    },
+    {
+      "id": "chk-tpl-1789428511011-x67z",
+      "options": [
+        "Operativo",
+        "Bloqueado"
+      ],
+      "ampState": "Encendido",
+      "type": "ok_nok",
+      "category": "extraccion",
+      "area": "Ascensores",
+      "isCritical": false,
+      "lastNonZeroValue": 0,
+      "isAlarmActive": false,
+      "allowNotes": true,
+      "buttonActions": {},
+      "statusValue": "Operativo",
+      "currentValue": "Operativo",
+      "requireNotesOnFailure": false,
+      "title": "Ascensor De Servicio"
+    },
+    {
+      "options": [
+        "Energia/EMP",
+        "Energia/Planta",
+        "Bloqueado"
+      ],
+      "requireNotesOnFailure": false,
+      "id": "chk-tpl-1789435170225-zr6y",
+      "category": "subestacion",
+      "currentValue": "Energia/EMP",
+      "area": "Planta De Emergencia S2",
+      "ampState": "Encendido",
+      "allowNotes": true,
+      "type": "ok_nok",
+      "buttonActions": {
+        "Bloqueado": {
+          "actionType": "failure",
+          "color": "auto"
+        }
+      },
+      "isAlarmActive": false,
+      "statusValue": "Energia/EMP",
+      "lastNonZeroValue": 0,
+      "title": "Transferencia De Energia",
+      "isCritical": false
+    },
+    {
+      "currentValue": 2,
+      "area": "Cocina/Silo",
+      "measurementFields": [
+        {
+          "unit": "°C",
+          "lastNonZeroValue": 2,
+          "id": "1",
+          "statusValue": "OK",
+          "buttonActions": {
+            "Encendido": {
+              "actionType": "turn_on",
+              "color": "emerald"
+            },
+            "Apagado": {
+              "color": "slate",
+              "actionType": "turn_off"
+            }
+          },
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "value": 2,
+          "includeButtons": true,
+          "name": "Nevera 1",
+          "ampState": "Encendido"
+        },
+        {
+          "statusValue": "OK",
+          "name": "Nevera 2",
+          "ampState": "Encendido",
+          "value": 5,
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "id": "1789470556027",
+          "lastNonZeroValue": 5,
+          "unit": "°C",
+          "buttonActions": {
+            "Apagado": {
+              "actionType": "turn_off",
+              "color": "slate"
+            },
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "turn_on"
+            }
+          },
+          "includeButtons": true
+        },
+        {
+          "value": 4,
+          "includeButtons": true,
+          "buttonActions": {
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "turn_on"
+            },
+            "Apagado": {
+              "color": "slate",
+              "actionType": "turn_off"
+            }
+          },
+          "unit": "°C",
+          "name": "Nevera 3",
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "statusValue": "OK",
+          "ampState": "Encendido",
+          "lastNonZeroValue": 4,
+          "id": "1789470602027"
+        },
+        {
+          "ampState": "Encendido",
+          "id": "1789470634919",
+          "name": "Base Chef",
+          "lastNonZeroValue": 36,
+          "statusValue": "OK",
+          "unit": "°F",
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "buttonActions": {
+            "Apagado": {
+              "color": "slate",
+              "actionType": "turn_off"
+            },
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "turn_on"
+            }
+          },
+          "includeButtons": true,
+          "value": 36
+        },
+        {
+          "name": "Nevera De Entrada",
+          "includeButtons": true,
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "statusValue": "OK",
+          "ampState": "Encendido",
+          "id": "1789470671546",
+          "value": -4,
+          "buttonActions": {
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "turn_on"
+            },
+            "Apagado": {
+              "actionType": "turn_off",
+              "color": "slate"
+            }
+          },
+          "lastNonZeroValue": -4,
+          "unit": "°F"
+        }
+      ],
+      "isAlarmActive": false,
+      "ampState": "Encendido",
+      "buttonActions": {},
+      "lastNonZeroValue": 0,
+      "isCritical": false,
+      "allowNotes": true,
+      "requireNotesOnFailure": false,
+      "category": "refrigeracion",
+      "title": "Neveras",
+      "id": "chk-tpl-1789470717933-t9gy",
+      "includeStatusButtons": false,
+      "type": "numeric",
+      "unit": "°C"
+    }
+  ],
+  "progress": 100,
+  "completedAt": "2026-10-30T10:30:00Z"
+},
+{
+  "id": "rnd-1091",
+  "status": "completada",
+  "compliancePercentage": 100,
+  "userEmail": "juanmateoramosramos44@gmail.com",
+  "anomaliesCount": 0,
+  "meterReadings": {
+    "waterCubicMeters": 1583.8,
+    "electricKwh": 42995,
+    "gasCubicMeters": 1050.2
+  },
+  "time": "08:00",
+  "lastUpdated": "2026-09-15T12:08:58.846Z",
+  "technicianName": "Técnico de Mantenimiento",
+  "userId": "usr-1789230683226",
+  "shift": "tarde",
+  "technicianSignature": "Juan Mateo/Técnico",
+  "date": "2026-10-31",
+  "anomalies": [],
+  "lastHeartbeat": "2026-09-15T12:08:36.712Z",
+  "generalNotes": "",
+  "checkpoints": [
+    {
+      "allowNotes": true,
+      "notes": "Estava Descongelando, Ya Está Prendida",
+      "id": "chk-tpl-1788985535314-nua3",
+      "requireNotesOnFailure": false,
+      "minValue": -25,
+      "ampState": "Encendido",
+      "category": "refrigeracion",
+      "lastNonZeroValue": 47,
+      "area": "Cocina S4",
+      "isCritical": false,
+      "maxValue": 50,
+      "includeStatusButtons": false,
+      "type": "numeric",
+      "currentValue": 47,
+      "unit": "°C",
+      "buttonActions": {},
+      "measurementFields": [
+        {
+          "minValue": -25,
+          "ampState": "Encendido",
+          "includeButtons": false,
+          "name": "Cava Congelación",
+          "value": 47,
+          "unit": "°C",
+          "maxValue": 50,
+          "lastNonZeroValue": 47,
+          "id": "1"
+        }
+      ],
+      "title": "Cava De Congelación",
+      "isAlarmActive": false
+    },
+    {
+      "includeStatusButtons": false,
+      "ampState": "Encendido",
+      "minValue": 0,
+      "isAlarmActive": false,
+      "maxValue": 50,
+      "requireNotesOnFailure": false,
+      "lastNonZeroValue": 0,
+      "buttonActions": {},
+      "measurementFields": [
+        {
+          "minValue": 0,
+          "ampState": "Encendido",
+          "value": 0,
+          "id": "1",
+          "unit": "°C",
+          "name": "Cava Refrigeracion",
+          "maxValue": 50,
+          "lastNonZeroValue": 25,
+          "includeButtons": false
+        }
+      ],
+      "type": "numeric",
+      "category": "refrigeracion",
+      "unit": "°C",
+      "title": "Cava De Refrigeración",
+      "area": "Cocina S4",
+      "allowNotes": true,
+      "isCritical": false,
+      "id": "chk-tpl-1788988056429-c66o",
+      "currentValue": 0
+    },
+    {
+      "unit": "°C",
+      "type": "numeric",
+      "minValue": 0,
+      "measurementFields": [
+        {
+          "minValue": 0,
+          "ampState": "Encendido",
+          "name": "Cava Refrigeracion",
+          "unit": "°C",
+          "id": "1",
+          "maxValue": 50,
+          "lastNonZeroValue": 2.7,
+          "includeButtons": false,
+          "value": 2.7
+        }
+      ],
+      "id": "chk-tpl-1788988080039-nkgi",
+      "ampState": "Encendido",
+      "buttonActions": {},
+      "maxValue": 50,
+      "includeStatusButtons": false,
+      "category": "refrigeracion",
+      "isAlarmActive": false,
+      "currentValue": 2.7,
+      "requireNotesOnFailure": false,
+      "lastNonZeroValue": 0,
+      "isCritical": false,
+      "area": "Cocina S4",
+      "title": "Cava De Refrigeración",
+      "allowNotes": true
+    },
+    {
+      "type": "ok_nok",
+      "ampState": "Apagado",
+      "title": "Extracción",
+      "allowNotes": true,
+      "isCritical": false,
+      "buttonActions": {},
+      "currentValue": "Apagado",
+      "category": "extraccion",
+      "id": "chk-tpl-1788989380312-s3ia",
+      "statusValue": "Apagado",
+      "isAlarmActive": false,
+      "options": [
+        "Encendido",
+        "Apagado",
+        "Alarmado"
+      ],
+      "requireNotesOnFailure": false,
+      "area": "Cocina S4",
+      "lastNonZeroValue": 0
+    },
+    {
+      "category": "hidraulico",
+      "area": "Planta RCI S3",
+      "allowNotes": true,
+      "isAlarmActive": false,
+      "isCritical": false,
+      "id": "chk-tpl-1789054060776-tynz",
+      "ampState": "Encendido",
+      "currentValue": 273,
+      "title": "Bomba Jockey",
+      "requireNotesOnFailure": false,
+      "unit": "PSI",
+      "type": "numeric",
+      "lastNonZeroValue": 273
+    },
+    {
+      "ampState": "Encendido",
+      "id": "chk-tpl-1789058977130-dsm2",
+      "measurementFields": [
+        {
+          "value": 27.66,
+          "unit": "VDC",
+          "id": "1",
+          "name": "Bateria 1",
+          "ampState": "Encendido",
+          "lastNonZeroValue": 27.66
+        },
+        {
+          "ampState": "Encendido",
+          "lastNonZeroValue": 27.66,
+          "unit": "VDC",
+          "id": "1789059243278",
+          "name": "Bateria 2",
+          "value": 27.66
+        }
+      ],
+      "title": "Baterias",
+      "currentValue": 27.66,
+      "area": "Planta RCI S3",
+      "requireNotesOnFailure": false,
+      "category": "bateria",
+      "lastNonZeroValue": 0,
+      "allowNotes": true,
+      "isCritical": false,
+      "isAlarmActive": false,
+      "unit": "VDC",
+      "type": "numeric",
+      "includeStatusButtons": false
+    },
+    {
+      "options": [
+        "Sin Alarma",
+        "Sensor Alarmado"
+      ],
+      "id": "chk-tpl-1789060493962-91iv",
+      "requireNotesOnFailure": false,
+      "area": "Planta RCI S3",
+      "lastNonZeroValue": 61,
+      "isAlarmActive": true,
+      "measurementFields": [
+        {
+          "maxValue": 100,
+          "lastNonZeroValue": 60,
+          "ampState": "Encendido",
+          "minValue": 61,
+          "unit": "%",
+          "id": "1",
+          "name": "Nivel Combustible",
+          "value": 60
+        }
+      ],
+      "alarmReason": "Botón de alarma activado: \"Sensor Alarmado\"",
+      "statusValue": "Sensor Alarmado",
+      "allowNotes": true,
+      "ampState": "Encendido",
+      "minValue": 61,
+      "includeStatusButtons": true,
+      "title": "Combustible",
+      "maxValue": 100,
+      "currentValue": 60,
+      "unit": "%",
+      "category": "combustible",
+      "type": "numeric",
+      "isCritical": false
+    },
+    {
+      "currentValue": 260,
+      "area": "Planta RCI S3",
+      "lastNonZeroValue": 250,
+      "includeStatusButtons": false,
+      "requireNotesOnFailure": false,
+      "maxValue": 300,
+      "title": "Manometros Principales",
+      "allowNotes": true,
+      "isAlarmActive": false,
+      "category": "manometro",
+      "ampState": "Encendido",
+      "minValue": 250,
+      "measurementFields": [
+        {
+          "lastNonZeroValue": 260,
+          "value": 260,
+          "unit": "PSI",
+          "ampState": "Encendido",
+          "id": "1",
+          "name": "Manometro 1",
+          "minValue": 250,
+          "maxValue": 300
+        },
+        {
+          "maxValue": 180,
+          "id": "1789066651541",
+          "unit": "PSI",
+          "lastNonZeroValue": 170,
+          "ampState": "Encendido",
+          "minValue": 160,
+          "name": "Manometro 2",
+          "value": 170
+        }
+      ],
+      "id": "chk-tpl-1789066766097-j1e5",
+      "isCritical": false,
+      "unit": "PSI",
+      "type": "numeric"
+    },
+    {
+      "buttonActions": {
+        "Encendido": {
+          "actionType": "turn_on",
+          "color": "emerald"
+        },
+        "Apagado": {
+          "color": "slate",
+          "actionType": "turn_off"
+        }
+      },
+      "statusValue": "Encendido",
+      "isAlarmActive": false,
+      "requireNotesOnFailure": false,
+      "includeStatusButtons": true,
+      "lastNonZeroValue": 12,
+      "measurementFields": [
+        {
+          "name": "BOM-1",
+          "lastNonZeroValue": 19,
+          "value": 19,
+          "ampState": "Encendido",
+          "minValue": 12,
+          "id": "1",
+          "includeButtons": false,
+          "maxValue": 20,
+          "unit": "A"
+        }
+      ],
+      "unit": "A",
+      "type": "numeric",
+      "title": "BOM-1-S3",
+      "currentValue": 19,
+      "id": "chk-tpl-1789071231392-wx5f",
+      "maxValue": 20,
+      "isCritical": false,
+      "category": "hidraulico",
+      "area": "Bombas De Impulción S3",
+      "options": [
+        "Encendido",
+        "Apagado"
+      ],
+      "minValue": 12,
+      "ampState": "Encendido",
+      "allowNotes": true
+    },
+    {
+      "measurementFields": [
+        {
+          "ampState": "Apagado",
+          "unit": "A",
+          "minValue": 12,
+          "id": "1",
+          "lastNonZeroValue": 16,
+          "maxValue": 20,
+          "value": 0,
+          "name": "BOM-2",
+          "includeButtons": false
+        }
+      ],
+      "title": "BOM-2-S3",
+      "lastNonZeroValue": 12,
+      "currentValue": 0,
+      "type": "numeric",
+      "unit": "A",
+      "statusValue": "Apagado",
+      "isAlarmActive": false,
+      "includeStatusButtons": true,
+      "buttonActions": {},
+      "area": "Bombas De Impulción S3",
+      "maxValue": 20,
+      "isCritical": false,
+      "options": [
+        "Encendido",
+        "Apagado"
+      ],
+      "category": "hidraulico",
+      "id": "chk-tpl-1789072528074-19rc",
+      "ampState": "Apagado",
+      "minValue": 12,
+      "allowNotes": true,
+      "requireNotesOnFailure": false
+    },
+    {
+      "requireNotesOnFailure": false,
+      "category": "bateria",
+      "buttonActions": {},
+      "lastNonZeroValue": 0,
+      "isAlarmActive": false,
+      "type": "numeric",
+      "includeStatusButtons": false,
+      "unit": "VDC",
+      "ampState": "Encendido",
+      "id": "chk-tpl-1789072918083-tj8j",
+      "title": "Batería",
+      "allowNotes": true,
+      "area": "Planta De Emergencia S2",
+      "isCritical": false,
+      "currentValue": 27.6,
+      "measurementFields": [
+        {
+          "value": 27.6,
+          "name": "Bateria-",
+          "ampState": "Encendido",
+          "lastNonZeroValue": 27.6,
+          "id": "1",
+          "includeButtons": false,
+          "unit": "VDC"
+        }
+      ]
+    },
+    {
+      "id": "chk-tpl-1789082124733-70s2",
+      "lastNonZeroValue": 0,
+      "isCritical": false,
+      "unit": "%",
+      "type": "numeric",
+      "allowNotes": true,
+      "includeStatusButtons": false,
+      "isAlarmActive": false,
+      "currentValue": 62,
+      "category": "combustible",
+      "area": "Planta De Emergencia S2",
+      "measurementFields": [
+        {
+          "ampState": "Encendido",
+          "unit": "%",
+          "value": 62,
+          "id": "1",
+          "lastNonZeroValue": 62,
+          "name": "Combustible"
+        }
+      ],
+      "requireNotesOnFailure": false,
+      "ampState": "Encendido",
+      "title": "Combustible"
+    },
+    {
+      "measurementFields": [
+        {
+          "unit": "°C",
+          "lastNonZeroValue": 47,
+          "id": "1",
+          "ampState": "Encendido",
+          "value": 47,
+          "name": "Temperatura"
+        }
+      ],
+      "id": "chk-tpl-1789082328250-puzo",
+      "buttonActions": {},
+      "allowNotes": true,
+      "unit": "°C",
+      "type": "numeric",
+      "category": "temperatura",
+      "isAlarmActive": false,
+      "includeStatusButtons": false,
+      "currentValue": 47,
+      "requireNotesOnFailure": false,
+      "ampState": "Encendido",
+      "isCritical": false,
+      "lastNonZeroValue": 0,
+      "title": "Temperatura",
+      "area": "Planta De Emergencia S2"
+    },
+    {
+      "unit": "m³",
+      "type": "numeric",
+      "ampState": "Encendido",
+      "currentValue": 9.5,
+      "buttonActions": {},
+      "category": "tanque",
+      "isAlarmActive": false,
+      "id": "chk-tpl-1789181196563-joap",
+      "allowNotes": true,
+      "requireNotesOnFailure": false,
+      "includeStatusButtons": false,
+      "isCritical": false,
+      "title": "Tanques",
+      "area": "Terraza Piso 18",
+      "measurementFields": [
+        {
+          "includeButtons": false,
+          "unit": "m³",
+          "id": "1",
+          "lastNonZeroValue": 9.5,
+          "ampState": "Encendido",
+          "value": 9.5,
+          "name": "Tanques Hotel"
+        },
+        {
+          "ampState": "Encendido",
+          "name": "Tanques Apto",
+          "value": 2,
+          "unit": "m³",
+          "lastNonZeroValue": 2,
+          "includeButtons": false,
+          "id": "1789181031815"
+        }
+      ],
+      "lastNonZeroValue": 0
+    },
+    {
+      "ampState": "Encendido",
+      "allowNotes": true,
+      "isCritical": false,
+      "area": "Planta De Emergencia S2",
+      "title": "Condensadores",
+      "currentValue": 0.996,
+      "lastNonZeroValue": 0,
+      "category": "condensador",
+      "type": "numeric",
+      "unit": "FP",
+      "measurementFields": [
+        {
+          "value": 0.996,
+          "name": "Condensadores",
+          "includeButtons": false,
+          "ampState": "Encendido",
+          "lastNonZeroValue": 0.996,
+          "id": "1",
+          "unit": "FP"
+        }
+      ],
+      "isAlarmActive": false,
+      "buttonActions": {},
+      "id": "chk-tpl-1789181948808-tk08",
+      "requireNotesOnFailure": false,
+      "includeStatusButtons": false
+    },
+    {
+      "isAlarmActive": false,
+      "measurementFields": [
+        {
+          "maxValue": 60,
+          "buttonActions": {
+            "Apagado": {
+              "color": "slate",
+              "actionType": "default"
+            },
+            "Encendido": {
+              "actionType": "default",
+              "color": "emerald"
+            }
+          },
+          "lastNonZeroValue": 54,
+          "id": "1",
+          "name": "Precion",
+          "unit": "PSI",
+          "options": [
+            "Encendido",
+            "Apagado",
+            "Alarmado"
+          ],
+          "statusValue": "Encendido",
+          "ampState": "Encendido",
+          "minValue": 42,
+          "includeButtons": true,
+          "value": 54
+        }
+      ],
+      "minValue": 42,
+      "buttonActions": {},
+      "requireNotesOnFailure": false,
+      "isCritical": false,
+      "ampState": "Encendido",
+      "area": "Terraza Piso 18",
+      "allowNotes": true,
+      "currentValue": 54,
+      "category": "hidraulico",
+      "id": "chk-tpl-1789183131928-5ogv",
+      "maxValue": 60,
+      "type": "numeric",
+      "unit": "PSI",
+      "lastNonZeroValue": 42,
+      "includeStatusButtons": false,
+      "title": "Bombas De Presión"
+    },
+    {
+      "ampState": "Encendido",
+      "measurementFields": [
+        {
+          "value": 36.8,
+          "ampState": "Encendido",
+          "unit": "°C",
+          "name": "Temperatura/Sauna",
+          "buttonActions": {
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "default"
+            },
+            "Apagado": {
+              "actionType": "default",
+              "color": "slate"
+            }
+          },
+          "options": [
+            "Encendido",
+            "Apagado"
+          ],
+          "statusValue": "Encendido",
+          "lastNonZeroValue": 36.8,
+          "id": "1",
+          "includeButtons": true
+        },
+        {
+          "id": "1789184871874",
+          "lastNonZeroValue": 11.5,
+          "name": "Cold Plungue",
+          "includeButtons": true,
+          "unit": "°C",
+          "statusValue": "Encendido",
+          "buttonActions": {
+            "Apagado": {
+              "color": "slate",
+              "actionType": "default"
+            },
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "default"
+            }
+          },
+          "ampState": "Encendido",
+          "options": [
+            "Encendido",
+            "Apagado"
+          ],
+          "value": 11.5
+        }
+      ],
+      "area": "Zona Húmeda/Piso 6",
+      "category": "sauna_cold_plunge",
+      "requireNotesOnFailure": false,
+      "title": "Sauna/Cold Plungue",
+      "lastNonZeroValue": 0,
+      "isCritical": false,
+      "unit": "°C",
+      "type": "numeric",
+      "id": "chk-tpl-1789184914843-8qeh",
+      "currentValue": 36.8,
+      "allowNotes": true,
+      "buttonActions": {},
+      "includeStatusButtons": false,
+      "isAlarmActive": false
+    },
+    {
+      "type": "ok_nok",
+      "ampState": "Encendido",
+      "isCritical": false,
+      "suggestedNotes": [
+        "Musica Ascensores Ok",
+        "Musica Gym Ok",
+        "Televisor Gym Ok",
+        "Musica Piscina Ok",
+        "Musica Silo Ok",
+        "Musica Sastra Ok",
+        "Musica Sauna Ok"
+      ],
+      "buttonActions": {},
+      "title": "Musica",
+      "allowNotes": true,
+      "isAlarmActive": false,
+      "category": "musica",
+      "id": "chk-tpl-1789186187266-j679",
+      "requireNotesOnFailure": false,
+      "options": [
+        "Todo Ok",
+        "NO OK"
+      ],
+      "statusValue": "Todo Ok",
+      "currentValue": "Todo Ok",
+      "lastNonZeroValue": 0,
+      "area": "Zona Húmeda/Piso 6"
+    },
+    {
+      "measurementFields": [
+        {
+          "name": "Botellero Ventanal",
+          "value": -5,
+          "lastNonZeroValue": -5,
+          "buttonActions": {
+            "Encendido": {
+              "actionType": "turn_on",
+              "color": "emerald"
+            },
+            "Apagado": {
+              "actionType": "turn_off",
+              "color": "slate"
+            }
+          },
+          "includeButtons": true,
+          "statusValue": "OK",
+          "ampState": "Encendido",
+          "id": "1",
+          "unit": "°C",
+          "options": [
+            "OK",
+            "NO OK"
+          ]
+        },
+        {
+          "unit": "°C",
+          "statusValue": "OK",
+          "id": "1789227261860",
+          "ampState": "Encendido",
+          "includeButtons": true,
+          "lastNonZeroValue": -17,
+          "value": -17,
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "buttonActions": {
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "turn_on"
+            },
+            "Apagado": {
+              "color": "slate",
+              "actionType": "turn_off"
+            }
+          },
+          "name": "Nevera Cafetera"
+        },
+        {
+          "includeButtons": true,
+          "name": "Botellero Entrada Derecha",
+          "statusValue": "OK",
+          "lastNonZeroValue": 42,
+          "buttonActions": {
+            "Apagado": {
+              "actionType": "turn_off",
+              "color": "slate"
+            },
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "turn_on"
+            }
+          },
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "ampState": "Encendido",
+          "id": "1789227309459",
+          "value": 42,
+          "unit": "°F"
+        },
+        {
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "id": "1789227538808",
+          "statusValue": "OK",
+          "includeButtons": true,
+          "name": "Botellero Entrada Izquierda",
+          "unit": "°F",
+          "lastNonZeroValue": 34,
+          "buttonActions": {
+            "Apagado": {
+              "actionType": "turn_off",
+              "color": "slate"
+            },
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "turn_on"
+            }
+          },
+          "ampState": "Encendido",
+          "value": 34
+        }
+      ],
+      "requireNotesOnFailure": false,
+      "area": "Bar/ Piso 6",
+      "currentValue": -5,
+      "includeStatusButtons": false,
+      "category": "refrigeracion",
+      "isCritical": false,
+      "id": "chk-tpl-1789227609185-rbqi",
+      "type": "numeric",
+      "unit": "°C",
+      "isAlarmActive": false,
+      "allowNotes": true,
+      "buttonActions": {},
+      "lastNonZeroValue": 0,
+      "title": "Equipos Del Bar",
+      "ampState": "Encendido"
+    },
+    {
+      "category": "caldera",
+      "isAlarmActive": false,
+      "measurementFields": [
+        {
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "lastNonZeroValue": 50.8,
+          "unit": "°C",
+          "buttonActions": {
+            "Apagado": {
+              "actionType": "turn_off",
+              "color": "slate"
+            },
+            "Encendido": {
+              "actionType": "turn_on",
+              "color": "emerald"
+            }
+          },
+          "includeButtons": true,
+          "ampState": "Encendido",
+          "value": 50.8,
+          "name": "Bombas/Presurisacion",
+          "id": "1",
+          "statusValue": "OK"
+        },
+        {
+          "lastNonZeroValue": 47.9,
+          "id": "1789240544706",
+          "ampState": "Encendido",
+          "unit": "°C",
+          "statusValue": "OK",
+          "includeButtons": true,
+          "value": 47.9,
+          "name": "Bomba/Resirculacion",
+          "buttonActions": {
+            "Apagado": {
+              "color": "slate",
+              "actionType": "turn_off"
+            },
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "turn_on"
+            }
+          },
+          "options": [
+            "OK",
+            "NO OK"
+          ]
+        },
+        {
+          "unit": "PSI",
+          "ampState": "Encendido",
+          "lastNonZeroValue": 50,
+          "includeButtons": false,
+          "id": "1789240600468",
+          "name": "Manometros De Bombas",
+          "value": 50
+        },
+        {
+          "unit": "PSI",
+          "value": 50,
+          "id": "1789240637614",
+          "name": "Manometros Tanques",
+          "lastNonZeroValue": 50,
+          "ampState": "Encendido",
+          "includeButtons": false
+        }
+      ],
+      "buttonActions": {},
+      "requireNotesOnFailure": false,
+      "type": "numeric",
+      "unit": "°C",
+      "id": "chk-tpl-1789240659096-ji6y",
+      "ampState": "Encendido",
+      "area": "Cuarto De Bombas",
+      "isCritical": false,
+      "title": "Sistema De Agua Caliente",
+      "currentValue": 50.8,
+      "lastNonZeroValue": 0,
+      "includeStatusButtons": false,
+      "allowNotes": true
+    },
+    {
+      "allowNotes": true,
+      "statusValue": "Operativo",
+      "requireNotesOnFailure": false,
+      "title": "Ascensor Apto",
+      "type": "ok_nok",
+      "isCritical": false,
+      "id": "chk-tpl-1789423733318-xfh6",
+      "isAlarmActive": false,
+      "category": "extraccion",
+      "buttonActions": {},
+      "area": "Ascensores",
+      "ampState": "Encendido",
+      "lastNonZeroValue": 0,
+      "currentValue": "Operativo",
+      "options": [
+        "Operativo",
+        "Bloqueado"
+      ]
+    },
+    {
+      "options": [
+        "Nivel Bajo",
+        "Nivel Medio",
+        "Nivel Alto"
+      ],
+      "statusValue": "Nivel Alto",
+      "currentValue": "Nivel Alto",
+      "type": "ok_nok",
+      "lastNonZeroValue": 0,
+      "isCritical": false,
+      "category": "extraccion",
+      "requireNotesOnFailure": false,
+      "id": "chk-tpl-1789428026446-qnuc",
+      "title": "Tanques De Agua Potable",
+      "allowNotes": true,
+      "ampState": "Encendido",
+      "buttonActions": {
+        "Nivel Bajo": {
+          "color": "auto",
+          "actionType": "failure"
+        }
+      },
+      "isAlarmActive": false,
+      "area": "Bombas De Impulción S3"
+    },
+    {
+      "title": "Ascensor Hotel",
+      "type": "ok_nok",
+      "allowNotes": true,
+      "requireNotesOnFailure": false,
+      "statusValue": "Operativo",
+      "isCritical": false,
+      "id": "chk-tpl-1789428185062-g11h",
+      "options": [
+        "Operativo",
+        "Bloqueado"
+      ],
+      "isAlarmActive": false,
+      "ampState": "Encendido",
+      "currentValue": "Operativo",
+      "buttonActions": {},
+      "lastNonZeroValue": 0,
+      "area": "Ascensores",
+      "category": "extraccion"
+    },
+    {
+      "id": "chk-tpl-1789428511011-x67z",
+      "options": [
+        "Operativo",
+        "Bloqueado"
+      ],
+      "ampState": "Encendido",
+      "type": "ok_nok",
+      "category": "extraccion",
+      "area": "Ascensores",
+      "isCritical": false,
+      "lastNonZeroValue": 0,
+      "isAlarmActive": false,
+      "allowNotes": true,
+      "buttonActions": {},
+      "statusValue": "Operativo",
+      "currentValue": "Operativo",
+      "requireNotesOnFailure": false,
+      "title": "Ascensor De Servicio"
+    },
+    {
+      "options": [
+        "Energia/EMP",
+        "Energia/Planta",
+        "Bloqueado"
+      ],
+      "requireNotesOnFailure": false,
+      "id": "chk-tpl-1789435170225-zr6y",
+      "category": "subestacion",
+      "currentValue": "Energia/EMP",
+      "area": "Planta De Emergencia S2",
+      "ampState": "Encendido",
+      "allowNotes": true,
+      "type": "ok_nok",
+      "buttonActions": {
+        "Bloqueado": {
+          "actionType": "failure",
+          "color": "auto"
+        }
+      },
+      "isAlarmActive": false,
+      "statusValue": "Energia/EMP",
+      "lastNonZeroValue": 0,
+      "title": "Transferencia De Energia",
+      "isCritical": false
+    },
+    {
+      "currentValue": 2,
+      "area": "Cocina/Silo",
+      "measurementFields": [
+        {
+          "unit": "°C",
+          "lastNonZeroValue": 2,
+          "id": "1",
+          "statusValue": "OK",
+          "buttonActions": {
+            "Encendido": {
+              "actionType": "turn_on",
+              "color": "emerald"
+            },
+            "Apagado": {
+              "color": "slate",
+              "actionType": "turn_off"
+            }
+          },
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "value": 2,
+          "includeButtons": true,
+          "name": "Nevera 1",
+          "ampState": "Encendido"
+        },
+        {
+          "statusValue": "OK",
+          "name": "Nevera 2",
+          "ampState": "Encendido",
+          "value": 5,
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "id": "1789470556027",
+          "lastNonZeroValue": 5,
+          "unit": "°C",
+          "buttonActions": {
+            "Apagado": {
+              "actionType": "turn_off",
+              "color": "slate"
+            },
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "turn_on"
+            }
+          },
+          "includeButtons": true
+        },
+        {
+          "value": 4,
+          "includeButtons": true,
+          "buttonActions": {
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "turn_on"
+            },
+            "Apagado": {
+              "color": "slate",
+              "actionType": "turn_off"
+            }
+          },
+          "unit": "°C",
+          "name": "Nevera 3",
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "statusValue": "OK",
+          "ampState": "Encendido",
+          "lastNonZeroValue": 4,
+          "id": "1789470602027"
+        },
+        {
+          "ampState": "Encendido",
+          "id": "1789470634919",
+          "name": "Base Chef",
+          "lastNonZeroValue": 36,
+          "statusValue": "OK",
+          "unit": "°F",
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "buttonActions": {
+            "Apagado": {
+              "color": "slate",
+              "actionType": "turn_off"
+            },
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "turn_on"
+            }
+          },
+          "includeButtons": true,
+          "value": 36
+        },
+        {
+          "name": "Nevera De Entrada",
+          "includeButtons": true,
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "statusValue": "OK",
+          "ampState": "Encendido",
+          "id": "1789470671546",
+          "value": -4,
+          "buttonActions": {
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "turn_on"
+            },
+            "Apagado": {
+              "actionType": "turn_off",
+              "color": "slate"
+            }
+          },
+          "lastNonZeroValue": -4,
+          "unit": "°F"
+        }
+      ],
+      "isAlarmActive": false,
+      "ampState": "Encendido",
+      "buttonActions": {},
+      "lastNonZeroValue": 0,
+      "isCritical": false,
+      "allowNotes": true,
+      "requireNotesOnFailure": false,
+      "category": "refrigeracion",
+      "title": "Neveras",
+      "id": "chk-tpl-1789470717933-t9gy",
+      "includeStatusButtons": false,
+      "type": "numeric",
+      "unit": "°C"
+    }
+  ],
+  "progress": 100,
+  "completedAt": "2026-10-31T10:30:00Z"
+},
+{
+  "id": "rnd-1092",
+  "status": "completada",
+  "compliancePercentage": 100,
+  "userEmail": "juanmateoramosramos44@gmail.com",
+  "anomaliesCount": 0,
+  "meterReadings": {
+    "waterCubicMeters": 1585.6,
+    "electricKwh": 43040,
+    "gasCubicMeters": 1052.4
+  },
+  "time": "08:00",
+  "lastUpdated": "2026-09-15T12:08:58.846Z",
+  "technicianName": "Técnico de Mantenimiento",
+  "userId": "usr-1789230683226",
+  "shift": "manana",
+  "technicianSignature": "Juan Mateo/Técnico",
+  "date": "2026-11-01",
+  "anomalies": [],
+  "lastHeartbeat": "2026-09-15T12:08:36.712Z",
+  "generalNotes": "",
+  "checkpoints": [
+    {
+      "allowNotes": true,
+      "notes": "Estava Descongelando, Ya Está Prendida",
+      "id": "chk-tpl-1788985535314-nua3",
+      "requireNotesOnFailure": false,
+      "minValue": -25,
+      "ampState": "Encendido",
+      "category": "refrigeracion",
+      "lastNonZeroValue": 47,
+      "area": "Cocina S4",
+      "isCritical": false,
+      "maxValue": 50,
+      "includeStatusButtons": false,
+      "type": "numeric",
+      "currentValue": 47,
+      "unit": "°C",
+      "buttonActions": {},
+      "measurementFields": [
+        {
+          "minValue": -25,
+          "ampState": "Encendido",
+          "includeButtons": false,
+          "name": "Cava Congelación",
+          "value": 47,
+          "unit": "°C",
+          "maxValue": 50,
+          "lastNonZeroValue": 47,
+          "id": "1"
+        }
+      ],
+      "title": "Cava De Congelación",
+      "isAlarmActive": false
+    },
+    {
+      "includeStatusButtons": false,
+      "ampState": "Encendido",
+      "minValue": 0,
+      "isAlarmActive": false,
+      "maxValue": 50,
+      "requireNotesOnFailure": false,
+      "lastNonZeroValue": 0,
+      "buttonActions": {},
+      "measurementFields": [
+        {
+          "minValue": 0,
+          "ampState": "Encendido",
+          "value": 0,
+          "id": "1",
+          "unit": "°C",
+          "name": "Cava Refrigeracion",
+          "maxValue": 50,
+          "lastNonZeroValue": 25,
+          "includeButtons": false
+        }
+      ],
+      "type": "numeric",
+      "category": "refrigeracion",
+      "unit": "°C",
+      "title": "Cava De Refrigeración",
+      "area": "Cocina S4",
+      "allowNotes": true,
+      "isCritical": false,
+      "id": "chk-tpl-1788988056429-c66o",
+      "currentValue": 0
+    },
+    {
+      "unit": "°C",
+      "type": "numeric",
+      "minValue": 0,
+      "measurementFields": [
+        {
+          "minValue": 0,
+          "ampState": "Encendido",
+          "name": "Cava Refrigeracion",
+          "unit": "°C",
+          "id": "1",
+          "maxValue": 50,
+          "lastNonZeroValue": 2.7,
+          "includeButtons": false,
+          "value": 2.7
+        }
+      ],
+      "id": "chk-tpl-1788988080039-nkgi",
+      "ampState": "Encendido",
+      "buttonActions": {},
+      "maxValue": 50,
+      "includeStatusButtons": false,
+      "category": "refrigeracion",
+      "isAlarmActive": false,
+      "currentValue": 2.7,
+      "requireNotesOnFailure": false,
+      "lastNonZeroValue": 0,
+      "isCritical": false,
+      "area": "Cocina S4",
+      "title": "Cava De Refrigeración",
+      "allowNotes": true
+    },
+    {
+      "type": "ok_nok",
+      "ampState": "Apagado",
+      "title": "Extracción",
+      "allowNotes": true,
+      "isCritical": false,
+      "buttonActions": {},
+      "currentValue": "Apagado",
+      "category": "extraccion",
+      "id": "chk-tpl-1788989380312-s3ia",
+      "statusValue": "Apagado",
+      "isAlarmActive": false,
+      "options": [
+        "Encendido",
+        "Apagado",
+        "Alarmado"
+      ],
+      "requireNotesOnFailure": false,
+      "area": "Cocina S4",
+      "lastNonZeroValue": 0
+    },
+    {
+      "category": "hidraulico",
+      "area": "Planta RCI S3",
+      "allowNotes": true,
+      "isAlarmActive": false,
+      "isCritical": false,
+      "id": "chk-tpl-1789054060776-tynz",
+      "ampState": "Encendido",
+      "currentValue": 273,
+      "title": "Bomba Jockey",
+      "requireNotesOnFailure": false,
+      "unit": "PSI",
+      "type": "numeric",
+      "lastNonZeroValue": 273
+    },
+    {
+      "ampState": "Encendido",
+      "id": "chk-tpl-1789058977130-dsm2",
+      "measurementFields": [
+        {
+          "value": 27.66,
+          "unit": "VDC",
+          "id": "1",
+          "name": "Bateria 1",
+          "ampState": "Encendido",
+          "lastNonZeroValue": 27.66
+        },
+        {
+          "ampState": "Encendido",
+          "lastNonZeroValue": 27.66,
+          "unit": "VDC",
+          "id": "1789059243278",
+          "name": "Bateria 2",
+          "value": 27.66
+        }
+      ],
+      "title": "Baterias",
+      "currentValue": 27.66,
+      "area": "Planta RCI S3",
+      "requireNotesOnFailure": false,
+      "category": "bateria",
+      "lastNonZeroValue": 0,
+      "allowNotes": true,
+      "isCritical": false,
+      "isAlarmActive": false,
+      "unit": "VDC",
+      "type": "numeric",
+      "includeStatusButtons": false
+    },
+    {
+      "options": [
+        "Sin Alarma",
+        "Sensor Alarmado"
+      ],
+      "id": "chk-tpl-1789060493962-91iv",
+      "requireNotesOnFailure": false,
+      "area": "Planta RCI S3",
+      "lastNonZeroValue": 61,
+      "isAlarmActive": true,
+      "measurementFields": [
+        {
+          "maxValue": 100,
+          "lastNonZeroValue": 60,
+          "ampState": "Encendido",
+          "minValue": 61,
+          "unit": "%",
+          "id": "1",
+          "name": "Nivel Combustible",
+          "value": 60
+        }
+      ],
+      "alarmReason": "Botón de alarma activado: \"Sensor Alarmado\"",
+      "statusValue": "Sensor Alarmado",
+      "allowNotes": true,
+      "ampState": "Encendido",
+      "minValue": 61,
+      "includeStatusButtons": true,
+      "title": "Combustible",
+      "maxValue": 100,
+      "currentValue": 60,
+      "unit": "%",
+      "category": "combustible",
+      "type": "numeric",
+      "isCritical": false
+    },
+    {
+      "currentValue": 260,
+      "area": "Planta RCI S3",
+      "lastNonZeroValue": 250,
+      "includeStatusButtons": false,
+      "requireNotesOnFailure": false,
+      "maxValue": 300,
+      "title": "Manometros Principales",
+      "allowNotes": true,
+      "isAlarmActive": false,
+      "category": "manometro",
+      "ampState": "Encendido",
+      "minValue": 250,
+      "measurementFields": [
+        {
+          "lastNonZeroValue": 260,
+          "value": 260,
+          "unit": "PSI",
+          "ampState": "Encendido",
+          "id": "1",
+          "name": "Manometro 1",
+          "minValue": 250,
+          "maxValue": 300
+        },
+        {
+          "maxValue": 180,
+          "id": "1789066651541",
+          "unit": "PSI",
+          "lastNonZeroValue": 170,
+          "ampState": "Encendido",
+          "minValue": 160,
+          "name": "Manometro 2",
+          "value": 170
+        }
+      ],
+      "id": "chk-tpl-1789066766097-j1e5",
+      "isCritical": false,
+      "unit": "PSI",
+      "type": "numeric"
+    },
+    {
+      "buttonActions": {
+        "Encendido": {
+          "actionType": "turn_on",
+          "color": "emerald"
+        },
+        "Apagado": {
+          "color": "slate",
+          "actionType": "turn_off"
+        }
+      },
+      "statusValue": "Encendido",
+      "isAlarmActive": false,
+      "requireNotesOnFailure": false,
+      "includeStatusButtons": true,
+      "lastNonZeroValue": 12,
+      "measurementFields": [
+        {
+          "name": "BOM-1",
+          "lastNonZeroValue": 19,
+          "value": 19,
+          "ampState": "Encendido",
+          "minValue": 12,
+          "id": "1",
+          "includeButtons": false,
+          "maxValue": 20,
+          "unit": "A"
+        }
+      ],
+      "unit": "A",
+      "type": "numeric",
+      "title": "BOM-1-S3",
+      "currentValue": 19,
+      "id": "chk-tpl-1789071231392-wx5f",
+      "maxValue": 20,
+      "isCritical": false,
+      "category": "hidraulico",
+      "area": "Bombas De Impulción S3",
+      "options": [
+        "Encendido",
+        "Apagado"
+      ],
+      "minValue": 12,
+      "ampState": "Encendido",
+      "allowNotes": true
+    },
+    {
+      "measurementFields": [
+        {
+          "ampState": "Apagado",
+          "unit": "A",
+          "minValue": 12,
+          "id": "1",
+          "lastNonZeroValue": 16,
+          "maxValue": 20,
+          "value": 0,
+          "name": "BOM-2",
+          "includeButtons": false
+        }
+      ],
+      "title": "BOM-2-S3",
+      "lastNonZeroValue": 12,
+      "currentValue": 0,
+      "type": "numeric",
+      "unit": "A",
+      "statusValue": "Apagado",
+      "isAlarmActive": false,
+      "includeStatusButtons": true,
+      "buttonActions": {},
+      "area": "Bombas De Impulción S3",
+      "maxValue": 20,
+      "isCritical": false,
+      "options": [
+        "Encendido",
+        "Apagado"
+      ],
+      "category": "hidraulico",
+      "id": "chk-tpl-1789072528074-19rc",
+      "ampState": "Apagado",
+      "minValue": 12,
+      "allowNotes": true,
+      "requireNotesOnFailure": false
+    },
+    {
+      "requireNotesOnFailure": false,
+      "category": "bateria",
+      "buttonActions": {},
+      "lastNonZeroValue": 0,
+      "isAlarmActive": false,
+      "type": "numeric",
+      "includeStatusButtons": false,
+      "unit": "VDC",
+      "ampState": "Encendido",
+      "id": "chk-tpl-1789072918083-tj8j",
+      "title": "Batería",
+      "allowNotes": true,
+      "area": "Planta De Emergencia S2",
+      "isCritical": false,
+      "currentValue": 27.6,
+      "measurementFields": [
+        {
+          "value": 27.6,
+          "name": "Bateria-",
+          "ampState": "Encendido",
+          "lastNonZeroValue": 27.6,
+          "id": "1",
+          "includeButtons": false,
+          "unit": "VDC"
+        }
+      ]
+    },
+    {
+      "id": "chk-tpl-1789082124733-70s2",
+      "lastNonZeroValue": 0,
+      "isCritical": false,
+      "unit": "%",
+      "type": "numeric",
+      "allowNotes": true,
+      "includeStatusButtons": false,
+      "isAlarmActive": false,
+      "currentValue": 62,
+      "category": "combustible",
+      "area": "Planta De Emergencia S2",
+      "measurementFields": [
+        {
+          "ampState": "Encendido",
+          "unit": "%",
+          "value": 62,
+          "id": "1",
+          "lastNonZeroValue": 62,
+          "name": "Combustible"
+        }
+      ],
+      "requireNotesOnFailure": false,
+      "ampState": "Encendido",
+      "title": "Combustible"
+    },
+    {
+      "measurementFields": [
+        {
+          "unit": "°C",
+          "lastNonZeroValue": 47,
+          "id": "1",
+          "ampState": "Encendido",
+          "value": 47,
+          "name": "Temperatura"
+        }
+      ],
+      "id": "chk-tpl-1789082328250-puzo",
+      "buttonActions": {},
+      "allowNotes": true,
+      "unit": "°C",
+      "type": "numeric",
+      "category": "temperatura",
+      "isAlarmActive": false,
+      "includeStatusButtons": false,
+      "currentValue": 47,
+      "requireNotesOnFailure": false,
+      "ampState": "Encendido",
+      "isCritical": false,
+      "lastNonZeroValue": 0,
+      "title": "Temperatura",
+      "area": "Planta De Emergencia S2"
+    },
+    {
+      "unit": "m³",
+      "type": "numeric",
+      "ampState": "Encendido",
+      "currentValue": 9.5,
+      "buttonActions": {},
+      "category": "tanque",
+      "isAlarmActive": false,
+      "id": "chk-tpl-1789181196563-joap",
+      "allowNotes": true,
+      "requireNotesOnFailure": false,
+      "includeStatusButtons": false,
+      "isCritical": false,
+      "title": "Tanques",
+      "area": "Terraza Piso 18",
+      "measurementFields": [
+        {
+          "includeButtons": false,
+          "unit": "m³",
+          "id": "1",
+          "lastNonZeroValue": 9.5,
+          "ampState": "Encendido",
+          "value": 9.5,
+          "name": "Tanques Hotel"
+        },
+        {
+          "ampState": "Encendido",
+          "name": "Tanques Apto",
+          "value": 2,
+          "unit": "m³",
+          "lastNonZeroValue": 2,
+          "includeButtons": false,
+          "id": "1789181031815"
+        }
+      ],
+      "lastNonZeroValue": 0
+    },
+    {
+      "ampState": "Encendido",
+      "allowNotes": true,
+      "isCritical": false,
+      "area": "Planta De Emergencia S2",
+      "title": "Condensadores",
+      "currentValue": 0.996,
+      "lastNonZeroValue": 0,
+      "category": "condensador",
+      "type": "numeric",
+      "unit": "FP",
+      "measurementFields": [
+        {
+          "value": 0.996,
+          "name": "Condensadores",
+          "includeButtons": false,
+          "ampState": "Encendido",
+          "lastNonZeroValue": 0.996,
+          "id": "1",
+          "unit": "FP"
+        }
+      ],
+      "isAlarmActive": false,
+      "buttonActions": {},
+      "id": "chk-tpl-1789181948808-tk08",
+      "requireNotesOnFailure": false,
+      "includeStatusButtons": false
+    },
+    {
+      "isAlarmActive": false,
+      "measurementFields": [
+        {
+          "maxValue": 60,
+          "buttonActions": {
+            "Apagado": {
+              "color": "slate",
+              "actionType": "default"
+            },
+            "Encendido": {
+              "actionType": "default",
+              "color": "emerald"
+            }
+          },
+          "lastNonZeroValue": 54,
+          "id": "1",
+          "name": "Precion",
+          "unit": "PSI",
+          "options": [
+            "Encendido",
+            "Apagado",
+            "Alarmado"
+          ],
+          "statusValue": "Encendido",
+          "ampState": "Encendido",
+          "minValue": 42,
+          "includeButtons": true,
+          "value": 54
+        }
+      ],
+      "minValue": 42,
+      "buttonActions": {},
+      "requireNotesOnFailure": false,
+      "isCritical": false,
+      "ampState": "Encendido",
+      "area": "Terraza Piso 18",
+      "allowNotes": true,
+      "currentValue": 54,
+      "category": "hidraulico",
+      "id": "chk-tpl-1789183131928-5ogv",
+      "maxValue": 60,
+      "type": "numeric",
+      "unit": "PSI",
+      "lastNonZeroValue": 42,
+      "includeStatusButtons": false,
+      "title": "Bombas De Presión"
+    },
+    {
+      "ampState": "Encendido",
+      "measurementFields": [
+        {
+          "value": 36.8,
+          "ampState": "Encendido",
+          "unit": "°C",
+          "name": "Temperatura/Sauna",
+          "buttonActions": {
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "default"
+            },
+            "Apagado": {
+              "actionType": "default",
+              "color": "slate"
+            }
+          },
+          "options": [
+            "Encendido",
+            "Apagado"
+          ],
+          "statusValue": "Encendido",
+          "lastNonZeroValue": 36.8,
+          "id": "1",
+          "includeButtons": true
+        },
+        {
+          "id": "1789184871874",
+          "lastNonZeroValue": 11.5,
+          "name": "Cold Plungue",
+          "includeButtons": true,
+          "unit": "°C",
+          "statusValue": "Encendido",
+          "buttonActions": {
+            "Apagado": {
+              "color": "slate",
+              "actionType": "default"
+            },
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "default"
+            }
+          },
+          "ampState": "Encendido",
+          "options": [
+            "Encendido",
+            "Apagado"
+          ],
+          "value": 11.5
+        }
+      ],
+      "area": "Zona Húmeda/Piso 6",
+      "category": "sauna_cold_plunge",
+      "requireNotesOnFailure": false,
+      "title": "Sauna/Cold Plungue",
+      "lastNonZeroValue": 0,
+      "isCritical": false,
+      "unit": "°C",
+      "type": "numeric",
+      "id": "chk-tpl-1789184914843-8qeh",
+      "currentValue": 36.8,
+      "allowNotes": true,
+      "buttonActions": {},
+      "includeStatusButtons": false,
+      "isAlarmActive": false
+    },
+    {
+      "type": "ok_nok",
+      "ampState": "Encendido",
+      "isCritical": false,
+      "suggestedNotes": [
+        "Musica Ascensores Ok",
+        "Musica Gym Ok",
+        "Televisor Gym Ok",
+        "Musica Piscina Ok",
+        "Musica Silo Ok",
+        "Musica Sastra Ok",
+        "Musica Sauna Ok"
+      ],
+      "buttonActions": {},
+      "title": "Musica",
+      "allowNotes": true,
+      "isAlarmActive": false,
+      "category": "musica",
+      "id": "chk-tpl-1789186187266-j679",
+      "requireNotesOnFailure": false,
+      "options": [
+        "Todo Ok",
+        "NO OK"
+      ],
+      "statusValue": "Todo Ok",
+      "currentValue": "Todo Ok",
+      "lastNonZeroValue": 0,
+      "area": "Zona Húmeda/Piso 6"
+    },
+    {
+      "measurementFields": [
+        {
+          "name": "Botellero Ventanal",
+          "value": -5,
+          "lastNonZeroValue": -5,
+          "buttonActions": {
+            "Encendido": {
+              "actionType": "turn_on",
+              "color": "emerald"
+            },
+            "Apagado": {
+              "actionType": "turn_off",
+              "color": "slate"
+            }
+          },
+          "includeButtons": true,
+          "statusValue": "OK",
+          "ampState": "Encendido",
+          "id": "1",
+          "unit": "°C",
+          "options": [
+            "OK",
+            "NO OK"
+          ]
+        },
+        {
+          "unit": "°C",
+          "statusValue": "OK",
+          "id": "1789227261860",
+          "ampState": "Encendido",
+          "includeButtons": true,
+          "lastNonZeroValue": -17,
+          "value": -17,
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "buttonActions": {
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "turn_on"
+            },
+            "Apagado": {
+              "color": "slate",
+              "actionType": "turn_off"
+            }
+          },
+          "name": "Nevera Cafetera"
+        },
+        {
+          "includeButtons": true,
+          "name": "Botellero Entrada Derecha",
+          "statusValue": "OK",
+          "lastNonZeroValue": 42,
+          "buttonActions": {
+            "Apagado": {
+              "actionType": "turn_off",
+              "color": "slate"
+            },
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "turn_on"
+            }
+          },
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "ampState": "Encendido",
+          "id": "1789227309459",
+          "value": 42,
+          "unit": "°F"
+        },
+        {
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "id": "1789227538808",
+          "statusValue": "OK",
+          "includeButtons": true,
+          "name": "Botellero Entrada Izquierda",
+          "unit": "°F",
+          "lastNonZeroValue": 34,
+          "buttonActions": {
+            "Apagado": {
+              "actionType": "turn_off",
+              "color": "slate"
+            },
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "turn_on"
+            }
+          },
+          "ampState": "Encendido",
+          "value": 34
+        }
+      ],
+      "requireNotesOnFailure": false,
+      "area": "Bar/ Piso 6",
+      "currentValue": -5,
+      "includeStatusButtons": false,
+      "category": "refrigeracion",
+      "isCritical": false,
+      "id": "chk-tpl-1789227609185-rbqi",
+      "type": "numeric",
+      "unit": "°C",
+      "isAlarmActive": false,
+      "allowNotes": true,
+      "buttonActions": {},
+      "lastNonZeroValue": 0,
+      "title": "Equipos Del Bar",
+      "ampState": "Encendido"
+    },
+    {
+      "category": "caldera",
+      "isAlarmActive": false,
+      "measurementFields": [
+        {
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "lastNonZeroValue": 50.8,
+          "unit": "°C",
+          "buttonActions": {
+            "Apagado": {
+              "actionType": "turn_off",
+              "color": "slate"
+            },
+            "Encendido": {
+              "actionType": "turn_on",
+              "color": "emerald"
+            }
+          },
+          "includeButtons": true,
+          "ampState": "Encendido",
+          "value": 50.8,
+          "name": "Bombas/Presurisacion",
+          "id": "1",
+          "statusValue": "OK"
+        },
+        {
+          "lastNonZeroValue": 47.9,
+          "id": "1789240544706",
+          "ampState": "Encendido",
+          "unit": "°C",
+          "statusValue": "OK",
+          "includeButtons": true,
+          "value": 47.9,
+          "name": "Bomba/Resirculacion",
+          "buttonActions": {
+            "Apagado": {
+              "color": "slate",
+              "actionType": "turn_off"
+            },
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "turn_on"
+            }
+          },
+          "options": [
+            "OK",
+            "NO OK"
+          ]
+        },
+        {
+          "unit": "PSI",
+          "ampState": "Encendido",
+          "lastNonZeroValue": 50,
+          "includeButtons": false,
+          "id": "1789240600468",
+          "name": "Manometros De Bombas",
+          "value": 50
+        },
+        {
+          "unit": "PSI",
+          "value": 50,
+          "id": "1789240637614",
+          "name": "Manometros Tanques",
+          "lastNonZeroValue": 50,
+          "ampState": "Encendido",
+          "includeButtons": false
+        }
+      ],
+      "buttonActions": {},
+      "requireNotesOnFailure": false,
+      "type": "numeric",
+      "unit": "°C",
+      "id": "chk-tpl-1789240659096-ji6y",
+      "ampState": "Encendido",
+      "area": "Cuarto De Bombas",
+      "isCritical": false,
+      "title": "Sistema De Agua Caliente",
+      "currentValue": 50.8,
+      "lastNonZeroValue": 0,
+      "includeStatusButtons": false,
+      "allowNotes": true
+    },
+    {
+      "allowNotes": true,
+      "statusValue": "Operativo",
+      "requireNotesOnFailure": false,
+      "title": "Ascensor Apto",
+      "type": "ok_nok",
+      "isCritical": false,
+      "id": "chk-tpl-1789423733318-xfh6",
+      "isAlarmActive": false,
+      "category": "extraccion",
+      "buttonActions": {},
+      "area": "Ascensores",
+      "ampState": "Encendido",
+      "lastNonZeroValue": 0,
+      "currentValue": "Operativo",
+      "options": [
+        "Operativo",
+        "Bloqueado"
+      ]
+    },
+    {
+      "options": [
+        "Nivel Bajo",
+        "Nivel Medio",
+        "Nivel Alto"
+      ],
+      "statusValue": "Nivel Alto",
+      "currentValue": "Nivel Alto",
+      "type": "ok_nok",
+      "lastNonZeroValue": 0,
+      "isCritical": false,
+      "category": "extraccion",
+      "requireNotesOnFailure": false,
+      "id": "chk-tpl-1789428026446-qnuc",
+      "title": "Tanques De Agua Potable",
+      "allowNotes": true,
+      "ampState": "Encendido",
+      "buttonActions": {
+        "Nivel Bajo": {
+          "color": "auto",
+          "actionType": "failure"
+        }
+      },
+      "isAlarmActive": false,
+      "area": "Bombas De Impulción S3"
+    },
+    {
+      "title": "Ascensor Hotel",
+      "type": "ok_nok",
+      "allowNotes": true,
+      "requireNotesOnFailure": false,
+      "statusValue": "Operativo",
+      "isCritical": false,
+      "id": "chk-tpl-1789428185062-g11h",
+      "options": [
+        "Operativo",
+        "Bloqueado"
+      ],
+      "isAlarmActive": false,
+      "ampState": "Encendido",
+      "currentValue": "Operativo",
+      "buttonActions": {},
+      "lastNonZeroValue": 0,
+      "area": "Ascensores",
+      "category": "extraccion"
+    },
+    {
+      "id": "chk-tpl-1789428511011-x67z",
+      "options": [
+        "Operativo",
+        "Bloqueado"
+      ],
+      "ampState": "Encendido",
+      "type": "ok_nok",
+      "category": "extraccion",
+      "area": "Ascensores",
+      "isCritical": false,
+      "lastNonZeroValue": 0,
+      "isAlarmActive": false,
+      "allowNotes": true,
+      "buttonActions": {},
+      "statusValue": "Operativo",
+      "currentValue": "Operativo",
+      "requireNotesOnFailure": false,
+      "title": "Ascensor De Servicio"
+    },
+    {
+      "options": [
+        "Energia/EMP",
+        "Energia/Planta",
+        "Bloqueado"
+      ],
+      "requireNotesOnFailure": false,
+      "id": "chk-tpl-1789435170225-zr6y",
+      "category": "subestacion",
+      "currentValue": "Energia/EMP",
+      "area": "Planta De Emergencia S2",
+      "ampState": "Encendido",
+      "allowNotes": true,
+      "type": "ok_nok",
+      "buttonActions": {
+        "Bloqueado": {
+          "actionType": "failure",
+          "color": "auto"
+        }
+      },
+      "isAlarmActive": false,
+      "statusValue": "Energia/EMP",
+      "lastNonZeroValue": 0,
+      "title": "Transferencia De Energia",
+      "isCritical": false
+    },
+    {
+      "currentValue": 2,
+      "area": "Cocina/Silo",
+      "measurementFields": [
+        {
+          "unit": "°C",
+          "lastNonZeroValue": 2,
+          "id": "1",
+          "statusValue": "OK",
+          "buttonActions": {
+            "Encendido": {
+              "actionType": "turn_on",
+              "color": "emerald"
+            },
+            "Apagado": {
+              "color": "slate",
+              "actionType": "turn_off"
+            }
+          },
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "value": 2,
+          "includeButtons": true,
+          "name": "Nevera 1",
+          "ampState": "Encendido"
+        },
+        {
+          "statusValue": "OK",
+          "name": "Nevera 2",
+          "ampState": "Encendido",
+          "value": 5,
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "id": "1789470556027",
+          "lastNonZeroValue": 5,
+          "unit": "°C",
+          "buttonActions": {
+            "Apagado": {
+              "actionType": "turn_off",
+              "color": "slate"
+            },
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "turn_on"
+            }
+          },
+          "includeButtons": true
+        },
+        {
+          "value": 4,
+          "includeButtons": true,
+          "buttonActions": {
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "turn_on"
+            },
+            "Apagado": {
+              "color": "slate",
+              "actionType": "turn_off"
+            }
+          },
+          "unit": "°C",
+          "name": "Nevera 3",
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "statusValue": "OK",
+          "ampState": "Encendido",
+          "lastNonZeroValue": 4,
+          "id": "1789470602027"
+        },
+        {
+          "ampState": "Encendido",
+          "id": "1789470634919",
+          "name": "Base Chef",
+          "lastNonZeroValue": 36,
+          "statusValue": "OK",
+          "unit": "°F",
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "buttonActions": {
+            "Apagado": {
+              "color": "slate",
+              "actionType": "turn_off"
+            },
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "turn_on"
+            }
+          },
+          "includeButtons": true,
+          "value": 36
+        },
+        {
+          "name": "Nevera De Entrada",
+          "includeButtons": true,
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "statusValue": "OK",
+          "ampState": "Encendido",
+          "id": "1789470671546",
+          "value": -4,
+          "buttonActions": {
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "turn_on"
+            },
+            "Apagado": {
+              "actionType": "turn_off",
+              "color": "slate"
+            }
+          },
+          "lastNonZeroValue": -4,
+          "unit": "°F"
+        }
+      ],
+      "isAlarmActive": false,
+      "ampState": "Encendido",
+      "buttonActions": {},
+      "lastNonZeroValue": 0,
+      "isCritical": false,
+      "allowNotes": true,
+      "requireNotesOnFailure": false,
+      "category": "refrigeracion",
+      "title": "Neveras",
+      "id": "chk-tpl-1789470717933-t9gy",
+      "includeStatusButtons": false,
+      "type": "numeric",
+      "unit": "°C"
+    }
+  ],
+  "progress": 100,
+  "completedAt": "2026-11-01T10:30:00Z"
+},
+{
+  "id": "rnd-1093",
+  "status": "completada",
+  "compliancePercentage": 100,
+  "userEmail": "juanmateoramosramos44@gmail.com",
+  "anomaliesCount": 0,
+  "meterReadings": {
+    "waterCubicMeters": 1587.4,
+    "electricKwh": 43085,
+    "gasCubicMeters": 1054.6
+  },
+  "time": "08:00",
+  "lastUpdated": "2026-09-15T12:08:58.846Z",
+  "technicianName": "Técnico de Mantenimiento",
+  "userId": "usr-1789230683226",
+  "shift": "tarde",
+  "technicianSignature": "Juan Mateo/Técnico",
+  "date": "2026-11-02",
+  "anomalies": [],
+  "lastHeartbeat": "2026-09-15T12:08:36.712Z",
+  "generalNotes": "",
+  "checkpoints": [
+    {
+      "allowNotes": true,
+      "notes": "Estava Descongelando, Ya Está Prendida",
+      "id": "chk-tpl-1788985535314-nua3",
+      "requireNotesOnFailure": false,
+      "minValue": -25,
+      "ampState": "Encendido",
+      "category": "refrigeracion",
+      "lastNonZeroValue": 47,
+      "area": "Cocina S4",
+      "isCritical": false,
+      "maxValue": 50,
+      "includeStatusButtons": false,
+      "type": "numeric",
+      "currentValue": 47,
+      "unit": "°C",
+      "buttonActions": {},
+      "measurementFields": [
+        {
+          "minValue": -25,
+          "ampState": "Encendido",
+          "includeButtons": false,
+          "name": "Cava Congelación",
+          "value": 47,
+          "unit": "°C",
+          "maxValue": 50,
+          "lastNonZeroValue": 47,
+          "id": "1"
+        }
+      ],
+      "title": "Cava De Congelación",
+      "isAlarmActive": false
+    },
+    {
+      "includeStatusButtons": false,
+      "ampState": "Encendido",
+      "minValue": 0,
+      "isAlarmActive": false,
+      "maxValue": 50,
+      "requireNotesOnFailure": false,
+      "lastNonZeroValue": 0,
+      "buttonActions": {},
+      "measurementFields": [
+        {
+          "minValue": 0,
+          "ampState": "Encendido",
+          "value": 0,
+          "id": "1",
+          "unit": "°C",
+          "name": "Cava Refrigeracion",
+          "maxValue": 50,
+          "lastNonZeroValue": 25,
+          "includeButtons": false
+        }
+      ],
+      "type": "numeric",
+      "category": "refrigeracion",
+      "unit": "°C",
+      "title": "Cava De Refrigeración",
+      "area": "Cocina S4",
+      "allowNotes": true,
+      "isCritical": false,
+      "id": "chk-tpl-1788988056429-c66o",
+      "currentValue": 0
+    },
+    {
+      "unit": "°C",
+      "type": "numeric",
+      "minValue": 0,
+      "measurementFields": [
+        {
+          "minValue": 0,
+          "ampState": "Encendido",
+          "name": "Cava Refrigeracion",
+          "unit": "°C",
+          "id": "1",
+          "maxValue": 50,
+          "lastNonZeroValue": 2.7,
+          "includeButtons": false,
+          "value": 2.7
+        }
+      ],
+      "id": "chk-tpl-1788988080039-nkgi",
+      "ampState": "Encendido",
+      "buttonActions": {},
+      "maxValue": 50,
+      "includeStatusButtons": false,
+      "category": "refrigeracion",
+      "isAlarmActive": false,
+      "currentValue": 2.7,
+      "requireNotesOnFailure": false,
+      "lastNonZeroValue": 0,
+      "isCritical": false,
+      "area": "Cocina S4",
+      "title": "Cava De Refrigeración",
+      "allowNotes": true
+    },
+    {
+      "type": "ok_nok",
+      "ampState": "Apagado",
+      "title": "Extracción",
+      "allowNotes": true,
+      "isCritical": false,
+      "buttonActions": {},
+      "currentValue": "Apagado",
+      "category": "extraccion",
+      "id": "chk-tpl-1788989380312-s3ia",
+      "statusValue": "Apagado",
+      "isAlarmActive": false,
+      "options": [
+        "Encendido",
+        "Apagado",
+        "Alarmado"
+      ],
+      "requireNotesOnFailure": false,
+      "area": "Cocina S4",
+      "lastNonZeroValue": 0
+    },
+    {
+      "category": "hidraulico",
+      "area": "Planta RCI S3",
+      "allowNotes": true,
+      "isAlarmActive": false,
+      "isCritical": false,
+      "id": "chk-tpl-1789054060776-tynz",
+      "ampState": "Encendido",
+      "currentValue": 273,
+      "title": "Bomba Jockey",
+      "requireNotesOnFailure": false,
+      "unit": "PSI",
+      "type": "numeric",
+      "lastNonZeroValue": 273
+    },
+    {
+      "ampState": "Encendido",
+      "id": "chk-tpl-1789058977130-dsm2",
+      "measurementFields": [
+        {
+          "value": 27.66,
+          "unit": "VDC",
+          "id": "1",
+          "name": "Bateria 1",
+          "ampState": "Encendido",
+          "lastNonZeroValue": 27.66
+        },
+        {
+          "ampState": "Encendido",
+          "lastNonZeroValue": 27.66,
+          "unit": "VDC",
+          "id": "1789059243278",
+          "name": "Bateria 2",
+          "value": 27.66
+        }
+      ],
+      "title": "Baterias",
+      "currentValue": 27.66,
+      "area": "Planta RCI S3",
+      "requireNotesOnFailure": false,
+      "category": "bateria",
+      "lastNonZeroValue": 0,
+      "allowNotes": true,
+      "isCritical": false,
+      "isAlarmActive": false,
+      "unit": "VDC",
+      "type": "numeric",
+      "includeStatusButtons": false
+    },
+    {
+      "options": [
+        "Sin Alarma",
+        "Sensor Alarmado"
+      ],
+      "id": "chk-tpl-1789060493962-91iv",
+      "requireNotesOnFailure": false,
+      "area": "Planta RCI S3",
+      "lastNonZeroValue": 61,
+      "isAlarmActive": true,
+      "measurementFields": [
+        {
+          "maxValue": 100,
+          "lastNonZeroValue": 60,
+          "ampState": "Encendido",
+          "minValue": 61,
+          "unit": "%",
+          "id": "1",
+          "name": "Nivel Combustible",
+          "value": 60
+        }
+      ],
+      "alarmReason": "Botón de alarma activado: \"Sensor Alarmado\"",
+      "statusValue": "Sensor Alarmado",
+      "allowNotes": true,
+      "ampState": "Encendido",
+      "minValue": 61,
+      "includeStatusButtons": true,
+      "title": "Combustible",
+      "maxValue": 100,
+      "currentValue": 60,
+      "unit": "%",
+      "category": "combustible",
+      "type": "numeric",
+      "isCritical": false
+    },
+    {
+      "currentValue": 260,
+      "area": "Planta RCI S3",
+      "lastNonZeroValue": 250,
+      "includeStatusButtons": false,
+      "requireNotesOnFailure": false,
+      "maxValue": 300,
+      "title": "Manometros Principales",
+      "allowNotes": true,
+      "isAlarmActive": false,
+      "category": "manometro",
+      "ampState": "Encendido",
+      "minValue": 250,
+      "measurementFields": [
+        {
+          "lastNonZeroValue": 260,
+          "value": 260,
+          "unit": "PSI",
+          "ampState": "Encendido",
+          "id": "1",
+          "name": "Manometro 1",
+          "minValue": 250,
+          "maxValue": 300
+        },
+        {
+          "maxValue": 180,
+          "id": "1789066651541",
+          "unit": "PSI",
+          "lastNonZeroValue": 170,
+          "ampState": "Encendido",
+          "minValue": 160,
+          "name": "Manometro 2",
+          "value": 170
+        }
+      ],
+      "id": "chk-tpl-1789066766097-j1e5",
+      "isCritical": false,
+      "unit": "PSI",
+      "type": "numeric"
+    },
+    {
+      "buttonActions": {
+        "Encendido": {
+          "actionType": "turn_on",
+          "color": "emerald"
+        },
+        "Apagado": {
+          "color": "slate",
+          "actionType": "turn_off"
+        }
+      },
+      "statusValue": "Encendido",
+      "isAlarmActive": false,
+      "requireNotesOnFailure": false,
+      "includeStatusButtons": true,
+      "lastNonZeroValue": 12,
+      "measurementFields": [
+        {
+          "name": "BOM-1",
+          "lastNonZeroValue": 19,
+          "value": 19,
+          "ampState": "Encendido",
+          "minValue": 12,
+          "id": "1",
+          "includeButtons": false,
+          "maxValue": 20,
+          "unit": "A"
+        }
+      ],
+      "unit": "A",
+      "type": "numeric",
+      "title": "BOM-1-S3",
+      "currentValue": 19,
+      "id": "chk-tpl-1789071231392-wx5f",
+      "maxValue": 20,
+      "isCritical": false,
+      "category": "hidraulico",
+      "area": "Bombas De Impulción S3",
+      "options": [
+        "Encendido",
+        "Apagado"
+      ],
+      "minValue": 12,
+      "ampState": "Encendido",
+      "allowNotes": true
+    },
+    {
+      "measurementFields": [
+        {
+          "ampState": "Apagado",
+          "unit": "A",
+          "minValue": 12,
+          "id": "1",
+          "lastNonZeroValue": 16,
+          "maxValue": 20,
+          "value": 0,
+          "name": "BOM-2",
+          "includeButtons": false
+        }
+      ],
+      "title": "BOM-2-S3",
+      "lastNonZeroValue": 12,
+      "currentValue": 0,
+      "type": "numeric",
+      "unit": "A",
+      "statusValue": "Apagado",
+      "isAlarmActive": false,
+      "includeStatusButtons": true,
+      "buttonActions": {},
+      "area": "Bombas De Impulción S3",
+      "maxValue": 20,
+      "isCritical": false,
+      "options": [
+        "Encendido",
+        "Apagado"
+      ],
+      "category": "hidraulico",
+      "id": "chk-tpl-1789072528074-19rc",
+      "ampState": "Apagado",
+      "minValue": 12,
+      "allowNotes": true,
+      "requireNotesOnFailure": false
+    },
+    {
+      "requireNotesOnFailure": false,
+      "category": "bateria",
+      "buttonActions": {},
+      "lastNonZeroValue": 0,
+      "isAlarmActive": false,
+      "type": "numeric",
+      "includeStatusButtons": false,
+      "unit": "VDC",
+      "ampState": "Encendido",
+      "id": "chk-tpl-1789072918083-tj8j",
+      "title": "Batería",
+      "allowNotes": true,
+      "area": "Planta De Emergencia S2",
+      "isCritical": false,
+      "currentValue": 27.6,
+      "measurementFields": [
+        {
+          "value": 27.6,
+          "name": "Bateria-",
+          "ampState": "Encendido",
+          "lastNonZeroValue": 27.6,
+          "id": "1",
+          "includeButtons": false,
+          "unit": "VDC"
+        }
+      ]
+    },
+    {
+      "id": "chk-tpl-1789082124733-70s2",
+      "lastNonZeroValue": 0,
+      "isCritical": false,
+      "unit": "%",
+      "type": "numeric",
+      "allowNotes": true,
+      "includeStatusButtons": false,
+      "isAlarmActive": false,
+      "currentValue": 62,
+      "category": "combustible",
+      "area": "Planta De Emergencia S2",
+      "measurementFields": [
+        {
+          "ampState": "Encendido",
+          "unit": "%",
+          "value": 62,
+          "id": "1",
+          "lastNonZeroValue": 62,
+          "name": "Combustible"
+        }
+      ],
+      "requireNotesOnFailure": false,
+      "ampState": "Encendido",
+      "title": "Combustible"
+    },
+    {
+      "measurementFields": [
+        {
+          "unit": "°C",
+          "lastNonZeroValue": 47,
+          "id": "1",
+          "ampState": "Encendido",
+          "value": 47,
+          "name": "Temperatura"
+        }
+      ],
+      "id": "chk-tpl-1789082328250-puzo",
+      "buttonActions": {},
+      "allowNotes": true,
+      "unit": "°C",
+      "type": "numeric",
+      "category": "temperatura",
+      "isAlarmActive": false,
+      "includeStatusButtons": false,
+      "currentValue": 47,
+      "requireNotesOnFailure": false,
+      "ampState": "Encendido",
+      "isCritical": false,
+      "lastNonZeroValue": 0,
+      "title": "Temperatura",
+      "area": "Planta De Emergencia S2"
+    },
+    {
+      "unit": "m³",
+      "type": "numeric",
+      "ampState": "Encendido",
+      "currentValue": 9.5,
+      "buttonActions": {},
+      "category": "tanque",
+      "isAlarmActive": false,
+      "id": "chk-tpl-1789181196563-joap",
+      "allowNotes": true,
+      "requireNotesOnFailure": false,
+      "includeStatusButtons": false,
+      "isCritical": false,
+      "title": "Tanques",
+      "area": "Terraza Piso 18",
+      "measurementFields": [
+        {
+          "includeButtons": false,
+          "unit": "m³",
+          "id": "1",
+          "lastNonZeroValue": 9.5,
+          "ampState": "Encendido",
+          "value": 9.5,
+          "name": "Tanques Hotel"
+        },
+        {
+          "ampState": "Encendido",
+          "name": "Tanques Apto",
+          "value": 2,
+          "unit": "m³",
+          "lastNonZeroValue": 2,
+          "includeButtons": false,
+          "id": "1789181031815"
+        }
+      ],
+      "lastNonZeroValue": 0
+    },
+    {
+      "ampState": "Encendido",
+      "allowNotes": true,
+      "isCritical": false,
+      "area": "Planta De Emergencia S2",
+      "title": "Condensadores",
+      "currentValue": 0.996,
+      "lastNonZeroValue": 0,
+      "category": "condensador",
+      "type": "numeric",
+      "unit": "FP",
+      "measurementFields": [
+        {
+          "value": 0.996,
+          "name": "Condensadores",
+          "includeButtons": false,
+          "ampState": "Encendido",
+          "lastNonZeroValue": 0.996,
+          "id": "1",
+          "unit": "FP"
+        }
+      ],
+      "isAlarmActive": false,
+      "buttonActions": {},
+      "id": "chk-tpl-1789181948808-tk08",
+      "requireNotesOnFailure": false,
+      "includeStatusButtons": false
+    },
+    {
+      "isAlarmActive": false,
+      "measurementFields": [
+        {
+          "maxValue": 60,
+          "buttonActions": {
+            "Apagado": {
+              "color": "slate",
+              "actionType": "default"
+            },
+            "Encendido": {
+              "actionType": "default",
+              "color": "emerald"
+            }
+          },
+          "lastNonZeroValue": 54,
+          "id": "1",
+          "name": "Precion",
+          "unit": "PSI",
+          "options": [
+            "Encendido",
+            "Apagado",
+            "Alarmado"
+          ],
+          "statusValue": "Encendido",
+          "ampState": "Encendido",
+          "minValue": 42,
+          "includeButtons": true,
+          "value": 54
+        }
+      ],
+      "minValue": 42,
+      "buttonActions": {},
+      "requireNotesOnFailure": false,
+      "isCritical": false,
+      "ampState": "Encendido",
+      "area": "Terraza Piso 18",
+      "allowNotes": true,
+      "currentValue": 54,
+      "category": "hidraulico",
+      "id": "chk-tpl-1789183131928-5ogv",
+      "maxValue": 60,
+      "type": "numeric",
+      "unit": "PSI",
+      "lastNonZeroValue": 42,
+      "includeStatusButtons": false,
+      "title": "Bombas De Presión"
+    },
+    {
+      "ampState": "Encendido",
+      "measurementFields": [
+        {
+          "value": 36.8,
+          "ampState": "Encendido",
+          "unit": "°C",
+          "name": "Temperatura/Sauna",
+          "buttonActions": {
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "default"
+            },
+            "Apagado": {
+              "actionType": "default",
+              "color": "slate"
+            }
+          },
+          "options": [
+            "Encendido",
+            "Apagado"
+          ],
+          "statusValue": "Encendido",
+          "lastNonZeroValue": 36.8,
+          "id": "1",
+          "includeButtons": true
+        },
+        {
+          "id": "1789184871874",
+          "lastNonZeroValue": 11.5,
+          "name": "Cold Plungue",
+          "includeButtons": true,
+          "unit": "°C",
+          "statusValue": "Encendido",
+          "buttonActions": {
+            "Apagado": {
+              "color": "slate",
+              "actionType": "default"
+            },
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "default"
+            }
+          },
+          "ampState": "Encendido",
+          "options": [
+            "Encendido",
+            "Apagado"
+          ],
+          "value": 11.5
+        }
+      ],
+      "area": "Zona Húmeda/Piso 6",
+      "category": "sauna_cold_plunge",
+      "requireNotesOnFailure": false,
+      "title": "Sauna/Cold Plungue",
+      "lastNonZeroValue": 0,
+      "isCritical": false,
+      "unit": "°C",
+      "type": "numeric",
+      "id": "chk-tpl-1789184914843-8qeh",
+      "currentValue": 36.8,
+      "allowNotes": true,
+      "buttonActions": {},
+      "includeStatusButtons": false,
+      "isAlarmActive": false
+    },
+    {
+      "type": "ok_nok",
+      "ampState": "Encendido",
+      "isCritical": false,
+      "suggestedNotes": [
+        "Musica Ascensores Ok",
+        "Musica Gym Ok",
+        "Televisor Gym Ok",
+        "Musica Piscina Ok",
+        "Musica Silo Ok",
+        "Musica Sastra Ok",
+        "Musica Sauna Ok"
+      ],
+      "buttonActions": {},
+      "title": "Musica",
+      "allowNotes": true,
+      "isAlarmActive": false,
+      "category": "musica",
+      "id": "chk-tpl-1789186187266-j679",
+      "requireNotesOnFailure": false,
+      "options": [
+        "Todo Ok",
+        "NO OK"
+      ],
+      "statusValue": "Todo Ok",
+      "currentValue": "Todo Ok",
+      "lastNonZeroValue": 0,
+      "area": "Zona Húmeda/Piso 6"
+    },
+    {
+      "measurementFields": [
+        {
+          "name": "Botellero Ventanal",
+          "value": -5,
+          "lastNonZeroValue": -5,
+          "buttonActions": {
+            "Encendido": {
+              "actionType": "turn_on",
+              "color": "emerald"
+            },
+            "Apagado": {
+              "actionType": "turn_off",
+              "color": "slate"
+            }
+          },
+          "includeButtons": true,
+          "statusValue": "OK",
+          "ampState": "Encendido",
+          "id": "1",
+          "unit": "°C",
+          "options": [
+            "OK",
+            "NO OK"
+          ]
+        },
+        {
+          "unit": "°C",
+          "statusValue": "OK",
+          "id": "1789227261860",
+          "ampState": "Encendido",
+          "includeButtons": true,
+          "lastNonZeroValue": -17,
+          "value": -17,
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "buttonActions": {
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "turn_on"
+            },
+            "Apagado": {
+              "color": "slate",
+              "actionType": "turn_off"
+            }
+          },
+          "name": "Nevera Cafetera"
+        },
+        {
+          "includeButtons": true,
+          "name": "Botellero Entrada Derecha",
+          "statusValue": "OK",
+          "lastNonZeroValue": 42,
+          "buttonActions": {
+            "Apagado": {
+              "actionType": "turn_off",
+              "color": "slate"
+            },
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "turn_on"
+            }
+          },
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "ampState": "Encendido",
+          "id": "1789227309459",
+          "value": 42,
+          "unit": "°F"
+        },
+        {
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "id": "1789227538808",
+          "statusValue": "OK",
+          "includeButtons": true,
+          "name": "Botellero Entrada Izquierda",
+          "unit": "°F",
+          "lastNonZeroValue": 34,
+          "buttonActions": {
+            "Apagado": {
+              "actionType": "turn_off",
+              "color": "slate"
+            },
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "turn_on"
+            }
+          },
+          "ampState": "Encendido",
+          "value": 34
+        }
+      ],
+      "requireNotesOnFailure": false,
+      "area": "Bar/ Piso 6",
+      "currentValue": -5,
+      "includeStatusButtons": false,
+      "category": "refrigeracion",
+      "isCritical": false,
+      "id": "chk-tpl-1789227609185-rbqi",
+      "type": "numeric",
+      "unit": "°C",
+      "isAlarmActive": false,
+      "allowNotes": true,
+      "buttonActions": {},
+      "lastNonZeroValue": 0,
+      "title": "Equipos Del Bar",
+      "ampState": "Encendido"
+    },
+    {
+      "category": "caldera",
+      "isAlarmActive": false,
+      "measurementFields": [
+        {
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "lastNonZeroValue": 50.8,
+          "unit": "°C",
+          "buttonActions": {
+            "Apagado": {
+              "actionType": "turn_off",
+              "color": "slate"
+            },
+            "Encendido": {
+              "actionType": "turn_on",
+              "color": "emerald"
+            }
+          },
+          "includeButtons": true,
+          "ampState": "Encendido",
+          "value": 50.8,
+          "name": "Bombas/Presurisacion",
+          "id": "1",
+          "statusValue": "OK"
+        },
+        {
+          "lastNonZeroValue": 47.9,
+          "id": "1789240544706",
+          "ampState": "Encendido",
+          "unit": "°C",
+          "statusValue": "OK",
+          "includeButtons": true,
+          "value": 47.9,
+          "name": "Bomba/Resirculacion",
+          "buttonActions": {
+            "Apagado": {
+              "color": "slate",
+              "actionType": "turn_off"
+            },
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "turn_on"
+            }
+          },
+          "options": [
+            "OK",
+            "NO OK"
+          ]
+        },
+        {
+          "unit": "PSI",
+          "ampState": "Encendido",
+          "lastNonZeroValue": 50,
+          "includeButtons": false,
+          "id": "1789240600468",
+          "name": "Manometros De Bombas",
+          "value": 50
+        },
+        {
+          "unit": "PSI",
+          "value": 50,
+          "id": "1789240637614",
+          "name": "Manometros Tanques",
+          "lastNonZeroValue": 50,
+          "ampState": "Encendido",
+          "includeButtons": false
+        }
+      ],
+      "buttonActions": {},
+      "requireNotesOnFailure": false,
+      "type": "numeric",
+      "unit": "°C",
+      "id": "chk-tpl-1789240659096-ji6y",
+      "ampState": "Encendido",
+      "area": "Cuarto De Bombas",
+      "isCritical": false,
+      "title": "Sistema De Agua Caliente",
+      "currentValue": 50.8,
+      "lastNonZeroValue": 0,
+      "includeStatusButtons": false,
+      "allowNotes": true
+    },
+    {
+      "allowNotes": true,
+      "statusValue": "Operativo",
+      "requireNotesOnFailure": false,
+      "title": "Ascensor Apto",
+      "type": "ok_nok",
+      "isCritical": false,
+      "id": "chk-tpl-1789423733318-xfh6",
+      "isAlarmActive": false,
+      "category": "extraccion",
+      "buttonActions": {},
+      "area": "Ascensores",
+      "ampState": "Encendido",
+      "lastNonZeroValue": 0,
+      "currentValue": "Operativo",
+      "options": [
+        "Operativo",
+        "Bloqueado"
+      ]
+    },
+    {
+      "options": [
+        "Nivel Bajo",
+        "Nivel Medio",
+        "Nivel Alto"
+      ],
+      "statusValue": "Nivel Alto",
+      "currentValue": "Nivel Alto",
+      "type": "ok_nok",
+      "lastNonZeroValue": 0,
+      "isCritical": false,
+      "category": "extraccion",
+      "requireNotesOnFailure": false,
+      "id": "chk-tpl-1789428026446-qnuc",
+      "title": "Tanques De Agua Potable",
+      "allowNotes": true,
+      "ampState": "Encendido",
+      "buttonActions": {
+        "Nivel Bajo": {
+          "color": "auto",
+          "actionType": "failure"
+        }
+      },
+      "isAlarmActive": false,
+      "area": "Bombas De Impulción S3"
+    },
+    {
+      "title": "Ascensor Hotel",
+      "type": "ok_nok",
+      "allowNotes": true,
+      "requireNotesOnFailure": false,
+      "statusValue": "Operativo",
+      "isCritical": false,
+      "id": "chk-tpl-1789428185062-g11h",
+      "options": [
+        "Operativo",
+        "Bloqueado"
+      ],
+      "isAlarmActive": false,
+      "ampState": "Encendido",
+      "currentValue": "Operativo",
+      "buttonActions": {},
+      "lastNonZeroValue": 0,
+      "area": "Ascensores",
+      "category": "extraccion"
+    },
+    {
+      "id": "chk-tpl-1789428511011-x67z",
+      "options": [
+        "Operativo",
+        "Bloqueado"
+      ],
+      "ampState": "Encendido",
+      "type": "ok_nok",
+      "category": "extraccion",
+      "area": "Ascensores",
+      "isCritical": false,
+      "lastNonZeroValue": 0,
+      "isAlarmActive": false,
+      "allowNotes": true,
+      "buttonActions": {},
+      "statusValue": "Operativo",
+      "currentValue": "Operativo",
+      "requireNotesOnFailure": false,
+      "title": "Ascensor De Servicio"
+    },
+    {
+      "options": [
+        "Energia/EMP",
+        "Energia/Planta",
+        "Bloqueado"
+      ],
+      "requireNotesOnFailure": false,
+      "id": "chk-tpl-1789435170225-zr6y",
+      "category": "subestacion",
+      "currentValue": "Energia/EMP",
+      "area": "Planta De Emergencia S2",
+      "ampState": "Encendido",
+      "allowNotes": true,
+      "type": "ok_nok",
+      "buttonActions": {
+        "Bloqueado": {
+          "actionType": "failure",
+          "color": "auto"
+        }
+      },
+      "isAlarmActive": false,
+      "statusValue": "Energia/EMP",
+      "lastNonZeroValue": 0,
+      "title": "Transferencia De Energia",
+      "isCritical": false
+    },
+    {
+      "currentValue": 2,
+      "area": "Cocina/Silo",
+      "measurementFields": [
+        {
+          "unit": "°C",
+          "lastNonZeroValue": 2,
+          "id": "1",
+          "statusValue": "OK",
+          "buttonActions": {
+            "Encendido": {
+              "actionType": "turn_on",
+              "color": "emerald"
+            },
+            "Apagado": {
+              "color": "slate",
+              "actionType": "turn_off"
+            }
+          },
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "value": 2,
+          "includeButtons": true,
+          "name": "Nevera 1",
+          "ampState": "Encendido"
+        },
+        {
+          "statusValue": "OK",
+          "name": "Nevera 2",
+          "ampState": "Encendido",
+          "value": 5,
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "id": "1789470556027",
+          "lastNonZeroValue": 5,
+          "unit": "°C",
+          "buttonActions": {
+            "Apagado": {
+              "actionType": "turn_off",
+              "color": "slate"
+            },
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "turn_on"
+            }
+          },
+          "includeButtons": true
+        },
+        {
+          "value": 4,
+          "includeButtons": true,
+          "buttonActions": {
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "turn_on"
+            },
+            "Apagado": {
+              "color": "slate",
+              "actionType": "turn_off"
+            }
+          },
+          "unit": "°C",
+          "name": "Nevera 3",
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "statusValue": "OK",
+          "ampState": "Encendido",
+          "lastNonZeroValue": 4,
+          "id": "1789470602027"
+        },
+        {
+          "ampState": "Encendido",
+          "id": "1789470634919",
+          "name": "Base Chef",
+          "lastNonZeroValue": 36,
+          "statusValue": "OK",
+          "unit": "°F",
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "buttonActions": {
+            "Apagado": {
+              "color": "slate",
+              "actionType": "turn_off"
+            },
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "turn_on"
+            }
+          },
+          "includeButtons": true,
+          "value": 36
+        },
+        {
+          "name": "Nevera De Entrada",
+          "includeButtons": true,
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "statusValue": "OK",
+          "ampState": "Encendido",
+          "id": "1789470671546",
+          "value": -4,
+          "buttonActions": {
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "turn_on"
+            },
+            "Apagado": {
+              "actionType": "turn_off",
+              "color": "slate"
+            }
+          },
+          "lastNonZeroValue": -4,
+          "unit": "°F"
+        }
+      ],
+      "isAlarmActive": false,
+      "ampState": "Encendido",
+      "buttonActions": {},
+      "lastNonZeroValue": 0,
+      "isCritical": false,
+      "allowNotes": true,
+      "requireNotesOnFailure": false,
+      "category": "refrigeracion",
+      "title": "Neveras",
+      "id": "chk-tpl-1789470717933-t9gy",
+      "includeStatusButtons": false,
+      "type": "numeric",
+      "unit": "°C"
+    }
+  ],
+  "progress": 100,
+  "completedAt": "2026-11-02T10:30:00Z"
+},
+{
+  "id": "rnd-1094",
+  "status": "completada",
+  "compliancePercentage": 100,
+  "userEmail": "juanmateoramosramos44@gmail.com",
+  "anomaliesCount": 0,
+  "meterReadings": {
+    "waterCubicMeters": 1589.2,
+    "electricKwh": 43130,
+    "gasCubicMeters": 1056.8
+  },
+  "time": "08:00",
+  "lastUpdated": "2026-09-15T12:08:58.846Z",
+  "technicianName": "Técnico de Mantenimiento",
+  "userId": "usr-1789230683226",
+  "shift": "manana",
+  "technicianSignature": "Juan Mateo/Técnico",
+  "date": "2026-11-03",
+  "anomalies": [],
+  "lastHeartbeat": "2026-09-15T12:08:36.712Z",
+  "generalNotes": "",
+  "checkpoints": [
+    {
+      "allowNotes": true,
+      "notes": "Estava Descongelando, Ya Está Prendida",
+      "id": "chk-tpl-1788985535314-nua3",
+      "requireNotesOnFailure": false,
+      "minValue": -25,
+      "ampState": "Encendido",
+      "category": "refrigeracion",
+      "lastNonZeroValue": 47,
+      "area": "Cocina S4",
+      "isCritical": false,
+      "maxValue": 50,
+      "includeStatusButtons": false,
+      "type": "numeric",
+      "currentValue": 47,
+      "unit": "°C",
+      "buttonActions": {},
+      "measurementFields": [
+        {
+          "minValue": -25,
+          "ampState": "Encendido",
+          "includeButtons": false,
+          "name": "Cava Congelación",
+          "value": 47,
+          "unit": "°C",
+          "maxValue": 50,
+          "lastNonZeroValue": 47,
+          "id": "1"
+        }
+      ],
+      "title": "Cava De Congelación",
+      "isAlarmActive": false
+    },
+    {
+      "includeStatusButtons": false,
+      "ampState": "Encendido",
+      "minValue": 0,
+      "isAlarmActive": false,
+      "maxValue": 50,
+      "requireNotesOnFailure": false,
+      "lastNonZeroValue": 0,
+      "buttonActions": {},
+      "measurementFields": [
+        {
+          "minValue": 0,
+          "ampState": "Encendido",
+          "value": 0,
+          "id": "1",
+          "unit": "°C",
+          "name": "Cava Refrigeracion",
+          "maxValue": 50,
+          "lastNonZeroValue": 25,
+          "includeButtons": false
+        }
+      ],
+      "type": "numeric",
+      "category": "refrigeracion",
+      "unit": "°C",
+      "title": "Cava De Refrigeración",
+      "area": "Cocina S4",
+      "allowNotes": true,
+      "isCritical": false,
+      "id": "chk-tpl-1788988056429-c66o",
+      "currentValue": 0
+    },
+    {
+      "unit": "°C",
+      "type": "numeric",
+      "minValue": 0,
+      "measurementFields": [
+        {
+          "minValue": 0,
+          "ampState": "Encendido",
+          "name": "Cava Refrigeracion",
+          "unit": "°C",
+          "id": "1",
+          "maxValue": 50,
+          "lastNonZeroValue": 2.7,
+          "includeButtons": false,
+          "value": 2.7
+        }
+      ],
+      "id": "chk-tpl-1788988080039-nkgi",
+      "ampState": "Encendido",
+      "buttonActions": {},
+      "maxValue": 50,
+      "includeStatusButtons": false,
+      "category": "refrigeracion",
+      "isAlarmActive": false,
+      "currentValue": 2.7,
+      "requireNotesOnFailure": false,
+      "lastNonZeroValue": 0,
+      "isCritical": false,
+      "area": "Cocina S4",
+      "title": "Cava De Refrigeración",
+      "allowNotes": true
+    },
+    {
+      "type": "ok_nok",
+      "ampState": "Apagado",
+      "title": "Extracción",
+      "allowNotes": true,
+      "isCritical": false,
+      "buttonActions": {},
+      "currentValue": "Apagado",
+      "category": "extraccion",
+      "id": "chk-tpl-1788989380312-s3ia",
+      "statusValue": "Apagado",
+      "isAlarmActive": false,
+      "options": [
+        "Encendido",
+        "Apagado",
+        "Alarmado"
+      ],
+      "requireNotesOnFailure": false,
+      "area": "Cocina S4",
+      "lastNonZeroValue": 0
+    },
+    {
+      "category": "hidraulico",
+      "area": "Planta RCI S3",
+      "allowNotes": true,
+      "isAlarmActive": false,
+      "isCritical": false,
+      "id": "chk-tpl-1789054060776-tynz",
+      "ampState": "Encendido",
+      "currentValue": 273,
+      "title": "Bomba Jockey",
+      "requireNotesOnFailure": false,
+      "unit": "PSI",
+      "type": "numeric",
+      "lastNonZeroValue": 273
+    },
+    {
+      "ampState": "Encendido",
+      "id": "chk-tpl-1789058977130-dsm2",
+      "measurementFields": [
+        {
+          "value": 27.66,
+          "unit": "VDC",
+          "id": "1",
+          "name": "Bateria 1",
+          "ampState": "Encendido",
+          "lastNonZeroValue": 27.66
+        },
+        {
+          "ampState": "Encendido",
+          "lastNonZeroValue": 27.66,
+          "unit": "VDC",
+          "id": "1789059243278",
+          "name": "Bateria 2",
+          "value": 27.66
+        }
+      ],
+      "title": "Baterias",
+      "currentValue": 27.66,
+      "area": "Planta RCI S3",
+      "requireNotesOnFailure": false,
+      "category": "bateria",
+      "lastNonZeroValue": 0,
+      "allowNotes": true,
+      "isCritical": false,
+      "isAlarmActive": false,
+      "unit": "VDC",
+      "type": "numeric",
+      "includeStatusButtons": false
+    },
+    {
+      "options": [
+        "Sin Alarma",
+        "Sensor Alarmado"
+      ],
+      "id": "chk-tpl-1789060493962-91iv",
+      "requireNotesOnFailure": false,
+      "area": "Planta RCI S3",
+      "lastNonZeroValue": 61,
+      "isAlarmActive": true,
+      "measurementFields": [
+        {
+          "maxValue": 100,
+          "lastNonZeroValue": 60,
+          "ampState": "Encendido",
+          "minValue": 61,
+          "unit": "%",
+          "id": "1",
+          "name": "Nivel Combustible",
+          "value": 60
+        }
+      ],
+      "alarmReason": "Botón de alarma activado: \"Sensor Alarmado\"",
+      "statusValue": "Sensor Alarmado",
+      "allowNotes": true,
+      "ampState": "Encendido",
+      "minValue": 61,
+      "includeStatusButtons": true,
+      "title": "Combustible",
+      "maxValue": 100,
+      "currentValue": 60,
+      "unit": "%",
+      "category": "combustible",
+      "type": "numeric",
+      "isCritical": false
+    },
+    {
+      "currentValue": 260,
+      "area": "Planta RCI S3",
+      "lastNonZeroValue": 250,
+      "includeStatusButtons": false,
+      "requireNotesOnFailure": false,
+      "maxValue": 300,
+      "title": "Manometros Principales",
+      "allowNotes": true,
+      "isAlarmActive": false,
+      "category": "manometro",
+      "ampState": "Encendido",
+      "minValue": 250,
+      "measurementFields": [
+        {
+          "lastNonZeroValue": 260,
+          "value": 260,
+          "unit": "PSI",
+          "ampState": "Encendido",
+          "id": "1",
+          "name": "Manometro 1",
+          "minValue": 250,
+          "maxValue": 300
+        },
+        {
+          "maxValue": 180,
+          "id": "1789066651541",
+          "unit": "PSI",
+          "lastNonZeroValue": 170,
+          "ampState": "Encendido",
+          "minValue": 160,
+          "name": "Manometro 2",
+          "value": 170
+        }
+      ],
+      "id": "chk-tpl-1789066766097-j1e5",
+      "isCritical": false,
+      "unit": "PSI",
+      "type": "numeric"
+    },
+    {
+      "buttonActions": {
+        "Encendido": {
+          "actionType": "turn_on",
+          "color": "emerald"
+        },
+        "Apagado": {
+          "color": "slate",
+          "actionType": "turn_off"
+        }
+      },
+      "statusValue": "Encendido",
+      "isAlarmActive": false,
+      "requireNotesOnFailure": false,
+      "includeStatusButtons": true,
+      "lastNonZeroValue": 12,
+      "measurementFields": [
+        {
+          "name": "BOM-1",
+          "lastNonZeroValue": 19,
+          "value": 19,
+          "ampState": "Encendido",
+          "minValue": 12,
+          "id": "1",
+          "includeButtons": false,
+          "maxValue": 20,
+          "unit": "A"
+        }
+      ],
+      "unit": "A",
+      "type": "numeric",
+      "title": "BOM-1-S3",
+      "currentValue": 19,
+      "id": "chk-tpl-1789071231392-wx5f",
+      "maxValue": 20,
+      "isCritical": false,
+      "category": "hidraulico",
+      "area": "Bombas De Impulción S3",
+      "options": [
+        "Encendido",
+        "Apagado"
+      ],
+      "minValue": 12,
+      "ampState": "Encendido",
+      "allowNotes": true
+    },
+    {
+      "measurementFields": [
+        {
+          "ampState": "Apagado",
+          "unit": "A",
+          "minValue": 12,
+          "id": "1",
+          "lastNonZeroValue": 16,
+          "maxValue": 20,
+          "value": 0,
+          "name": "BOM-2",
+          "includeButtons": false
+        }
+      ],
+      "title": "BOM-2-S3",
+      "lastNonZeroValue": 12,
+      "currentValue": 0,
+      "type": "numeric",
+      "unit": "A",
+      "statusValue": "Apagado",
+      "isAlarmActive": false,
+      "includeStatusButtons": true,
+      "buttonActions": {},
+      "area": "Bombas De Impulción S3",
+      "maxValue": 20,
+      "isCritical": false,
+      "options": [
+        "Encendido",
+        "Apagado"
+      ],
+      "category": "hidraulico",
+      "id": "chk-tpl-1789072528074-19rc",
+      "ampState": "Apagado",
+      "minValue": 12,
+      "allowNotes": true,
+      "requireNotesOnFailure": false
+    },
+    {
+      "requireNotesOnFailure": false,
+      "category": "bateria",
+      "buttonActions": {},
+      "lastNonZeroValue": 0,
+      "isAlarmActive": false,
+      "type": "numeric",
+      "includeStatusButtons": false,
+      "unit": "VDC",
+      "ampState": "Encendido",
+      "id": "chk-tpl-1789072918083-tj8j",
+      "title": "Batería",
+      "allowNotes": true,
+      "area": "Planta De Emergencia S2",
+      "isCritical": false,
+      "currentValue": 27.6,
+      "measurementFields": [
+        {
+          "value": 27.6,
+          "name": "Bateria-",
+          "ampState": "Encendido",
+          "lastNonZeroValue": 27.6,
+          "id": "1",
+          "includeButtons": false,
+          "unit": "VDC"
+        }
+      ]
+    },
+    {
+      "id": "chk-tpl-1789082124733-70s2",
+      "lastNonZeroValue": 0,
+      "isCritical": false,
+      "unit": "%",
+      "type": "numeric",
+      "allowNotes": true,
+      "includeStatusButtons": false,
+      "isAlarmActive": false,
+      "currentValue": 62,
+      "category": "combustible",
+      "area": "Planta De Emergencia S2",
+      "measurementFields": [
+        {
+          "ampState": "Encendido",
+          "unit": "%",
+          "value": 62,
+          "id": "1",
+          "lastNonZeroValue": 62,
+          "name": "Combustible"
+        }
+      ],
+      "requireNotesOnFailure": false,
+      "ampState": "Encendido",
+      "title": "Combustible"
+    },
+    {
+      "measurementFields": [
+        {
+          "unit": "°C",
+          "lastNonZeroValue": 47,
+          "id": "1",
+          "ampState": "Encendido",
+          "value": 47,
+          "name": "Temperatura"
+        }
+      ],
+      "id": "chk-tpl-1789082328250-puzo",
+      "buttonActions": {},
+      "allowNotes": true,
+      "unit": "°C",
+      "type": "numeric",
+      "category": "temperatura",
+      "isAlarmActive": false,
+      "includeStatusButtons": false,
+      "currentValue": 47,
+      "requireNotesOnFailure": false,
+      "ampState": "Encendido",
+      "isCritical": false,
+      "lastNonZeroValue": 0,
+      "title": "Temperatura",
+      "area": "Planta De Emergencia S2"
+    },
+    {
+      "unit": "m³",
+      "type": "numeric",
+      "ampState": "Encendido",
+      "currentValue": 9.5,
+      "buttonActions": {},
+      "category": "tanque",
+      "isAlarmActive": false,
+      "id": "chk-tpl-1789181196563-joap",
+      "allowNotes": true,
+      "requireNotesOnFailure": false,
+      "includeStatusButtons": false,
+      "isCritical": false,
+      "title": "Tanques",
+      "area": "Terraza Piso 18",
+      "measurementFields": [
+        {
+          "includeButtons": false,
+          "unit": "m³",
+          "id": "1",
+          "lastNonZeroValue": 9.5,
+          "ampState": "Encendido",
+          "value": 9.5,
+          "name": "Tanques Hotel"
+        },
+        {
+          "ampState": "Encendido",
+          "name": "Tanques Apto",
+          "value": 2,
+          "unit": "m³",
+          "lastNonZeroValue": 2,
+          "includeButtons": false,
+          "id": "1789181031815"
+        }
+      ],
+      "lastNonZeroValue": 0
+    },
+    {
+      "ampState": "Encendido",
+      "allowNotes": true,
+      "isCritical": false,
+      "area": "Planta De Emergencia S2",
+      "title": "Condensadores",
+      "currentValue": 0.996,
+      "lastNonZeroValue": 0,
+      "category": "condensador",
+      "type": "numeric",
+      "unit": "FP",
+      "measurementFields": [
+        {
+          "value": 0.996,
+          "name": "Condensadores",
+          "includeButtons": false,
+          "ampState": "Encendido",
+          "lastNonZeroValue": 0.996,
+          "id": "1",
+          "unit": "FP"
+        }
+      ],
+      "isAlarmActive": false,
+      "buttonActions": {},
+      "id": "chk-tpl-1789181948808-tk08",
+      "requireNotesOnFailure": false,
+      "includeStatusButtons": false
+    },
+    {
+      "isAlarmActive": false,
+      "measurementFields": [
+        {
+          "maxValue": 60,
+          "buttonActions": {
+            "Apagado": {
+              "color": "slate",
+              "actionType": "default"
+            },
+            "Encendido": {
+              "actionType": "default",
+              "color": "emerald"
+            }
+          },
+          "lastNonZeroValue": 54,
+          "id": "1",
+          "name": "Precion",
+          "unit": "PSI",
+          "options": [
+            "Encendido",
+            "Apagado",
+            "Alarmado"
+          ],
+          "statusValue": "Encendido",
+          "ampState": "Encendido",
+          "minValue": 42,
+          "includeButtons": true,
+          "value": 54
+        }
+      ],
+      "minValue": 42,
+      "buttonActions": {},
+      "requireNotesOnFailure": false,
+      "isCritical": false,
+      "ampState": "Encendido",
+      "area": "Terraza Piso 18",
+      "allowNotes": true,
+      "currentValue": 54,
+      "category": "hidraulico",
+      "id": "chk-tpl-1789183131928-5ogv",
+      "maxValue": 60,
+      "type": "numeric",
+      "unit": "PSI",
+      "lastNonZeroValue": 42,
+      "includeStatusButtons": false,
+      "title": "Bombas De Presión"
+    },
+    {
+      "ampState": "Encendido",
+      "measurementFields": [
+        {
+          "value": 36.8,
+          "ampState": "Encendido",
+          "unit": "°C",
+          "name": "Temperatura/Sauna",
+          "buttonActions": {
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "default"
+            },
+            "Apagado": {
+              "actionType": "default",
+              "color": "slate"
+            }
+          },
+          "options": [
+            "Encendido",
+            "Apagado"
+          ],
+          "statusValue": "Encendido",
+          "lastNonZeroValue": 36.8,
+          "id": "1",
+          "includeButtons": true
+        },
+        {
+          "id": "1789184871874",
+          "lastNonZeroValue": 11.5,
+          "name": "Cold Plungue",
+          "includeButtons": true,
+          "unit": "°C",
+          "statusValue": "Encendido",
+          "buttonActions": {
+            "Apagado": {
+              "color": "slate",
+              "actionType": "default"
+            },
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "default"
+            }
+          },
+          "ampState": "Encendido",
+          "options": [
+            "Encendido",
+            "Apagado"
+          ],
+          "value": 11.5
+        }
+      ],
+      "area": "Zona Húmeda/Piso 6",
+      "category": "sauna_cold_plunge",
+      "requireNotesOnFailure": false,
+      "title": "Sauna/Cold Plungue",
+      "lastNonZeroValue": 0,
+      "isCritical": false,
+      "unit": "°C",
+      "type": "numeric",
+      "id": "chk-tpl-1789184914843-8qeh",
+      "currentValue": 36.8,
+      "allowNotes": true,
+      "buttonActions": {},
+      "includeStatusButtons": false,
+      "isAlarmActive": false
+    },
+    {
+      "type": "ok_nok",
+      "ampState": "Encendido",
+      "isCritical": false,
+      "suggestedNotes": [
+        "Musica Ascensores Ok",
+        "Musica Gym Ok",
+        "Televisor Gym Ok",
+        "Musica Piscina Ok",
+        "Musica Silo Ok",
+        "Musica Sastra Ok",
+        "Musica Sauna Ok"
+      ],
+      "buttonActions": {},
+      "title": "Musica",
+      "allowNotes": true,
+      "isAlarmActive": false,
+      "category": "musica",
+      "id": "chk-tpl-1789186187266-j679",
+      "requireNotesOnFailure": false,
+      "options": [
+        "Todo Ok",
+        "NO OK"
+      ],
+      "statusValue": "Todo Ok",
+      "currentValue": "Todo Ok",
+      "lastNonZeroValue": 0,
+      "area": "Zona Húmeda/Piso 6"
+    },
+    {
+      "measurementFields": [
+        {
+          "name": "Botellero Ventanal",
+          "value": -5,
+          "lastNonZeroValue": -5,
+          "buttonActions": {
+            "Encendido": {
+              "actionType": "turn_on",
+              "color": "emerald"
+            },
+            "Apagado": {
+              "actionType": "turn_off",
+              "color": "slate"
+            }
+          },
+          "includeButtons": true,
+          "statusValue": "OK",
+          "ampState": "Encendido",
+          "id": "1",
+          "unit": "°C",
+          "options": [
+            "OK",
+            "NO OK"
+          ]
+        },
+        {
+          "unit": "°C",
+          "statusValue": "OK",
+          "id": "1789227261860",
+          "ampState": "Encendido",
+          "includeButtons": true,
+          "lastNonZeroValue": -17,
+          "value": -17,
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "buttonActions": {
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "turn_on"
+            },
+            "Apagado": {
+              "color": "slate",
+              "actionType": "turn_off"
+            }
+          },
+          "name": "Nevera Cafetera"
+        },
+        {
+          "includeButtons": true,
+          "name": "Botellero Entrada Derecha",
+          "statusValue": "OK",
+          "lastNonZeroValue": 42,
+          "buttonActions": {
+            "Apagado": {
+              "actionType": "turn_off",
+              "color": "slate"
+            },
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "turn_on"
+            }
+          },
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "ampState": "Encendido",
+          "id": "1789227309459",
+          "value": 42,
+          "unit": "°F"
+        },
+        {
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "id": "1789227538808",
+          "statusValue": "OK",
+          "includeButtons": true,
+          "name": "Botellero Entrada Izquierda",
+          "unit": "°F",
+          "lastNonZeroValue": 34,
+          "buttonActions": {
+            "Apagado": {
+              "actionType": "turn_off",
+              "color": "slate"
+            },
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "turn_on"
+            }
+          },
+          "ampState": "Encendido",
+          "value": 34
+        }
+      ],
+      "requireNotesOnFailure": false,
+      "area": "Bar/ Piso 6",
+      "currentValue": -5,
+      "includeStatusButtons": false,
+      "category": "refrigeracion",
+      "isCritical": false,
+      "id": "chk-tpl-1789227609185-rbqi",
+      "type": "numeric",
+      "unit": "°C",
+      "isAlarmActive": false,
+      "allowNotes": true,
+      "buttonActions": {},
+      "lastNonZeroValue": 0,
+      "title": "Equipos Del Bar",
+      "ampState": "Encendido"
+    },
+    {
+      "category": "caldera",
+      "isAlarmActive": false,
+      "measurementFields": [
+        {
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "lastNonZeroValue": 50.8,
+          "unit": "°C",
+          "buttonActions": {
+            "Apagado": {
+              "actionType": "turn_off",
+              "color": "slate"
+            },
+            "Encendido": {
+              "actionType": "turn_on",
+              "color": "emerald"
+            }
+          },
+          "includeButtons": true,
+          "ampState": "Encendido",
+          "value": 50.8,
+          "name": "Bombas/Presurisacion",
+          "id": "1",
+          "statusValue": "OK"
+        },
+        {
+          "lastNonZeroValue": 47.9,
+          "id": "1789240544706",
+          "ampState": "Encendido",
+          "unit": "°C",
+          "statusValue": "OK",
+          "includeButtons": true,
+          "value": 47.9,
+          "name": "Bomba/Resirculacion",
+          "buttonActions": {
+            "Apagado": {
+              "color": "slate",
+              "actionType": "turn_off"
+            },
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "turn_on"
+            }
+          },
+          "options": [
+            "OK",
+            "NO OK"
+          ]
+        },
+        {
+          "unit": "PSI",
+          "ampState": "Encendido",
+          "lastNonZeroValue": 50,
+          "includeButtons": false,
+          "id": "1789240600468",
+          "name": "Manometros De Bombas",
+          "value": 50
+        },
+        {
+          "unit": "PSI",
+          "value": 50,
+          "id": "1789240637614",
+          "name": "Manometros Tanques",
+          "lastNonZeroValue": 50,
+          "ampState": "Encendido",
+          "includeButtons": false
+        }
+      ],
+      "buttonActions": {},
+      "requireNotesOnFailure": false,
+      "type": "numeric",
+      "unit": "°C",
+      "id": "chk-tpl-1789240659096-ji6y",
+      "ampState": "Encendido",
+      "area": "Cuarto De Bombas",
+      "isCritical": false,
+      "title": "Sistema De Agua Caliente",
+      "currentValue": 50.8,
+      "lastNonZeroValue": 0,
+      "includeStatusButtons": false,
+      "allowNotes": true
+    },
+    {
+      "allowNotes": true,
+      "statusValue": "Operativo",
+      "requireNotesOnFailure": false,
+      "title": "Ascensor Apto",
+      "type": "ok_nok",
+      "isCritical": false,
+      "id": "chk-tpl-1789423733318-xfh6",
+      "isAlarmActive": false,
+      "category": "extraccion",
+      "buttonActions": {},
+      "area": "Ascensores",
+      "ampState": "Encendido",
+      "lastNonZeroValue": 0,
+      "currentValue": "Operativo",
+      "options": [
+        "Operativo",
+        "Bloqueado"
+      ]
+    },
+    {
+      "options": [
+        "Nivel Bajo",
+        "Nivel Medio",
+        "Nivel Alto"
+      ],
+      "statusValue": "Nivel Alto",
+      "currentValue": "Nivel Alto",
+      "type": "ok_nok",
+      "lastNonZeroValue": 0,
+      "isCritical": false,
+      "category": "extraccion",
+      "requireNotesOnFailure": false,
+      "id": "chk-tpl-1789428026446-qnuc",
+      "title": "Tanques De Agua Potable",
+      "allowNotes": true,
+      "ampState": "Encendido",
+      "buttonActions": {
+        "Nivel Bajo": {
+          "color": "auto",
+          "actionType": "failure"
+        }
+      },
+      "isAlarmActive": false,
+      "area": "Bombas De Impulción S3"
+    },
+    {
+      "title": "Ascensor Hotel",
+      "type": "ok_nok",
+      "allowNotes": true,
+      "requireNotesOnFailure": false,
+      "statusValue": "Operativo",
+      "isCritical": false,
+      "id": "chk-tpl-1789428185062-g11h",
+      "options": [
+        "Operativo",
+        "Bloqueado"
+      ],
+      "isAlarmActive": false,
+      "ampState": "Encendido",
+      "currentValue": "Operativo",
+      "buttonActions": {},
+      "lastNonZeroValue": 0,
+      "area": "Ascensores",
+      "category": "extraccion"
+    },
+    {
+      "id": "chk-tpl-1789428511011-x67z",
+      "options": [
+        "Operativo",
+        "Bloqueado"
+      ],
+      "ampState": "Encendido",
+      "type": "ok_nok",
+      "category": "extraccion",
+      "area": "Ascensores",
+      "isCritical": false,
+      "lastNonZeroValue": 0,
+      "isAlarmActive": false,
+      "allowNotes": true,
+      "buttonActions": {},
+      "statusValue": "Operativo",
+      "currentValue": "Operativo",
+      "requireNotesOnFailure": false,
+      "title": "Ascensor De Servicio"
+    },
+    {
+      "options": [
+        "Energia/EMP",
+        "Energia/Planta",
+        "Bloqueado"
+      ],
+      "requireNotesOnFailure": false,
+      "id": "chk-tpl-1789435170225-zr6y",
+      "category": "subestacion",
+      "currentValue": "Energia/EMP",
+      "area": "Planta De Emergencia S2",
+      "ampState": "Encendido",
+      "allowNotes": true,
+      "type": "ok_nok",
+      "buttonActions": {
+        "Bloqueado": {
+          "actionType": "failure",
+          "color": "auto"
+        }
+      },
+      "isAlarmActive": false,
+      "statusValue": "Energia/EMP",
+      "lastNonZeroValue": 0,
+      "title": "Transferencia De Energia",
+      "isCritical": false
+    },
+    {
+      "currentValue": 2,
+      "area": "Cocina/Silo",
+      "measurementFields": [
+        {
+          "unit": "°C",
+          "lastNonZeroValue": 2,
+          "id": "1",
+          "statusValue": "OK",
+          "buttonActions": {
+            "Encendido": {
+              "actionType": "turn_on",
+              "color": "emerald"
+            },
+            "Apagado": {
+              "color": "slate",
+              "actionType": "turn_off"
+            }
+          },
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "value": 2,
+          "includeButtons": true,
+          "name": "Nevera 1",
+          "ampState": "Encendido"
+        },
+        {
+          "statusValue": "OK",
+          "name": "Nevera 2",
+          "ampState": "Encendido",
+          "value": 5,
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "id": "1789470556027",
+          "lastNonZeroValue": 5,
+          "unit": "°C",
+          "buttonActions": {
+            "Apagado": {
+              "actionType": "turn_off",
+              "color": "slate"
+            },
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "turn_on"
+            }
+          },
+          "includeButtons": true
+        },
+        {
+          "value": 4,
+          "includeButtons": true,
+          "buttonActions": {
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "turn_on"
+            },
+            "Apagado": {
+              "color": "slate",
+              "actionType": "turn_off"
+            }
+          },
+          "unit": "°C",
+          "name": "Nevera 3",
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "statusValue": "OK",
+          "ampState": "Encendido",
+          "lastNonZeroValue": 4,
+          "id": "1789470602027"
+        },
+        {
+          "ampState": "Encendido",
+          "id": "1789470634919",
+          "name": "Base Chef",
+          "lastNonZeroValue": 36,
+          "statusValue": "OK",
+          "unit": "°F",
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "buttonActions": {
+            "Apagado": {
+              "color": "slate",
+              "actionType": "turn_off"
+            },
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "turn_on"
+            }
+          },
+          "includeButtons": true,
+          "value": 36
+        },
+        {
+          "name": "Nevera De Entrada",
+          "includeButtons": true,
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "statusValue": "OK",
+          "ampState": "Encendido",
+          "id": "1789470671546",
+          "value": -4,
+          "buttonActions": {
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "turn_on"
+            },
+            "Apagado": {
+              "actionType": "turn_off",
+              "color": "slate"
+            }
+          },
+          "lastNonZeroValue": -4,
+          "unit": "°F"
+        }
+      ],
+      "isAlarmActive": false,
+      "ampState": "Encendido",
+      "buttonActions": {},
+      "lastNonZeroValue": 0,
+      "isCritical": false,
+      "allowNotes": true,
+      "requireNotesOnFailure": false,
+      "category": "refrigeracion",
+      "title": "Neveras",
+      "id": "chk-tpl-1789470717933-t9gy",
+      "includeStatusButtons": false,
+      "type": "numeric",
+      "unit": "°C"
+    }
+  ],
+  "progress": 100,
+  "completedAt": "2026-11-03T10:30:00Z"
+},
+{
+  "id": "rnd-1095",
+  "status": "completada",
+  "compliancePercentage": 100,
+  "userEmail": "juanmateoramosramos44@gmail.com",
+  "anomaliesCount": 0,
+  "meterReadings": {
+    "waterCubicMeters": 1591,
+    "electricKwh": 43175,
+    "gasCubicMeters": 1059
+  },
+  "time": "08:00",
+  "lastUpdated": "2026-09-15T12:08:58.846Z",
+  "technicianName": "Técnico de Mantenimiento",
+  "userId": "usr-1789230683226",
+  "shift": "tarde",
+  "technicianSignature": "Juan Mateo/Técnico",
+  "date": "2026-11-04",
+  "anomalies": [],
+  "lastHeartbeat": "2026-09-15T12:08:36.712Z",
+  "generalNotes": "",
+  "checkpoints": [
+    {
+      "allowNotes": true,
+      "notes": "Estava Descongelando, Ya Está Prendida",
+      "id": "chk-tpl-1788985535314-nua3",
+      "requireNotesOnFailure": false,
+      "minValue": -25,
+      "ampState": "Encendido",
+      "category": "refrigeracion",
+      "lastNonZeroValue": 47,
+      "area": "Cocina S4",
+      "isCritical": false,
+      "maxValue": 50,
+      "includeStatusButtons": false,
+      "type": "numeric",
+      "currentValue": 47,
+      "unit": "°C",
+      "buttonActions": {},
+      "measurementFields": [
+        {
+          "minValue": -25,
+          "ampState": "Encendido",
+          "includeButtons": false,
+          "name": "Cava Congelación",
+          "value": 47,
+          "unit": "°C",
+          "maxValue": 50,
+          "lastNonZeroValue": 47,
+          "id": "1"
+        }
+      ],
+      "title": "Cava De Congelación",
+      "isAlarmActive": false
+    },
+    {
+      "includeStatusButtons": false,
+      "ampState": "Encendido",
+      "minValue": 0,
+      "isAlarmActive": false,
+      "maxValue": 50,
+      "requireNotesOnFailure": false,
+      "lastNonZeroValue": 0,
+      "buttonActions": {},
+      "measurementFields": [
+        {
+          "minValue": 0,
+          "ampState": "Encendido",
+          "value": 0,
+          "id": "1",
+          "unit": "°C",
+          "name": "Cava Refrigeracion",
+          "maxValue": 50,
+          "lastNonZeroValue": 25,
+          "includeButtons": false
+        }
+      ],
+      "type": "numeric",
+      "category": "refrigeracion",
+      "unit": "°C",
+      "title": "Cava De Refrigeración",
+      "area": "Cocina S4",
+      "allowNotes": true,
+      "isCritical": false,
+      "id": "chk-tpl-1788988056429-c66o",
+      "currentValue": 0
+    },
+    {
+      "unit": "°C",
+      "type": "numeric",
+      "minValue": 0,
+      "measurementFields": [
+        {
+          "minValue": 0,
+          "ampState": "Encendido",
+          "name": "Cava Refrigeracion",
+          "unit": "°C",
+          "id": "1",
+          "maxValue": 50,
+          "lastNonZeroValue": 2.7,
+          "includeButtons": false,
+          "value": 2.7
+        }
+      ],
+      "id": "chk-tpl-1788988080039-nkgi",
+      "ampState": "Encendido",
+      "buttonActions": {},
+      "maxValue": 50,
+      "includeStatusButtons": false,
+      "category": "refrigeracion",
+      "isAlarmActive": false,
+      "currentValue": 2.7,
+      "requireNotesOnFailure": false,
+      "lastNonZeroValue": 0,
+      "isCritical": false,
+      "area": "Cocina S4",
+      "title": "Cava De Refrigeración",
+      "allowNotes": true
+    },
+    {
+      "type": "ok_nok",
+      "ampState": "Apagado",
+      "title": "Extracción",
+      "allowNotes": true,
+      "isCritical": false,
+      "buttonActions": {},
+      "currentValue": "Apagado",
+      "category": "extraccion",
+      "id": "chk-tpl-1788989380312-s3ia",
+      "statusValue": "Apagado",
+      "isAlarmActive": false,
+      "options": [
+        "Encendido",
+        "Apagado",
+        "Alarmado"
+      ],
+      "requireNotesOnFailure": false,
+      "area": "Cocina S4",
+      "lastNonZeroValue": 0
+    },
+    {
+      "category": "hidraulico",
+      "area": "Planta RCI S3",
+      "allowNotes": true,
+      "isAlarmActive": false,
+      "isCritical": false,
+      "id": "chk-tpl-1789054060776-tynz",
+      "ampState": "Encendido",
+      "currentValue": 273,
+      "title": "Bomba Jockey",
+      "requireNotesOnFailure": false,
+      "unit": "PSI",
+      "type": "numeric",
+      "lastNonZeroValue": 273
+    },
+    {
+      "ampState": "Encendido",
+      "id": "chk-tpl-1789058977130-dsm2",
+      "measurementFields": [
+        {
+          "value": 27.66,
+          "unit": "VDC",
+          "id": "1",
+          "name": "Bateria 1",
+          "ampState": "Encendido",
+          "lastNonZeroValue": 27.66
+        },
+        {
+          "ampState": "Encendido",
+          "lastNonZeroValue": 27.66,
+          "unit": "VDC",
+          "id": "1789059243278",
+          "name": "Bateria 2",
+          "value": 27.66
+        }
+      ],
+      "title": "Baterias",
+      "currentValue": 27.66,
+      "area": "Planta RCI S3",
+      "requireNotesOnFailure": false,
+      "category": "bateria",
+      "lastNonZeroValue": 0,
+      "allowNotes": true,
+      "isCritical": false,
+      "isAlarmActive": false,
+      "unit": "VDC",
+      "type": "numeric",
+      "includeStatusButtons": false
+    },
+    {
+      "options": [
+        "Sin Alarma",
+        "Sensor Alarmado"
+      ],
+      "id": "chk-tpl-1789060493962-91iv",
+      "requireNotesOnFailure": false,
+      "area": "Planta RCI S3",
+      "lastNonZeroValue": 61,
+      "isAlarmActive": true,
+      "measurementFields": [
+        {
+          "maxValue": 100,
+          "lastNonZeroValue": 60,
+          "ampState": "Encendido",
+          "minValue": 61,
+          "unit": "%",
+          "id": "1",
+          "name": "Nivel Combustible",
+          "value": 60
+        }
+      ],
+      "alarmReason": "Botón de alarma activado: \"Sensor Alarmado\"",
+      "statusValue": "Sensor Alarmado",
+      "allowNotes": true,
+      "ampState": "Encendido",
+      "minValue": 61,
+      "includeStatusButtons": true,
+      "title": "Combustible",
+      "maxValue": 100,
+      "currentValue": 60,
+      "unit": "%",
+      "category": "combustible",
+      "type": "numeric",
+      "isCritical": false
+    },
+    {
+      "currentValue": 260,
+      "area": "Planta RCI S3",
+      "lastNonZeroValue": 250,
+      "includeStatusButtons": false,
+      "requireNotesOnFailure": false,
+      "maxValue": 300,
+      "title": "Manometros Principales",
+      "allowNotes": true,
+      "isAlarmActive": false,
+      "category": "manometro",
+      "ampState": "Encendido",
+      "minValue": 250,
+      "measurementFields": [
+        {
+          "lastNonZeroValue": 260,
+          "value": 260,
+          "unit": "PSI",
+          "ampState": "Encendido",
+          "id": "1",
+          "name": "Manometro 1",
+          "minValue": 250,
+          "maxValue": 300
+        },
+        {
+          "maxValue": 180,
+          "id": "1789066651541",
+          "unit": "PSI",
+          "lastNonZeroValue": 170,
+          "ampState": "Encendido",
+          "minValue": 160,
+          "name": "Manometro 2",
+          "value": 170
+        }
+      ],
+      "id": "chk-tpl-1789066766097-j1e5",
+      "isCritical": false,
+      "unit": "PSI",
+      "type": "numeric"
+    },
+    {
+      "buttonActions": {
+        "Encendido": {
+          "actionType": "turn_on",
+          "color": "emerald"
+        },
+        "Apagado": {
+          "color": "slate",
+          "actionType": "turn_off"
+        }
+      },
+      "statusValue": "Encendido",
+      "isAlarmActive": false,
+      "requireNotesOnFailure": false,
+      "includeStatusButtons": true,
+      "lastNonZeroValue": 12,
+      "measurementFields": [
+        {
+          "name": "BOM-1",
+          "lastNonZeroValue": 19,
+          "value": 19,
+          "ampState": "Encendido",
+          "minValue": 12,
+          "id": "1",
+          "includeButtons": false,
+          "maxValue": 20,
+          "unit": "A"
+        }
+      ],
+      "unit": "A",
+      "type": "numeric",
+      "title": "BOM-1-S3",
+      "currentValue": 19,
+      "id": "chk-tpl-1789071231392-wx5f",
+      "maxValue": 20,
+      "isCritical": false,
+      "category": "hidraulico",
+      "area": "Bombas De Impulción S3",
+      "options": [
+        "Encendido",
+        "Apagado"
+      ],
+      "minValue": 12,
+      "ampState": "Encendido",
+      "allowNotes": true
+    },
+    {
+      "measurementFields": [
+        {
+          "ampState": "Apagado",
+          "unit": "A",
+          "minValue": 12,
+          "id": "1",
+          "lastNonZeroValue": 16,
+          "maxValue": 20,
+          "value": 0,
+          "name": "BOM-2",
+          "includeButtons": false
+        }
+      ],
+      "title": "BOM-2-S3",
+      "lastNonZeroValue": 12,
+      "currentValue": 0,
+      "type": "numeric",
+      "unit": "A",
+      "statusValue": "Apagado",
+      "isAlarmActive": false,
+      "includeStatusButtons": true,
+      "buttonActions": {},
+      "area": "Bombas De Impulción S3",
+      "maxValue": 20,
+      "isCritical": false,
+      "options": [
+        "Encendido",
+        "Apagado"
+      ],
+      "category": "hidraulico",
+      "id": "chk-tpl-1789072528074-19rc",
+      "ampState": "Apagado",
+      "minValue": 12,
+      "allowNotes": true,
+      "requireNotesOnFailure": false
+    },
+    {
+      "requireNotesOnFailure": false,
+      "category": "bateria",
+      "buttonActions": {},
+      "lastNonZeroValue": 0,
+      "isAlarmActive": false,
+      "type": "numeric",
+      "includeStatusButtons": false,
+      "unit": "VDC",
+      "ampState": "Encendido",
+      "id": "chk-tpl-1789072918083-tj8j",
+      "title": "Batería",
+      "allowNotes": true,
+      "area": "Planta De Emergencia S2",
+      "isCritical": false,
+      "currentValue": 27.6,
+      "measurementFields": [
+        {
+          "value": 27.6,
+          "name": "Bateria-",
+          "ampState": "Encendido",
+          "lastNonZeroValue": 27.6,
+          "id": "1",
+          "includeButtons": false,
+          "unit": "VDC"
+        }
+      ]
+    },
+    {
+      "id": "chk-tpl-1789082124733-70s2",
+      "lastNonZeroValue": 0,
+      "isCritical": false,
+      "unit": "%",
+      "type": "numeric",
+      "allowNotes": true,
+      "includeStatusButtons": false,
+      "isAlarmActive": false,
+      "currentValue": 62,
+      "category": "combustible",
+      "area": "Planta De Emergencia S2",
+      "measurementFields": [
+        {
+          "ampState": "Encendido",
+          "unit": "%",
+          "value": 62,
+          "id": "1",
+          "lastNonZeroValue": 62,
+          "name": "Combustible"
+        }
+      ],
+      "requireNotesOnFailure": false,
+      "ampState": "Encendido",
+      "title": "Combustible"
+    },
+    {
+      "measurementFields": [
+        {
+          "unit": "°C",
+          "lastNonZeroValue": 47,
+          "id": "1",
+          "ampState": "Encendido",
+          "value": 47,
+          "name": "Temperatura"
+        }
+      ],
+      "id": "chk-tpl-1789082328250-puzo",
+      "buttonActions": {},
+      "allowNotes": true,
+      "unit": "°C",
+      "type": "numeric",
+      "category": "temperatura",
+      "isAlarmActive": false,
+      "includeStatusButtons": false,
+      "currentValue": 47,
+      "requireNotesOnFailure": false,
+      "ampState": "Encendido",
+      "isCritical": false,
+      "lastNonZeroValue": 0,
+      "title": "Temperatura",
+      "area": "Planta De Emergencia S2"
+    },
+    {
+      "unit": "m³",
+      "type": "numeric",
+      "ampState": "Encendido",
+      "currentValue": 9.5,
+      "buttonActions": {},
+      "category": "tanque",
+      "isAlarmActive": false,
+      "id": "chk-tpl-1789181196563-joap",
+      "allowNotes": true,
+      "requireNotesOnFailure": false,
+      "includeStatusButtons": false,
+      "isCritical": false,
+      "title": "Tanques",
+      "area": "Terraza Piso 18",
+      "measurementFields": [
+        {
+          "includeButtons": false,
+          "unit": "m³",
+          "id": "1",
+          "lastNonZeroValue": 9.5,
+          "ampState": "Encendido",
+          "value": 9.5,
+          "name": "Tanques Hotel"
+        },
+        {
+          "ampState": "Encendido",
+          "name": "Tanques Apto",
+          "value": 2,
+          "unit": "m³",
+          "lastNonZeroValue": 2,
+          "includeButtons": false,
+          "id": "1789181031815"
+        }
+      ],
+      "lastNonZeroValue": 0
+    },
+    {
+      "ampState": "Encendido",
+      "allowNotes": true,
+      "isCritical": false,
+      "area": "Planta De Emergencia S2",
+      "title": "Condensadores",
+      "currentValue": 0.996,
+      "lastNonZeroValue": 0,
+      "category": "condensador",
+      "type": "numeric",
+      "unit": "FP",
+      "measurementFields": [
+        {
+          "value": 0.996,
+          "name": "Condensadores",
+          "includeButtons": false,
+          "ampState": "Encendido",
+          "lastNonZeroValue": 0.996,
+          "id": "1",
+          "unit": "FP"
+        }
+      ],
+      "isAlarmActive": false,
+      "buttonActions": {},
+      "id": "chk-tpl-1789181948808-tk08",
+      "requireNotesOnFailure": false,
+      "includeStatusButtons": false
+    },
+    {
+      "isAlarmActive": false,
+      "measurementFields": [
+        {
+          "maxValue": 60,
+          "buttonActions": {
+            "Apagado": {
+              "color": "slate",
+              "actionType": "default"
+            },
+            "Encendido": {
+              "actionType": "default",
+              "color": "emerald"
+            }
+          },
+          "lastNonZeroValue": 54,
+          "id": "1",
+          "name": "Precion",
+          "unit": "PSI",
+          "options": [
+            "Encendido",
+            "Apagado",
+            "Alarmado"
+          ],
+          "statusValue": "Encendido",
+          "ampState": "Encendido",
+          "minValue": 42,
+          "includeButtons": true,
+          "value": 54
+        }
+      ],
+      "minValue": 42,
+      "buttonActions": {},
+      "requireNotesOnFailure": false,
+      "isCritical": false,
+      "ampState": "Encendido",
+      "area": "Terraza Piso 18",
+      "allowNotes": true,
+      "currentValue": 54,
+      "category": "hidraulico",
+      "id": "chk-tpl-1789183131928-5ogv",
+      "maxValue": 60,
+      "type": "numeric",
+      "unit": "PSI",
+      "lastNonZeroValue": 42,
+      "includeStatusButtons": false,
+      "title": "Bombas De Presión"
+    },
+    {
+      "ampState": "Encendido",
+      "measurementFields": [
+        {
+          "value": 36.8,
+          "ampState": "Encendido",
+          "unit": "°C",
+          "name": "Temperatura/Sauna",
+          "buttonActions": {
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "default"
+            },
+            "Apagado": {
+              "actionType": "default",
+              "color": "slate"
+            }
+          },
+          "options": [
+            "Encendido",
+            "Apagado"
+          ],
+          "statusValue": "Encendido",
+          "lastNonZeroValue": 36.8,
+          "id": "1",
+          "includeButtons": true
+        },
+        {
+          "id": "1789184871874",
+          "lastNonZeroValue": 11.5,
+          "name": "Cold Plungue",
+          "includeButtons": true,
+          "unit": "°C",
+          "statusValue": "Encendido",
+          "buttonActions": {
+            "Apagado": {
+              "color": "slate",
+              "actionType": "default"
+            },
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "default"
+            }
+          },
+          "ampState": "Encendido",
+          "options": [
+            "Encendido",
+            "Apagado"
+          ],
+          "value": 11.5
+        }
+      ],
+      "area": "Zona Húmeda/Piso 6",
+      "category": "sauna_cold_plunge",
+      "requireNotesOnFailure": false,
+      "title": "Sauna/Cold Plungue",
+      "lastNonZeroValue": 0,
+      "isCritical": false,
+      "unit": "°C",
+      "type": "numeric",
+      "id": "chk-tpl-1789184914843-8qeh",
+      "currentValue": 36.8,
+      "allowNotes": true,
+      "buttonActions": {},
+      "includeStatusButtons": false,
+      "isAlarmActive": false
+    },
+    {
+      "type": "ok_nok",
+      "ampState": "Encendido",
+      "isCritical": false,
+      "suggestedNotes": [
+        "Musica Ascensores Ok",
+        "Musica Gym Ok",
+        "Televisor Gym Ok",
+        "Musica Piscina Ok",
+        "Musica Silo Ok",
+        "Musica Sastra Ok",
+        "Musica Sauna Ok"
+      ],
+      "buttonActions": {},
+      "title": "Musica",
+      "allowNotes": true,
+      "isAlarmActive": false,
+      "category": "musica",
+      "id": "chk-tpl-1789186187266-j679",
+      "requireNotesOnFailure": false,
+      "options": [
+        "Todo Ok",
+        "NO OK"
+      ],
+      "statusValue": "Todo Ok",
+      "currentValue": "Todo Ok",
+      "lastNonZeroValue": 0,
+      "area": "Zona Húmeda/Piso 6"
+    },
+    {
+      "measurementFields": [
+        {
+          "name": "Botellero Ventanal",
+          "value": -5,
+          "lastNonZeroValue": -5,
+          "buttonActions": {
+            "Encendido": {
+              "actionType": "turn_on",
+              "color": "emerald"
+            },
+            "Apagado": {
+              "actionType": "turn_off",
+              "color": "slate"
+            }
+          },
+          "includeButtons": true,
+          "statusValue": "OK",
+          "ampState": "Encendido",
+          "id": "1",
+          "unit": "°C",
+          "options": [
+            "OK",
+            "NO OK"
+          ]
+        },
+        {
+          "unit": "°C",
+          "statusValue": "OK",
+          "id": "1789227261860",
+          "ampState": "Encendido",
+          "includeButtons": true,
+          "lastNonZeroValue": -17,
+          "value": -17,
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "buttonActions": {
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "turn_on"
+            },
+            "Apagado": {
+              "color": "slate",
+              "actionType": "turn_off"
+            }
+          },
+          "name": "Nevera Cafetera"
+        },
+        {
+          "includeButtons": true,
+          "name": "Botellero Entrada Derecha",
+          "statusValue": "OK",
+          "lastNonZeroValue": 42,
+          "buttonActions": {
+            "Apagado": {
+              "actionType": "turn_off",
+              "color": "slate"
+            },
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "turn_on"
+            }
+          },
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "ampState": "Encendido",
+          "id": "1789227309459",
+          "value": 42,
+          "unit": "°F"
+        },
+        {
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "id": "1789227538808",
+          "statusValue": "OK",
+          "includeButtons": true,
+          "name": "Botellero Entrada Izquierda",
+          "unit": "°F",
+          "lastNonZeroValue": 34,
+          "buttonActions": {
+            "Apagado": {
+              "actionType": "turn_off",
+              "color": "slate"
+            },
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "turn_on"
+            }
+          },
+          "ampState": "Encendido",
+          "value": 34
+        }
+      ],
+      "requireNotesOnFailure": false,
+      "area": "Bar/ Piso 6",
+      "currentValue": -5,
+      "includeStatusButtons": false,
+      "category": "refrigeracion",
+      "isCritical": false,
+      "id": "chk-tpl-1789227609185-rbqi",
+      "type": "numeric",
+      "unit": "°C",
+      "isAlarmActive": false,
+      "allowNotes": true,
+      "buttonActions": {},
+      "lastNonZeroValue": 0,
+      "title": "Equipos Del Bar",
+      "ampState": "Encendido"
+    },
+    {
+      "category": "caldera",
+      "isAlarmActive": false,
+      "measurementFields": [
+        {
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "lastNonZeroValue": 50.8,
+          "unit": "°C",
+          "buttonActions": {
+            "Apagado": {
+              "actionType": "turn_off",
+              "color": "slate"
+            },
+            "Encendido": {
+              "actionType": "turn_on",
+              "color": "emerald"
+            }
+          },
+          "includeButtons": true,
+          "ampState": "Encendido",
+          "value": 50.8,
+          "name": "Bombas/Presurisacion",
+          "id": "1",
+          "statusValue": "OK"
+        },
+        {
+          "lastNonZeroValue": 47.9,
+          "id": "1789240544706",
+          "ampState": "Encendido",
+          "unit": "°C",
+          "statusValue": "OK",
+          "includeButtons": true,
+          "value": 47.9,
+          "name": "Bomba/Resirculacion",
+          "buttonActions": {
+            "Apagado": {
+              "color": "slate",
+              "actionType": "turn_off"
+            },
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "turn_on"
+            }
+          },
+          "options": [
+            "OK",
+            "NO OK"
+          ]
+        },
+        {
+          "unit": "PSI",
+          "ampState": "Encendido",
+          "lastNonZeroValue": 50,
+          "includeButtons": false,
+          "id": "1789240600468",
+          "name": "Manometros De Bombas",
+          "value": 50
+        },
+        {
+          "unit": "PSI",
+          "value": 50,
+          "id": "1789240637614",
+          "name": "Manometros Tanques",
+          "lastNonZeroValue": 50,
+          "ampState": "Encendido",
+          "includeButtons": false
+        }
+      ],
+      "buttonActions": {},
+      "requireNotesOnFailure": false,
+      "type": "numeric",
+      "unit": "°C",
+      "id": "chk-tpl-1789240659096-ji6y",
+      "ampState": "Encendido",
+      "area": "Cuarto De Bombas",
+      "isCritical": false,
+      "title": "Sistema De Agua Caliente",
+      "currentValue": 50.8,
+      "lastNonZeroValue": 0,
+      "includeStatusButtons": false,
+      "allowNotes": true
+    },
+    {
+      "allowNotes": true,
+      "statusValue": "Operativo",
+      "requireNotesOnFailure": false,
+      "title": "Ascensor Apto",
+      "type": "ok_nok",
+      "isCritical": false,
+      "id": "chk-tpl-1789423733318-xfh6",
+      "isAlarmActive": false,
+      "category": "extraccion",
+      "buttonActions": {},
+      "area": "Ascensores",
+      "ampState": "Encendido",
+      "lastNonZeroValue": 0,
+      "currentValue": "Operativo",
+      "options": [
+        "Operativo",
+        "Bloqueado"
+      ]
+    },
+    {
+      "options": [
+        "Nivel Bajo",
+        "Nivel Medio",
+        "Nivel Alto"
+      ],
+      "statusValue": "Nivel Alto",
+      "currentValue": "Nivel Alto",
+      "type": "ok_nok",
+      "lastNonZeroValue": 0,
+      "isCritical": false,
+      "category": "extraccion",
+      "requireNotesOnFailure": false,
+      "id": "chk-tpl-1789428026446-qnuc",
+      "title": "Tanques De Agua Potable",
+      "allowNotes": true,
+      "ampState": "Encendido",
+      "buttonActions": {
+        "Nivel Bajo": {
+          "color": "auto",
+          "actionType": "failure"
+        }
+      },
+      "isAlarmActive": false,
+      "area": "Bombas De Impulción S3"
+    },
+    {
+      "title": "Ascensor Hotel",
+      "type": "ok_nok",
+      "allowNotes": true,
+      "requireNotesOnFailure": false,
+      "statusValue": "Operativo",
+      "isCritical": false,
+      "id": "chk-tpl-1789428185062-g11h",
+      "options": [
+        "Operativo",
+        "Bloqueado"
+      ],
+      "isAlarmActive": false,
+      "ampState": "Encendido",
+      "currentValue": "Operativo",
+      "buttonActions": {},
+      "lastNonZeroValue": 0,
+      "area": "Ascensores",
+      "category": "extraccion"
+    },
+    {
+      "id": "chk-tpl-1789428511011-x67z",
+      "options": [
+        "Operativo",
+        "Bloqueado"
+      ],
+      "ampState": "Encendido",
+      "type": "ok_nok",
+      "category": "extraccion",
+      "area": "Ascensores",
+      "isCritical": false,
+      "lastNonZeroValue": 0,
+      "isAlarmActive": false,
+      "allowNotes": true,
+      "buttonActions": {},
+      "statusValue": "Operativo",
+      "currentValue": "Operativo",
+      "requireNotesOnFailure": false,
+      "title": "Ascensor De Servicio"
+    },
+    {
+      "options": [
+        "Energia/EMP",
+        "Energia/Planta",
+        "Bloqueado"
+      ],
+      "requireNotesOnFailure": false,
+      "id": "chk-tpl-1789435170225-zr6y",
+      "category": "subestacion",
+      "currentValue": "Energia/EMP",
+      "area": "Planta De Emergencia S2",
+      "ampState": "Encendido",
+      "allowNotes": true,
+      "type": "ok_nok",
+      "buttonActions": {
+        "Bloqueado": {
+          "actionType": "failure",
+          "color": "auto"
+        }
+      },
+      "isAlarmActive": false,
+      "statusValue": "Energia/EMP",
+      "lastNonZeroValue": 0,
+      "title": "Transferencia De Energia",
+      "isCritical": false
+    },
+    {
+      "currentValue": 2,
+      "area": "Cocina/Silo",
+      "measurementFields": [
+        {
+          "unit": "°C",
+          "lastNonZeroValue": 2,
+          "id": "1",
+          "statusValue": "OK",
+          "buttonActions": {
+            "Encendido": {
+              "actionType": "turn_on",
+              "color": "emerald"
+            },
+            "Apagado": {
+              "color": "slate",
+              "actionType": "turn_off"
+            }
+          },
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "value": 2,
+          "includeButtons": true,
+          "name": "Nevera 1",
+          "ampState": "Encendido"
+        },
+        {
+          "statusValue": "OK",
+          "name": "Nevera 2",
+          "ampState": "Encendido",
+          "value": 5,
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "id": "1789470556027",
+          "lastNonZeroValue": 5,
+          "unit": "°C",
+          "buttonActions": {
+            "Apagado": {
+              "actionType": "turn_off",
+              "color": "slate"
+            },
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "turn_on"
+            }
+          },
+          "includeButtons": true
+        },
+        {
+          "value": 4,
+          "includeButtons": true,
+          "buttonActions": {
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "turn_on"
+            },
+            "Apagado": {
+              "color": "slate",
+              "actionType": "turn_off"
+            }
+          },
+          "unit": "°C",
+          "name": "Nevera 3",
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "statusValue": "OK",
+          "ampState": "Encendido",
+          "lastNonZeroValue": 4,
+          "id": "1789470602027"
+        },
+        {
+          "ampState": "Encendido",
+          "id": "1789470634919",
+          "name": "Base Chef",
+          "lastNonZeroValue": 36,
+          "statusValue": "OK",
+          "unit": "°F",
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "buttonActions": {
+            "Apagado": {
+              "color": "slate",
+              "actionType": "turn_off"
+            },
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "turn_on"
+            }
+          },
+          "includeButtons": true,
+          "value": 36
+        },
+        {
+          "name": "Nevera De Entrada",
+          "includeButtons": true,
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "statusValue": "OK",
+          "ampState": "Encendido",
+          "id": "1789470671546",
+          "value": -4,
+          "buttonActions": {
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "turn_on"
+            },
+            "Apagado": {
+              "actionType": "turn_off",
+              "color": "slate"
+            }
+          },
+          "lastNonZeroValue": -4,
+          "unit": "°F"
+        }
+      ],
+      "isAlarmActive": false,
+      "ampState": "Encendido",
+      "buttonActions": {},
+      "lastNonZeroValue": 0,
+      "isCritical": false,
+      "allowNotes": true,
+      "requireNotesOnFailure": false,
+      "category": "refrigeracion",
+      "title": "Neveras",
+      "id": "chk-tpl-1789470717933-t9gy",
+      "includeStatusButtons": false,
+      "type": "numeric",
+      "unit": "°C"
+    }
+  ],
+  "progress": 100,
+  "completedAt": "2026-11-04T10:30:00Z"
+},
+{
+  "id": "rnd-1096",
+  "status": "completada",
+  "compliancePercentage": 100,
+  "userEmail": "juanmateoramosramos44@gmail.com",
+  "anomaliesCount": 0,
+  "meterReadings": {
+    "waterCubicMeters": 1592.8,
+    "electricKwh": 43220,
+    "gasCubicMeters": 1061.2
+  },
+  "time": "08:00",
+  "lastUpdated": "2026-09-15T12:08:58.846Z",
+  "technicianName": "Técnico de Mantenimiento",
+  "userId": "usr-1789230683226",
+  "shift": "manana",
+  "technicianSignature": "Juan Mateo/Técnico",
+  "date": "2026-11-05",
+  "anomalies": [],
+  "lastHeartbeat": "2026-09-15T12:08:36.712Z",
+  "generalNotes": "",
+  "checkpoints": [
+    {
+      "allowNotes": true,
+      "notes": "Estava Descongelando, Ya Está Prendida",
+      "id": "chk-tpl-1788985535314-nua3",
+      "requireNotesOnFailure": false,
+      "minValue": -25,
+      "ampState": "Encendido",
+      "category": "refrigeracion",
+      "lastNonZeroValue": 47,
+      "area": "Cocina S4",
+      "isCritical": false,
+      "maxValue": 50,
+      "includeStatusButtons": false,
+      "type": "numeric",
+      "currentValue": 47,
+      "unit": "°C",
+      "buttonActions": {},
+      "measurementFields": [
+        {
+          "minValue": -25,
+          "ampState": "Encendido",
+          "includeButtons": false,
+          "name": "Cava Congelación",
+          "value": 47,
+          "unit": "°C",
+          "maxValue": 50,
+          "lastNonZeroValue": 47,
+          "id": "1"
+        }
+      ],
+      "title": "Cava De Congelación",
+      "isAlarmActive": false
+    },
+    {
+      "includeStatusButtons": false,
+      "ampState": "Encendido",
+      "minValue": 0,
+      "isAlarmActive": false,
+      "maxValue": 50,
+      "requireNotesOnFailure": false,
+      "lastNonZeroValue": 0,
+      "buttonActions": {},
+      "measurementFields": [
+        {
+          "minValue": 0,
+          "ampState": "Encendido",
+          "value": 0,
+          "id": "1",
+          "unit": "°C",
+          "name": "Cava Refrigeracion",
+          "maxValue": 50,
+          "lastNonZeroValue": 25,
+          "includeButtons": false
+        }
+      ],
+      "type": "numeric",
+      "category": "refrigeracion",
+      "unit": "°C",
+      "title": "Cava De Refrigeración",
+      "area": "Cocina S4",
+      "allowNotes": true,
+      "isCritical": false,
+      "id": "chk-tpl-1788988056429-c66o",
+      "currentValue": 0
+    },
+    {
+      "unit": "°C",
+      "type": "numeric",
+      "minValue": 0,
+      "measurementFields": [
+        {
+          "minValue": 0,
+          "ampState": "Encendido",
+          "name": "Cava Refrigeracion",
+          "unit": "°C",
+          "id": "1",
+          "maxValue": 50,
+          "lastNonZeroValue": 2.7,
+          "includeButtons": false,
+          "value": 2.7
+        }
+      ],
+      "id": "chk-tpl-1788988080039-nkgi",
+      "ampState": "Encendido",
+      "buttonActions": {},
+      "maxValue": 50,
+      "includeStatusButtons": false,
+      "category": "refrigeracion",
+      "isAlarmActive": false,
+      "currentValue": 2.7,
+      "requireNotesOnFailure": false,
+      "lastNonZeroValue": 0,
+      "isCritical": false,
+      "area": "Cocina S4",
+      "title": "Cava De Refrigeración",
+      "allowNotes": true
+    },
+    {
+      "type": "ok_nok",
+      "ampState": "Apagado",
+      "title": "Extracción",
+      "allowNotes": true,
+      "isCritical": false,
+      "buttonActions": {},
+      "currentValue": "Apagado",
+      "category": "extraccion",
+      "id": "chk-tpl-1788989380312-s3ia",
+      "statusValue": "Apagado",
+      "isAlarmActive": false,
+      "options": [
+        "Encendido",
+        "Apagado",
+        "Alarmado"
+      ],
+      "requireNotesOnFailure": false,
+      "area": "Cocina S4",
+      "lastNonZeroValue": 0
+    },
+    {
+      "category": "hidraulico",
+      "area": "Planta RCI S3",
+      "allowNotes": true,
+      "isAlarmActive": false,
+      "isCritical": false,
+      "id": "chk-tpl-1789054060776-tynz",
+      "ampState": "Encendido",
+      "currentValue": 273,
+      "title": "Bomba Jockey",
+      "requireNotesOnFailure": false,
+      "unit": "PSI",
+      "type": "numeric",
+      "lastNonZeroValue": 273
+    },
+    {
+      "ampState": "Encendido",
+      "id": "chk-tpl-1789058977130-dsm2",
+      "measurementFields": [
+        {
+          "value": 27.66,
+          "unit": "VDC",
+          "id": "1",
+          "name": "Bateria 1",
+          "ampState": "Encendido",
+          "lastNonZeroValue": 27.66
+        },
+        {
+          "ampState": "Encendido",
+          "lastNonZeroValue": 27.66,
+          "unit": "VDC",
+          "id": "1789059243278",
+          "name": "Bateria 2",
+          "value": 27.66
+        }
+      ],
+      "title": "Baterias",
+      "currentValue": 27.66,
+      "area": "Planta RCI S3",
+      "requireNotesOnFailure": false,
+      "category": "bateria",
+      "lastNonZeroValue": 0,
+      "allowNotes": true,
+      "isCritical": false,
+      "isAlarmActive": false,
+      "unit": "VDC",
+      "type": "numeric",
+      "includeStatusButtons": false
+    },
+    {
+      "options": [
+        "Sin Alarma",
+        "Sensor Alarmado"
+      ],
+      "id": "chk-tpl-1789060493962-91iv",
+      "requireNotesOnFailure": false,
+      "area": "Planta RCI S3",
+      "lastNonZeroValue": 61,
+      "isAlarmActive": true,
+      "measurementFields": [
+        {
+          "maxValue": 100,
+          "lastNonZeroValue": 60,
+          "ampState": "Encendido",
+          "minValue": 61,
+          "unit": "%",
+          "id": "1",
+          "name": "Nivel Combustible",
+          "value": 60
+        }
+      ],
+      "alarmReason": "Botón de alarma activado: \"Sensor Alarmado\"",
+      "statusValue": "Sensor Alarmado",
+      "allowNotes": true,
+      "ampState": "Encendido",
+      "minValue": 61,
+      "includeStatusButtons": true,
+      "title": "Combustible",
+      "maxValue": 100,
+      "currentValue": 60,
+      "unit": "%",
+      "category": "combustible",
+      "type": "numeric",
+      "isCritical": false
+    },
+    {
+      "currentValue": 260,
+      "area": "Planta RCI S3",
+      "lastNonZeroValue": 250,
+      "includeStatusButtons": false,
+      "requireNotesOnFailure": false,
+      "maxValue": 300,
+      "title": "Manometros Principales",
+      "allowNotes": true,
+      "isAlarmActive": false,
+      "category": "manometro",
+      "ampState": "Encendido",
+      "minValue": 250,
+      "measurementFields": [
+        {
+          "lastNonZeroValue": 260,
+          "value": 260,
+          "unit": "PSI",
+          "ampState": "Encendido",
+          "id": "1",
+          "name": "Manometro 1",
+          "minValue": 250,
+          "maxValue": 300
+        },
+        {
+          "maxValue": 180,
+          "id": "1789066651541",
+          "unit": "PSI",
+          "lastNonZeroValue": 170,
+          "ampState": "Encendido",
+          "minValue": 160,
+          "name": "Manometro 2",
+          "value": 170
+        }
+      ],
+      "id": "chk-tpl-1789066766097-j1e5",
+      "isCritical": false,
+      "unit": "PSI",
+      "type": "numeric"
+    },
+    {
+      "buttonActions": {
+        "Encendido": {
+          "actionType": "turn_on",
+          "color": "emerald"
+        },
+        "Apagado": {
+          "color": "slate",
+          "actionType": "turn_off"
+        }
+      },
+      "statusValue": "Encendido",
+      "isAlarmActive": false,
+      "requireNotesOnFailure": false,
+      "includeStatusButtons": true,
+      "lastNonZeroValue": 12,
+      "measurementFields": [
+        {
+          "name": "BOM-1",
+          "lastNonZeroValue": 19,
+          "value": 19,
+          "ampState": "Encendido",
+          "minValue": 12,
+          "id": "1",
+          "includeButtons": false,
+          "maxValue": 20,
+          "unit": "A"
+        }
+      ],
+      "unit": "A",
+      "type": "numeric",
+      "title": "BOM-1-S3",
+      "currentValue": 19,
+      "id": "chk-tpl-1789071231392-wx5f",
+      "maxValue": 20,
+      "isCritical": false,
+      "category": "hidraulico",
+      "area": "Bombas De Impulción S3",
+      "options": [
+        "Encendido",
+        "Apagado"
+      ],
+      "minValue": 12,
+      "ampState": "Encendido",
+      "allowNotes": true
+    },
+    {
+      "measurementFields": [
+        {
+          "ampState": "Apagado",
+          "unit": "A",
+          "minValue": 12,
+          "id": "1",
+          "lastNonZeroValue": 16,
+          "maxValue": 20,
+          "value": 0,
+          "name": "BOM-2",
+          "includeButtons": false
+        }
+      ],
+      "title": "BOM-2-S3",
+      "lastNonZeroValue": 12,
+      "currentValue": 0,
+      "type": "numeric",
+      "unit": "A",
+      "statusValue": "Apagado",
+      "isAlarmActive": false,
+      "includeStatusButtons": true,
+      "buttonActions": {},
+      "area": "Bombas De Impulción S3",
+      "maxValue": 20,
+      "isCritical": false,
+      "options": [
+        "Encendido",
+        "Apagado"
+      ],
+      "category": "hidraulico",
+      "id": "chk-tpl-1789072528074-19rc",
+      "ampState": "Apagado",
+      "minValue": 12,
+      "allowNotes": true,
+      "requireNotesOnFailure": false
+    },
+    {
+      "requireNotesOnFailure": false,
+      "category": "bateria",
+      "buttonActions": {},
+      "lastNonZeroValue": 0,
+      "isAlarmActive": false,
+      "type": "numeric",
+      "includeStatusButtons": false,
+      "unit": "VDC",
+      "ampState": "Encendido",
+      "id": "chk-tpl-1789072918083-tj8j",
+      "title": "Batería",
+      "allowNotes": true,
+      "area": "Planta De Emergencia S2",
+      "isCritical": false,
+      "currentValue": 27.6,
+      "measurementFields": [
+        {
+          "value": 27.6,
+          "name": "Bateria-",
+          "ampState": "Encendido",
+          "lastNonZeroValue": 27.6,
+          "id": "1",
+          "includeButtons": false,
+          "unit": "VDC"
+        }
+      ]
+    },
+    {
+      "id": "chk-tpl-1789082124733-70s2",
+      "lastNonZeroValue": 0,
+      "isCritical": false,
+      "unit": "%",
+      "type": "numeric",
+      "allowNotes": true,
+      "includeStatusButtons": false,
+      "isAlarmActive": false,
+      "currentValue": 62,
+      "category": "combustible",
+      "area": "Planta De Emergencia S2",
+      "measurementFields": [
+        {
+          "ampState": "Encendido",
+          "unit": "%",
+          "value": 62,
+          "id": "1",
+          "lastNonZeroValue": 62,
+          "name": "Combustible"
+        }
+      ],
+      "requireNotesOnFailure": false,
+      "ampState": "Encendido",
+      "title": "Combustible"
+    },
+    {
+      "measurementFields": [
+        {
+          "unit": "°C",
+          "lastNonZeroValue": 47,
+          "id": "1",
+          "ampState": "Encendido",
+          "value": 47,
+          "name": "Temperatura"
+        }
+      ],
+      "id": "chk-tpl-1789082328250-puzo",
+      "buttonActions": {},
+      "allowNotes": true,
+      "unit": "°C",
+      "type": "numeric",
+      "category": "temperatura",
+      "isAlarmActive": false,
+      "includeStatusButtons": false,
+      "currentValue": 47,
+      "requireNotesOnFailure": false,
+      "ampState": "Encendido",
+      "isCritical": false,
+      "lastNonZeroValue": 0,
+      "title": "Temperatura",
+      "area": "Planta De Emergencia S2"
+    },
+    {
+      "unit": "m³",
+      "type": "numeric",
+      "ampState": "Encendido",
+      "currentValue": 9.5,
+      "buttonActions": {},
+      "category": "tanque",
+      "isAlarmActive": false,
+      "id": "chk-tpl-1789181196563-joap",
+      "allowNotes": true,
+      "requireNotesOnFailure": false,
+      "includeStatusButtons": false,
+      "isCritical": false,
+      "title": "Tanques",
+      "area": "Terraza Piso 18",
+      "measurementFields": [
+        {
+          "includeButtons": false,
+          "unit": "m³",
+          "id": "1",
+          "lastNonZeroValue": 9.5,
+          "ampState": "Encendido",
+          "value": 9.5,
+          "name": "Tanques Hotel"
+        },
+        {
+          "ampState": "Encendido",
+          "name": "Tanques Apto",
+          "value": 2,
+          "unit": "m³",
+          "lastNonZeroValue": 2,
+          "includeButtons": false,
+          "id": "1789181031815"
+        }
+      ],
+      "lastNonZeroValue": 0
+    },
+    {
+      "ampState": "Encendido",
+      "allowNotes": true,
+      "isCritical": false,
+      "area": "Planta De Emergencia S2",
+      "title": "Condensadores",
+      "currentValue": 0.996,
+      "lastNonZeroValue": 0,
+      "category": "condensador",
+      "type": "numeric",
+      "unit": "FP",
+      "measurementFields": [
+        {
+          "value": 0.996,
+          "name": "Condensadores",
+          "includeButtons": false,
+          "ampState": "Encendido",
+          "lastNonZeroValue": 0.996,
+          "id": "1",
+          "unit": "FP"
+        }
+      ],
+      "isAlarmActive": false,
+      "buttonActions": {},
+      "id": "chk-tpl-1789181948808-tk08",
+      "requireNotesOnFailure": false,
+      "includeStatusButtons": false
+    },
+    {
+      "isAlarmActive": false,
+      "measurementFields": [
+        {
+          "maxValue": 60,
+          "buttonActions": {
+            "Apagado": {
+              "color": "slate",
+              "actionType": "default"
+            },
+            "Encendido": {
+              "actionType": "default",
+              "color": "emerald"
+            }
+          },
+          "lastNonZeroValue": 54,
+          "id": "1",
+          "name": "Precion",
+          "unit": "PSI",
+          "options": [
+            "Encendido",
+            "Apagado",
+            "Alarmado"
+          ],
+          "statusValue": "Encendido",
+          "ampState": "Encendido",
+          "minValue": 42,
+          "includeButtons": true,
+          "value": 54
+        }
+      ],
+      "minValue": 42,
+      "buttonActions": {},
+      "requireNotesOnFailure": false,
+      "isCritical": false,
+      "ampState": "Encendido",
+      "area": "Terraza Piso 18",
+      "allowNotes": true,
+      "currentValue": 54,
+      "category": "hidraulico",
+      "id": "chk-tpl-1789183131928-5ogv",
+      "maxValue": 60,
+      "type": "numeric",
+      "unit": "PSI",
+      "lastNonZeroValue": 42,
+      "includeStatusButtons": false,
+      "title": "Bombas De Presión"
+    },
+    {
+      "ampState": "Encendido",
+      "measurementFields": [
+        {
+          "value": 36.8,
+          "ampState": "Encendido",
+          "unit": "°C",
+          "name": "Temperatura/Sauna",
+          "buttonActions": {
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "default"
+            },
+            "Apagado": {
+              "actionType": "default",
+              "color": "slate"
+            }
+          },
+          "options": [
+            "Encendido",
+            "Apagado"
+          ],
+          "statusValue": "Encendido",
+          "lastNonZeroValue": 36.8,
+          "id": "1",
+          "includeButtons": true
+        },
+        {
+          "id": "1789184871874",
+          "lastNonZeroValue": 11.5,
+          "name": "Cold Plungue",
+          "includeButtons": true,
+          "unit": "°C",
+          "statusValue": "Encendido",
+          "buttonActions": {
+            "Apagado": {
+              "color": "slate",
+              "actionType": "default"
+            },
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "default"
+            }
+          },
+          "ampState": "Encendido",
+          "options": [
+            "Encendido",
+            "Apagado"
+          ],
+          "value": 11.5
+        }
+      ],
+      "area": "Zona Húmeda/Piso 6",
+      "category": "sauna_cold_plunge",
+      "requireNotesOnFailure": false,
+      "title": "Sauna/Cold Plungue",
+      "lastNonZeroValue": 0,
+      "isCritical": false,
+      "unit": "°C",
+      "type": "numeric",
+      "id": "chk-tpl-1789184914843-8qeh",
+      "currentValue": 36.8,
+      "allowNotes": true,
+      "buttonActions": {},
+      "includeStatusButtons": false,
+      "isAlarmActive": false
+    },
+    {
+      "type": "ok_nok",
+      "ampState": "Encendido",
+      "isCritical": false,
+      "suggestedNotes": [
+        "Musica Ascensores Ok",
+        "Musica Gym Ok",
+        "Televisor Gym Ok",
+        "Musica Piscina Ok",
+        "Musica Silo Ok",
+        "Musica Sastra Ok",
+        "Musica Sauna Ok"
+      ],
+      "buttonActions": {},
+      "title": "Musica",
+      "allowNotes": true,
+      "isAlarmActive": false,
+      "category": "musica",
+      "id": "chk-tpl-1789186187266-j679",
+      "requireNotesOnFailure": false,
+      "options": [
+        "Todo Ok",
+        "NO OK"
+      ],
+      "statusValue": "Todo Ok",
+      "currentValue": "Todo Ok",
+      "lastNonZeroValue": 0,
+      "area": "Zona Húmeda/Piso 6"
+    },
+    {
+      "measurementFields": [
+        {
+          "name": "Botellero Ventanal",
+          "value": -5,
+          "lastNonZeroValue": -5,
+          "buttonActions": {
+            "Encendido": {
+              "actionType": "turn_on",
+              "color": "emerald"
+            },
+            "Apagado": {
+              "actionType": "turn_off",
+              "color": "slate"
+            }
+          },
+          "includeButtons": true,
+          "statusValue": "OK",
+          "ampState": "Encendido",
+          "id": "1",
+          "unit": "°C",
+          "options": [
+            "OK",
+            "NO OK"
+          ]
+        },
+        {
+          "unit": "°C",
+          "statusValue": "OK",
+          "id": "1789227261860",
+          "ampState": "Encendido",
+          "includeButtons": true,
+          "lastNonZeroValue": -17,
+          "value": -17,
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "buttonActions": {
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "turn_on"
+            },
+            "Apagado": {
+              "color": "slate",
+              "actionType": "turn_off"
+            }
+          },
+          "name": "Nevera Cafetera"
+        },
+        {
+          "includeButtons": true,
+          "name": "Botellero Entrada Derecha",
+          "statusValue": "OK",
+          "lastNonZeroValue": 42,
+          "buttonActions": {
+            "Apagado": {
+              "actionType": "turn_off",
+              "color": "slate"
+            },
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "turn_on"
+            }
+          },
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "ampState": "Encendido",
+          "id": "1789227309459",
+          "value": 42,
+          "unit": "°F"
+        },
+        {
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "id": "1789227538808",
+          "statusValue": "OK",
+          "includeButtons": true,
+          "name": "Botellero Entrada Izquierda",
+          "unit": "°F",
+          "lastNonZeroValue": 34,
+          "buttonActions": {
+            "Apagado": {
+              "actionType": "turn_off",
+              "color": "slate"
+            },
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "turn_on"
+            }
+          },
+          "ampState": "Encendido",
+          "value": 34
+        }
+      ],
+      "requireNotesOnFailure": false,
+      "area": "Bar/ Piso 6",
+      "currentValue": -5,
+      "includeStatusButtons": false,
+      "category": "refrigeracion",
+      "isCritical": false,
+      "id": "chk-tpl-1789227609185-rbqi",
+      "type": "numeric",
+      "unit": "°C",
+      "isAlarmActive": false,
+      "allowNotes": true,
+      "buttonActions": {},
+      "lastNonZeroValue": 0,
+      "title": "Equipos Del Bar",
+      "ampState": "Encendido"
+    },
+    {
+      "category": "caldera",
+      "isAlarmActive": false,
+      "measurementFields": [
+        {
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "lastNonZeroValue": 50.8,
+          "unit": "°C",
+          "buttonActions": {
+            "Apagado": {
+              "actionType": "turn_off",
+              "color": "slate"
+            },
+            "Encendido": {
+              "actionType": "turn_on",
+              "color": "emerald"
+            }
+          },
+          "includeButtons": true,
+          "ampState": "Encendido",
+          "value": 50.8,
+          "name": "Bombas/Presurisacion",
+          "id": "1",
+          "statusValue": "OK"
+        },
+        {
+          "lastNonZeroValue": 47.9,
+          "id": "1789240544706",
+          "ampState": "Encendido",
+          "unit": "°C",
+          "statusValue": "OK",
+          "includeButtons": true,
+          "value": 47.9,
+          "name": "Bomba/Resirculacion",
+          "buttonActions": {
+            "Apagado": {
+              "color": "slate",
+              "actionType": "turn_off"
+            },
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "turn_on"
+            }
+          },
+          "options": [
+            "OK",
+            "NO OK"
+          ]
+        },
+        {
+          "unit": "PSI",
+          "ampState": "Encendido",
+          "lastNonZeroValue": 50,
+          "includeButtons": false,
+          "id": "1789240600468",
+          "name": "Manometros De Bombas",
+          "value": 50
+        },
+        {
+          "unit": "PSI",
+          "value": 50,
+          "id": "1789240637614",
+          "name": "Manometros Tanques",
+          "lastNonZeroValue": 50,
+          "ampState": "Encendido",
+          "includeButtons": false
+        }
+      ],
+      "buttonActions": {},
+      "requireNotesOnFailure": false,
+      "type": "numeric",
+      "unit": "°C",
+      "id": "chk-tpl-1789240659096-ji6y",
+      "ampState": "Encendido",
+      "area": "Cuarto De Bombas",
+      "isCritical": false,
+      "title": "Sistema De Agua Caliente",
+      "currentValue": 50.8,
+      "lastNonZeroValue": 0,
+      "includeStatusButtons": false,
+      "allowNotes": true
+    },
+    {
+      "allowNotes": true,
+      "statusValue": "Operativo",
+      "requireNotesOnFailure": false,
+      "title": "Ascensor Apto",
+      "type": "ok_nok",
+      "isCritical": false,
+      "id": "chk-tpl-1789423733318-xfh6",
+      "isAlarmActive": false,
+      "category": "extraccion",
+      "buttonActions": {},
+      "area": "Ascensores",
+      "ampState": "Encendido",
+      "lastNonZeroValue": 0,
+      "currentValue": "Operativo",
+      "options": [
+        "Operativo",
+        "Bloqueado"
+      ]
+    },
+    {
+      "options": [
+        "Nivel Bajo",
+        "Nivel Medio",
+        "Nivel Alto"
+      ],
+      "statusValue": "Nivel Alto",
+      "currentValue": "Nivel Alto",
+      "type": "ok_nok",
+      "lastNonZeroValue": 0,
+      "isCritical": false,
+      "category": "extraccion",
+      "requireNotesOnFailure": false,
+      "id": "chk-tpl-1789428026446-qnuc",
+      "title": "Tanques De Agua Potable",
+      "allowNotes": true,
+      "ampState": "Encendido",
+      "buttonActions": {
+        "Nivel Bajo": {
+          "color": "auto",
+          "actionType": "failure"
+        }
+      },
+      "isAlarmActive": false,
+      "area": "Bombas De Impulción S3"
+    },
+    {
+      "title": "Ascensor Hotel",
+      "type": "ok_nok",
+      "allowNotes": true,
+      "requireNotesOnFailure": false,
+      "statusValue": "Operativo",
+      "isCritical": false,
+      "id": "chk-tpl-1789428185062-g11h",
+      "options": [
+        "Operativo",
+        "Bloqueado"
+      ],
+      "isAlarmActive": false,
+      "ampState": "Encendido",
+      "currentValue": "Operativo",
+      "buttonActions": {},
+      "lastNonZeroValue": 0,
+      "area": "Ascensores",
+      "category": "extraccion"
+    },
+    {
+      "id": "chk-tpl-1789428511011-x67z",
+      "options": [
+        "Operativo",
+        "Bloqueado"
+      ],
+      "ampState": "Encendido",
+      "type": "ok_nok",
+      "category": "extraccion",
+      "area": "Ascensores",
+      "isCritical": false,
+      "lastNonZeroValue": 0,
+      "isAlarmActive": false,
+      "allowNotes": true,
+      "buttonActions": {},
+      "statusValue": "Operativo",
+      "currentValue": "Operativo",
+      "requireNotesOnFailure": false,
+      "title": "Ascensor De Servicio"
+    },
+    {
+      "options": [
+        "Energia/EMP",
+        "Energia/Planta",
+        "Bloqueado"
+      ],
+      "requireNotesOnFailure": false,
+      "id": "chk-tpl-1789435170225-zr6y",
+      "category": "subestacion",
+      "currentValue": "Energia/EMP",
+      "area": "Planta De Emergencia S2",
+      "ampState": "Encendido",
+      "allowNotes": true,
+      "type": "ok_nok",
+      "buttonActions": {
+        "Bloqueado": {
+          "actionType": "failure",
+          "color": "auto"
+        }
+      },
+      "isAlarmActive": false,
+      "statusValue": "Energia/EMP",
+      "lastNonZeroValue": 0,
+      "title": "Transferencia De Energia",
+      "isCritical": false
+    },
+    {
+      "currentValue": 2,
+      "area": "Cocina/Silo",
+      "measurementFields": [
+        {
+          "unit": "°C",
+          "lastNonZeroValue": 2,
+          "id": "1",
+          "statusValue": "OK",
+          "buttonActions": {
+            "Encendido": {
+              "actionType": "turn_on",
+              "color": "emerald"
+            },
+            "Apagado": {
+              "color": "slate",
+              "actionType": "turn_off"
+            }
+          },
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "value": 2,
+          "includeButtons": true,
+          "name": "Nevera 1",
+          "ampState": "Encendido"
+        },
+        {
+          "statusValue": "OK",
+          "name": "Nevera 2",
+          "ampState": "Encendido",
+          "value": 5,
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "id": "1789470556027",
+          "lastNonZeroValue": 5,
+          "unit": "°C",
+          "buttonActions": {
+            "Apagado": {
+              "actionType": "turn_off",
+              "color": "slate"
+            },
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "turn_on"
+            }
+          },
+          "includeButtons": true
+        },
+        {
+          "value": 4,
+          "includeButtons": true,
+          "buttonActions": {
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "turn_on"
+            },
+            "Apagado": {
+              "color": "slate",
+              "actionType": "turn_off"
+            }
+          },
+          "unit": "°C",
+          "name": "Nevera 3",
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "statusValue": "OK",
+          "ampState": "Encendido",
+          "lastNonZeroValue": 4,
+          "id": "1789470602027"
+        },
+        {
+          "ampState": "Encendido",
+          "id": "1789470634919",
+          "name": "Base Chef",
+          "lastNonZeroValue": 36,
+          "statusValue": "OK",
+          "unit": "°F",
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "buttonActions": {
+            "Apagado": {
+              "color": "slate",
+              "actionType": "turn_off"
+            },
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "turn_on"
+            }
+          },
+          "includeButtons": true,
+          "value": 36
+        },
+        {
+          "name": "Nevera De Entrada",
+          "includeButtons": true,
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "statusValue": "OK",
+          "ampState": "Encendido",
+          "id": "1789470671546",
+          "value": -4,
+          "buttonActions": {
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "turn_on"
+            },
+            "Apagado": {
+              "actionType": "turn_off",
+              "color": "slate"
+            }
+          },
+          "lastNonZeroValue": -4,
+          "unit": "°F"
+        }
+      ],
+      "isAlarmActive": false,
+      "ampState": "Encendido",
+      "buttonActions": {},
+      "lastNonZeroValue": 0,
+      "isCritical": false,
+      "allowNotes": true,
+      "requireNotesOnFailure": false,
+      "category": "refrigeracion",
+      "title": "Neveras",
+      "id": "chk-tpl-1789470717933-t9gy",
+      "includeStatusButtons": false,
+      "type": "numeric",
+      "unit": "°C"
+    }
+  ],
+  "progress": 100,
+  "completedAt": "2026-11-05T10:30:00Z"
+},
+{
+  "id": "rnd-1097",
+  "status": "completada",
+  "compliancePercentage": 100,
+  "userEmail": "juanmateoramosramos44@gmail.com",
+  "anomaliesCount": 0,
+  "meterReadings": {
+    "waterCubicMeters": 1594.6,
+    "electricKwh": 43265,
+    "gasCubicMeters": 1063.4
+  },
+  "time": "08:00",
+  "lastUpdated": "2026-09-15T12:08:58.846Z",
+  "technicianName": "Técnico de Mantenimiento",
+  "userId": "usr-1789230683226",
+  "shift": "tarde",
+  "technicianSignature": "Juan Mateo/Técnico",
+  "date": "2026-11-06",
+  "anomalies": [],
+  "lastHeartbeat": "2026-09-15T12:08:36.712Z",
+  "generalNotes": "",
+  "checkpoints": [
+    {
+      "allowNotes": true,
+      "notes": "Estava Descongelando, Ya Está Prendida",
+      "id": "chk-tpl-1788985535314-nua3",
+      "requireNotesOnFailure": false,
+      "minValue": -25,
+      "ampState": "Encendido",
+      "category": "refrigeracion",
+      "lastNonZeroValue": 47,
+      "area": "Cocina S4",
+      "isCritical": false,
+      "maxValue": 50,
+      "includeStatusButtons": false,
+      "type": "numeric",
+      "currentValue": 47,
+      "unit": "°C",
+      "buttonActions": {},
+      "measurementFields": [
+        {
+          "minValue": -25,
+          "ampState": "Encendido",
+          "includeButtons": false,
+          "name": "Cava Congelación",
+          "value": 47,
+          "unit": "°C",
+          "maxValue": 50,
+          "lastNonZeroValue": 47,
+          "id": "1"
+        }
+      ],
+      "title": "Cava De Congelación",
+      "isAlarmActive": false
+    },
+    {
+      "includeStatusButtons": false,
+      "ampState": "Encendido",
+      "minValue": 0,
+      "isAlarmActive": false,
+      "maxValue": 50,
+      "requireNotesOnFailure": false,
+      "lastNonZeroValue": 0,
+      "buttonActions": {},
+      "measurementFields": [
+        {
+          "minValue": 0,
+          "ampState": "Encendido",
+          "value": 0,
+          "id": "1",
+          "unit": "°C",
+          "name": "Cava Refrigeracion",
+          "maxValue": 50,
+          "lastNonZeroValue": 25,
+          "includeButtons": false
+        }
+      ],
+      "type": "numeric",
+      "category": "refrigeracion",
+      "unit": "°C",
+      "title": "Cava De Refrigeración",
+      "area": "Cocina S4",
+      "allowNotes": true,
+      "isCritical": false,
+      "id": "chk-tpl-1788988056429-c66o",
+      "currentValue": 0
+    },
+    {
+      "unit": "°C",
+      "type": "numeric",
+      "minValue": 0,
+      "measurementFields": [
+        {
+          "minValue": 0,
+          "ampState": "Encendido",
+          "name": "Cava Refrigeracion",
+          "unit": "°C",
+          "id": "1",
+          "maxValue": 50,
+          "lastNonZeroValue": 2.7,
+          "includeButtons": false,
+          "value": 2.7
+        }
+      ],
+      "id": "chk-tpl-1788988080039-nkgi",
+      "ampState": "Encendido",
+      "buttonActions": {},
+      "maxValue": 50,
+      "includeStatusButtons": false,
+      "category": "refrigeracion",
+      "isAlarmActive": false,
+      "currentValue": 2.7,
+      "requireNotesOnFailure": false,
+      "lastNonZeroValue": 0,
+      "isCritical": false,
+      "area": "Cocina S4",
+      "title": "Cava De Refrigeración",
+      "allowNotes": true
+    },
+    {
+      "type": "ok_nok",
+      "ampState": "Apagado",
+      "title": "Extracción",
+      "allowNotes": true,
+      "isCritical": false,
+      "buttonActions": {},
+      "currentValue": "Apagado",
+      "category": "extraccion",
+      "id": "chk-tpl-1788989380312-s3ia",
+      "statusValue": "Apagado",
+      "isAlarmActive": false,
+      "options": [
+        "Encendido",
+        "Apagado",
+        "Alarmado"
+      ],
+      "requireNotesOnFailure": false,
+      "area": "Cocina S4",
+      "lastNonZeroValue": 0
+    },
+    {
+      "category": "hidraulico",
+      "area": "Planta RCI S3",
+      "allowNotes": true,
+      "isAlarmActive": false,
+      "isCritical": false,
+      "id": "chk-tpl-1789054060776-tynz",
+      "ampState": "Encendido",
+      "currentValue": 273,
+      "title": "Bomba Jockey",
+      "requireNotesOnFailure": false,
+      "unit": "PSI",
+      "type": "numeric",
+      "lastNonZeroValue": 273
+    },
+    {
+      "ampState": "Encendido",
+      "id": "chk-tpl-1789058977130-dsm2",
+      "measurementFields": [
+        {
+          "value": 27.66,
+          "unit": "VDC",
+          "id": "1",
+          "name": "Bateria 1",
+          "ampState": "Encendido",
+          "lastNonZeroValue": 27.66
+        },
+        {
+          "ampState": "Encendido",
+          "lastNonZeroValue": 27.66,
+          "unit": "VDC",
+          "id": "1789059243278",
+          "name": "Bateria 2",
+          "value": 27.66
+        }
+      ],
+      "title": "Baterias",
+      "currentValue": 27.66,
+      "area": "Planta RCI S3",
+      "requireNotesOnFailure": false,
+      "category": "bateria",
+      "lastNonZeroValue": 0,
+      "allowNotes": true,
+      "isCritical": false,
+      "isAlarmActive": false,
+      "unit": "VDC",
+      "type": "numeric",
+      "includeStatusButtons": false
+    },
+    {
+      "options": [
+        "Sin Alarma",
+        "Sensor Alarmado"
+      ],
+      "id": "chk-tpl-1789060493962-91iv",
+      "requireNotesOnFailure": false,
+      "area": "Planta RCI S3",
+      "lastNonZeroValue": 61,
+      "isAlarmActive": true,
+      "measurementFields": [
+        {
+          "maxValue": 100,
+          "lastNonZeroValue": 60,
+          "ampState": "Encendido",
+          "minValue": 61,
+          "unit": "%",
+          "id": "1",
+          "name": "Nivel Combustible",
+          "value": 60
+        }
+      ],
+      "alarmReason": "Botón de alarma activado: \"Sensor Alarmado\"",
+      "statusValue": "Sensor Alarmado",
+      "allowNotes": true,
+      "ampState": "Encendido",
+      "minValue": 61,
+      "includeStatusButtons": true,
+      "title": "Combustible",
+      "maxValue": 100,
+      "currentValue": 60,
+      "unit": "%",
+      "category": "combustible",
+      "type": "numeric",
+      "isCritical": false
+    },
+    {
+      "currentValue": 260,
+      "area": "Planta RCI S3",
+      "lastNonZeroValue": 250,
+      "includeStatusButtons": false,
+      "requireNotesOnFailure": false,
+      "maxValue": 300,
+      "title": "Manometros Principales",
+      "allowNotes": true,
+      "isAlarmActive": false,
+      "category": "manometro",
+      "ampState": "Encendido",
+      "minValue": 250,
+      "measurementFields": [
+        {
+          "lastNonZeroValue": 260,
+          "value": 260,
+          "unit": "PSI",
+          "ampState": "Encendido",
+          "id": "1",
+          "name": "Manometro 1",
+          "minValue": 250,
+          "maxValue": 300
+        },
+        {
+          "maxValue": 180,
+          "id": "1789066651541",
+          "unit": "PSI",
+          "lastNonZeroValue": 170,
+          "ampState": "Encendido",
+          "minValue": 160,
+          "name": "Manometro 2",
+          "value": 170
+        }
+      ],
+      "id": "chk-tpl-1789066766097-j1e5",
+      "isCritical": false,
+      "unit": "PSI",
+      "type": "numeric"
+    },
+    {
+      "buttonActions": {
+        "Encendido": {
+          "actionType": "turn_on",
+          "color": "emerald"
+        },
+        "Apagado": {
+          "color": "slate",
+          "actionType": "turn_off"
+        }
+      },
+      "statusValue": "Encendido",
+      "isAlarmActive": false,
+      "requireNotesOnFailure": false,
+      "includeStatusButtons": true,
+      "lastNonZeroValue": 12,
+      "measurementFields": [
+        {
+          "name": "BOM-1",
+          "lastNonZeroValue": 19,
+          "value": 19,
+          "ampState": "Encendido",
+          "minValue": 12,
+          "id": "1",
+          "includeButtons": false,
+          "maxValue": 20,
+          "unit": "A"
+        }
+      ],
+      "unit": "A",
+      "type": "numeric",
+      "title": "BOM-1-S3",
+      "currentValue": 19,
+      "id": "chk-tpl-1789071231392-wx5f",
+      "maxValue": 20,
+      "isCritical": false,
+      "category": "hidraulico",
+      "area": "Bombas De Impulción S3",
+      "options": [
+        "Encendido",
+        "Apagado"
+      ],
+      "minValue": 12,
+      "ampState": "Encendido",
+      "allowNotes": true
+    },
+    {
+      "measurementFields": [
+        {
+          "ampState": "Apagado",
+          "unit": "A",
+          "minValue": 12,
+          "id": "1",
+          "lastNonZeroValue": 16,
+          "maxValue": 20,
+          "value": 0,
+          "name": "BOM-2",
+          "includeButtons": false
+        }
+      ],
+      "title": "BOM-2-S3",
+      "lastNonZeroValue": 12,
+      "currentValue": 0,
+      "type": "numeric",
+      "unit": "A",
+      "statusValue": "Apagado",
+      "isAlarmActive": false,
+      "includeStatusButtons": true,
+      "buttonActions": {},
+      "area": "Bombas De Impulción S3",
+      "maxValue": 20,
+      "isCritical": false,
+      "options": [
+        "Encendido",
+        "Apagado"
+      ],
+      "category": "hidraulico",
+      "id": "chk-tpl-1789072528074-19rc",
+      "ampState": "Apagado",
+      "minValue": 12,
+      "allowNotes": true,
+      "requireNotesOnFailure": false
+    },
+    {
+      "requireNotesOnFailure": false,
+      "category": "bateria",
+      "buttonActions": {},
+      "lastNonZeroValue": 0,
+      "isAlarmActive": false,
+      "type": "numeric",
+      "includeStatusButtons": false,
+      "unit": "VDC",
+      "ampState": "Encendido",
+      "id": "chk-tpl-1789072918083-tj8j",
+      "title": "Batería",
+      "allowNotes": true,
+      "area": "Planta De Emergencia S2",
+      "isCritical": false,
+      "currentValue": 27.6,
+      "measurementFields": [
+        {
+          "value": 27.6,
+          "name": "Bateria-",
+          "ampState": "Encendido",
+          "lastNonZeroValue": 27.6,
+          "id": "1",
+          "includeButtons": false,
+          "unit": "VDC"
+        }
+      ]
+    },
+    {
+      "id": "chk-tpl-1789082124733-70s2",
+      "lastNonZeroValue": 0,
+      "isCritical": false,
+      "unit": "%",
+      "type": "numeric",
+      "allowNotes": true,
+      "includeStatusButtons": false,
+      "isAlarmActive": false,
+      "currentValue": 62,
+      "category": "combustible",
+      "area": "Planta De Emergencia S2",
+      "measurementFields": [
+        {
+          "ampState": "Encendido",
+          "unit": "%",
+          "value": 62,
+          "id": "1",
+          "lastNonZeroValue": 62,
+          "name": "Combustible"
+        }
+      ],
+      "requireNotesOnFailure": false,
+      "ampState": "Encendido",
+      "title": "Combustible"
+    },
+    {
+      "measurementFields": [
+        {
+          "unit": "°C",
+          "lastNonZeroValue": 47,
+          "id": "1",
+          "ampState": "Encendido",
+          "value": 47,
+          "name": "Temperatura"
+        }
+      ],
+      "id": "chk-tpl-1789082328250-puzo",
+      "buttonActions": {},
+      "allowNotes": true,
+      "unit": "°C",
+      "type": "numeric",
+      "category": "temperatura",
+      "isAlarmActive": false,
+      "includeStatusButtons": false,
+      "currentValue": 47,
+      "requireNotesOnFailure": false,
+      "ampState": "Encendido",
+      "isCritical": false,
+      "lastNonZeroValue": 0,
+      "title": "Temperatura",
+      "area": "Planta De Emergencia S2"
+    },
+    {
+      "unit": "m³",
+      "type": "numeric",
+      "ampState": "Encendido",
+      "currentValue": 9.5,
+      "buttonActions": {},
+      "category": "tanque",
+      "isAlarmActive": false,
+      "id": "chk-tpl-1789181196563-joap",
+      "allowNotes": true,
+      "requireNotesOnFailure": false,
+      "includeStatusButtons": false,
+      "isCritical": false,
+      "title": "Tanques",
+      "area": "Terraza Piso 18",
+      "measurementFields": [
+        {
+          "includeButtons": false,
+          "unit": "m³",
+          "id": "1",
+          "lastNonZeroValue": 9.5,
+          "ampState": "Encendido",
+          "value": 9.5,
+          "name": "Tanques Hotel"
+        },
+        {
+          "ampState": "Encendido",
+          "name": "Tanques Apto",
+          "value": 2,
+          "unit": "m³",
+          "lastNonZeroValue": 2,
+          "includeButtons": false,
+          "id": "1789181031815"
+        }
+      ],
+      "lastNonZeroValue": 0
+    },
+    {
+      "ampState": "Encendido",
+      "allowNotes": true,
+      "isCritical": false,
+      "area": "Planta De Emergencia S2",
+      "title": "Condensadores",
+      "currentValue": 0.996,
+      "lastNonZeroValue": 0,
+      "category": "condensador",
+      "type": "numeric",
+      "unit": "FP",
+      "measurementFields": [
+        {
+          "value": 0.996,
+          "name": "Condensadores",
+          "includeButtons": false,
+          "ampState": "Encendido",
+          "lastNonZeroValue": 0.996,
+          "id": "1",
+          "unit": "FP"
+        }
+      ],
+      "isAlarmActive": false,
+      "buttonActions": {},
+      "id": "chk-tpl-1789181948808-tk08",
+      "requireNotesOnFailure": false,
+      "includeStatusButtons": false
+    },
+    {
+      "isAlarmActive": false,
+      "measurementFields": [
+        {
+          "maxValue": 60,
+          "buttonActions": {
+            "Apagado": {
+              "color": "slate",
+              "actionType": "default"
+            },
+            "Encendido": {
+              "actionType": "default",
+              "color": "emerald"
+            }
+          },
+          "lastNonZeroValue": 54,
+          "id": "1",
+          "name": "Precion",
+          "unit": "PSI",
+          "options": [
+            "Encendido",
+            "Apagado",
+            "Alarmado"
+          ],
+          "statusValue": "Encendido",
+          "ampState": "Encendido",
+          "minValue": 42,
+          "includeButtons": true,
+          "value": 54
+        }
+      ],
+      "minValue": 42,
+      "buttonActions": {},
+      "requireNotesOnFailure": false,
+      "isCritical": false,
+      "ampState": "Encendido",
+      "area": "Terraza Piso 18",
+      "allowNotes": true,
+      "currentValue": 54,
+      "category": "hidraulico",
+      "id": "chk-tpl-1789183131928-5ogv",
+      "maxValue": 60,
+      "type": "numeric",
+      "unit": "PSI",
+      "lastNonZeroValue": 42,
+      "includeStatusButtons": false,
+      "title": "Bombas De Presión"
+    },
+    {
+      "ampState": "Encendido",
+      "measurementFields": [
+        {
+          "value": 36.8,
+          "ampState": "Encendido",
+          "unit": "°C",
+          "name": "Temperatura/Sauna",
+          "buttonActions": {
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "default"
+            },
+            "Apagado": {
+              "actionType": "default",
+              "color": "slate"
+            }
+          },
+          "options": [
+            "Encendido",
+            "Apagado"
+          ],
+          "statusValue": "Encendido",
+          "lastNonZeroValue": 36.8,
+          "id": "1",
+          "includeButtons": true
+        },
+        {
+          "id": "1789184871874",
+          "lastNonZeroValue": 11.5,
+          "name": "Cold Plungue",
+          "includeButtons": true,
+          "unit": "°C",
+          "statusValue": "Encendido",
+          "buttonActions": {
+            "Apagado": {
+              "color": "slate",
+              "actionType": "default"
+            },
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "default"
+            }
+          },
+          "ampState": "Encendido",
+          "options": [
+            "Encendido",
+            "Apagado"
+          ],
+          "value": 11.5
+        }
+      ],
+      "area": "Zona Húmeda/Piso 6",
+      "category": "sauna_cold_plunge",
+      "requireNotesOnFailure": false,
+      "title": "Sauna/Cold Plungue",
+      "lastNonZeroValue": 0,
+      "isCritical": false,
+      "unit": "°C",
+      "type": "numeric",
+      "id": "chk-tpl-1789184914843-8qeh",
+      "currentValue": 36.8,
+      "allowNotes": true,
+      "buttonActions": {},
+      "includeStatusButtons": false,
+      "isAlarmActive": false
+    },
+    {
+      "type": "ok_nok",
+      "ampState": "Encendido",
+      "isCritical": false,
+      "suggestedNotes": [
+        "Musica Ascensores Ok",
+        "Musica Gym Ok",
+        "Televisor Gym Ok",
+        "Musica Piscina Ok",
+        "Musica Silo Ok",
+        "Musica Sastra Ok",
+        "Musica Sauna Ok"
+      ],
+      "buttonActions": {},
+      "title": "Musica",
+      "allowNotes": true,
+      "isAlarmActive": false,
+      "category": "musica",
+      "id": "chk-tpl-1789186187266-j679",
+      "requireNotesOnFailure": false,
+      "options": [
+        "Todo Ok",
+        "NO OK"
+      ],
+      "statusValue": "Todo Ok",
+      "currentValue": "Todo Ok",
+      "lastNonZeroValue": 0,
+      "area": "Zona Húmeda/Piso 6"
+    },
+    {
+      "measurementFields": [
+        {
+          "name": "Botellero Ventanal",
+          "value": -5,
+          "lastNonZeroValue": -5,
+          "buttonActions": {
+            "Encendido": {
+              "actionType": "turn_on",
+              "color": "emerald"
+            },
+            "Apagado": {
+              "actionType": "turn_off",
+              "color": "slate"
+            }
+          },
+          "includeButtons": true,
+          "statusValue": "OK",
+          "ampState": "Encendido",
+          "id": "1",
+          "unit": "°C",
+          "options": [
+            "OK",
+            "NO OK"
+          ]
+        },
+        {
+          "unit": "°C",
+          "statusValue": "OK",
+          "id": "1789227261860",
+          "ampState": "Encendido",
+          "includeButtons": true,
+          "lastNonZeroValue": -17,
+          "value": -17,
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "buttonActions": {
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "turn_on"
+            },
+            "Apagado": {
+              "color": "slate",
+              "actionType": "turn_off"
+            }
+          },
+          "name": "Nevera Cafetera"
+        },
+        {
+          "includeButtons": true,
+          "name": "Botellero Entrada Derecha",
+          "statusValue": "OK",
+          "lastNonZeroValue": 42,
+          "buttonActions": {
+            "Apagado": {
+              "actionType": "turn_off",
+              "color": "slate"
+            },
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "turn_on"
+            }
+          },
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "ampState": "Encendido",
+          "id": "1789227309459",
+          "value": 42,
+          "unit": "°F"
+        },
+        {
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "id": "1789227538808",
+          "statusValue": "OK",
+          "includeButtons": true,
+          "name": "Botellero Entrada Izquierda",
+          "unit": "°F",
+          "lastNonZeroValue": 34,
+          "buttonActions": {
+            "Apagado": {
+              "actionType": "turn_off",
+              "color": "slate"
+            },
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "turn_on"
+            }
+          },
+          "ampState": "Encendido",
+          "value": 34
+        }
+      ],
+      "requireNotesOnFailure": false,
+      "area": "Bar/ Piso 6",
+      "currentValue": -5,
+      "includeStatusButtons": false,
+      "category": "refrigeracion",
+      "isCritical": false,
+      "id": "chk-tpl-1789227609185-rbqi",
+      "type": "numeric",
+      "unit": "°C",
+      "isAlarmActive": false,
+      "allowNotes": true,
+      "buttonActions": {},
+      "lastNonZeroValue": 0,
+      "title": "Equipos Del Bar",
+      "ampState": "Encendido"
+    },
+    {
+      "category": "caldera",
+      "isAlarmActive": false,
+      "measurementFields": [
+        {
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "lastNonZeroValue": 50.8,
+          "unit": "°C",
+          "buttonActions": {
+            "Apagado": {
+              "actionType": "turn_off",
+              "color": "slate"
+            },
+            "Encendido": {
+              "actionType": "turn_on",
+              "color": "emerald"
+            }
+          },
+          "includeButtons": true,
+          "ampState": "Encendido",
+          "value": 50.8,
+          "name": "Bombas/Presurisacion",
+          "id": "1",
+          "statusValue": "OK"
+        },
+        {
+          "lastNonZeroValue": 47.9,
+          "id": "1789240544706",
+          "ampState": "Encendido",
+          "unit": "°C",
+          "statusValue": "OK",
+          "includeButtons": true,
+          "value": 47.9,
+          "name": "Bomba/Resirculacion",
+          "buttonActions": {
+            "Apagado": {
+              "color": "slate",
+              "actionType": "turn_off"
+            },
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "turn_on"
+            }
+          },
+          "options": [
+            "OK",
+            "NO OK"
+          ]
+        },
+        {
+          "unit": "PSI",
+          "ampState": "Encendido",
+          "lastNonZeroValue": 50,
+          "includeButtons": false,
+          "id": "1789240600468",
+          "name": "Manometros De Bombas",
+          "value": 50
+        },
+        {
+          "unit": "PSI",
+          "value": 50,
+          "id": "1789240637614",
+          "name": "Manometros Tanques",
+          "lastNonZeroValue": 50,
+          "ampState": "Encendido",
+          "includeButtons": false
+        }
+      ],
+      "buttonActions": {},
+      "requireNotesOnFailure": false,
+      "type": "numeric",
+      "unit": "°C",
+      "id": "chk-tpl-1789240659096-ji6y",
+      "ampState": "Encendido",
+      "area": "Cuarto De Bombas",
+      "isCritical": false,
+      "title": "Sistema De Agua Caliente",
+      "currentValue": 50.8,
+      "lastNonZeroValue": 0,
+      "includeStatusButtons": false,
+      "allowNotes": true
+    },
+    {
+      "allowNotes": true,
+      "statusValue": "Operativo",
+      "requireNotesOnFailure": false,
+      "title": "Ascensor Apto",
+      "type": "ok_nok",
+      "isCritical": false,
+      "id": "chk-tpl-1789423733318-xfh6",
+      "isAlarmActive": false,
+      "category": "extraccion",
+      "buttonActions": {},
+      "area": "Ascensores",
+      "ampState": "Encendido",
+      "lastNonZeroValue": 0,
+      "currentValue": "Operativo",
+      "options": [
+        "Operativo",
+        "Bloqueado"
+      ]
+    },
+    {
+      "options": [
+        "Nivel Bajo",
+        "Nivel Medio",
+        "Nivel Alto"
+      ],
+      "statusValue": "Nivel Alto",
+      "currentValue": "Nivel Alto",
+      "type": "ok_nok",
+      "lastNonZeroValue": 0,
+      "isCritical": false,
+      "category": "extraccion",
+      "requireNotesOnFailure": false,
+      "id": "chk-tpl-1789428026446-qnuc",
+      "title": "Tanques De Agua Potable",
+      "allowNotes": true,
+      "ampState": "Encendido",
+      "buttonActions": {
+        "Nivel Bajo": {
+          "color": "auto",
+          "actionType": "failure"
+        }
+      },
+      "isAlarmActive": false,
+      "area": "Bombas De Impulción S3"
+    },
+    {
+      "title": "Ascensor Hotel",
+      "type": "ok_nok",
+      "allowNotes": true,
+      "requireNotesOnFailure": false,
+      "statusValue": "Operativo",
+      "isCritical": false,
+      "id": "chk-tpl-1789428185062-g11h",
+      "options": [
+        "Operativo",
+        "Bloqueado"
+      ],
+      "isAlarmActive": false,
+      "ampState": "Encendido",
+      "currentValue": "Operativo",
+      "buttonActions": {},
+      "lastNonZeroValue": 0,
+      "area": "Ascensores",
+      "category": "extraccion"
+    },
+    {
+      "id": "chk-tpl-1789428511011-x67z",
+      "options": [
+        "Operativo",
+        "Bloqueado"
+      ],
+      "ampState": "Encendido",
+      "type": "ok_nok",
+      "category": "extraccion",
+      "area": "Ascensores",
+      "isCritical": false,
+      "lastNonZeroValue": 0,
+      "isAlarmActive": false,
+      "allowNotes": true,
+      "buttonActions": {},
+      "statusValue": "Operativo",
+      "currentValue": "Operativo",
+      "requireNotesOnFailure": false,
+      "title": "Ascensor De Servicio"
+    },
+    {
+      "options": [
+        "Energia/EMP",
+        "Energia/Planta",
+        "Bloqueado"
+      ],
+      "requireNotesOnFailure": false,
+      "id": "chk-tpl-1789435170225-zr6y",
+      "category": "subestacion",
+      "currentValue": "Energia/EMP",
+      "area": "Planta De Emergencia S2",
+      "ampState": "Encendido",
+      "allowNotes": true,
+      "type": "ok_nok",
+      "buttonActions": {
+        "Bloqueado": {
+          "actionType": "failure",
+          "color": "auto"
+        }
+      },
+      "isAlarmActive": false,
+      "statusValue": "Energia/EMP",
+      "lastNonZeroValue": 0,
+      "title": "Transferencia De Energia",
+      "isCritical": false
+    },
+    {
+      "currentValue": 2,
+      "area": "Cocina/Silo",
+      "measurementFields": [
+        {
+          "unit": "°C",
+          "lastNonZeroValue": 2,
+          "id": "1",
+          "statusValue": "OK",
+          "buttonActions": {
+            "Encendido": {
+              "actionType": "turn_on",
+              "color": "emerald"
+            },
+            "Apagado": {
+              "color": "slate",
+              "actionType": "turn_off"
+            }
+          },
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "value": 2,
+          "includeButtons": true,
+          "name": "Nevera 1",
+          "ampState": "Encendido"
+        },
+        {
+          "statusValue": "OK",
+          "name": "Nevera 2",
+          "ampState": "Encendido",
+          "value": 5,
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "id": "1789470556027",
+          "lastNonZeroValue": 5,
+          "unit": "°C",
+          "buttonActions": {
+            "Apagado": {
+              "actionType": "turn_off",
+              "color": "slate"
+            },
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "turn_on"
+            }
+          },
+          "includeButtons": true
+        },
+        {
+          "value": 4,
+          "includeButtons": true,
+          "buttonActions": {
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "turn_on"
+            },
+            "Apagado": {
+              "color": "slate",
+              "actionType": "turn_off"
+            }
+          },
+          "unit": "°C",
+          "name": "Nevera 3",
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "statusValue": "OK",
+          "ampState": "Encendido",
+          "lastNonZeroValue": 4,
+          "id": "1789470602027"
+        },
+        {
+          "ampState": "Encendido",
+          "id": "1789470634919",
+          "name": "Base Chef",
+          "lastNonZeroValue": 36,
+          "statusValue": "OK",
+          "unit": "°F",
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "buttonActions": {
+            "Apagado": {
+              "color": "slate",
+              "actionType": "turn_off"
+            },
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "turn_on"
+            }
+          },
+          "includeButtons": true,
+          "value": 36
+        },
+        {
+          "name": "Nevera De Entrada",
+          "includeButtons": true,
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "statusValue": "OK",
+          "ampState": "Encendido",
+          "id": "1789470671546",
+          "value": -4,
+          "buttonActions": {
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "turn_on"
+            },
+            "Apagado": {
+              "actionType": "turn_off",
+              "color": "slate"
+            }
+          },
+          "lastNonZeroValue": -4,
+          "unit": "°F"
+        }
+      ],
+      "isAlarmActive": false,
+      "ampState": "Encendido",
+      "buttonActions": {},
+      "lastNonZeroValue": 0,
+      "isCritical": false,
+      "allowNotes": true,
+      "requireNotesOnFailure": false,
+      "category": "refrigeracion",
+      "title": "Neveras",
+      "id": "chk-tpl-1789470717933-t9gy",
+      "includeStatusButtons": false,
+      "type": "numeric",
+      "unit": "°C"
+    }
+  ],
+  "progress": 100,
+  "completedAt": "2026-11-06T10:30:00Z"
+},
+{
+  "id": "rnd-1098",
+  "status": "completada",
+  "compliancePercentage": 100,
+  "userEmail": "juanmateoramosramos44@gmail.com",
+  "anomaliesCount": 0,
+  "meterReadings": {
+    "waterCubicMeters": 1596.4,
+    "electricKwh": 43310,
+    "gasCubicMeters": 1065.6
+  },
+  "time": "08:00",
+  "lastUpdated": "2026-09-15T12:08:58.846Z",
+  "technicianName": "Técnico de Mantenimiento",
+  "userId": "usr-1789230683226",
+  "shift": "manana",
+  "technicianSignature": "Juan Mateo/Técnico",
+  "date": "2026-11-07",
+  "anomalies": [],
+  "lastHeartbeat": "2026-09-15T12:08:36.712Z",
+  "generalNotes": "",
+  "checkpoints": [
+    {
+      "allowNotes": true,
+      "notes": "Estava Descongelando, Ya Está Prendida",
+      "id": "chk-tpl-1788985535314-nua3",
+      "requireNotesOnFailure": false,
+      "minValue": -25,
+      "ampState": "Encendido",
+      "category": "refrigeracion",
+      "lastNonZeroValue": 47,
+      "area": "Cocina S4",
+      "isCritical": false,
+      "maxValue": 50,
+      "includeStatusButtons": false,
+      "type": "numeric",
+      "currentValue": 47,
+      "unit": "°C",
+      "buttonActions": {},
+      "measurementFields": [
+        {
+          "minValue": -25,
+          "ampState": "Encendido",
+          "includeButtons": false,
+          "name": "Cava Congelación",
+          "value": 47,
+          "unit": "°C",
+          "maxValue": 50,
+          "lastNonZeroValue": 47,
+          "id": "1"
+        }
+      ],
+      "title": "Cava De Congelación",
+      "isAlarmActive": false
+    },
+    {
+      "includeStatusButtons": false,
+      "ampState": "Encendido",
+      "minValue": 0,
+      "isAlarmActive": false,
+      "maxValue": 50,
+      "requireNotesOnFailure": false,
+      "lastNonZeroValue": 0,
+      "buttonActions": {},
+      "measurementFields": [
+        {
+          "minValue": 0,
+          "ampState": "Encendido",
+          "value": 0,
+          "id": "1",
+          "unit": "°C",
+          "name": "Cava Refrigeracion",
+          "maxValue": 50,
+          "lastNonZeroValue": 25,
+          "includeButtons": false
+        }
+      ],
+      "type": "numeric",
+      "category": "refrigeracion",
+      "unit": "°C",
+      "title": "Cava De Refrigeración",
+      "area": "Cocina S4",
+      "allowNotes": true,
+      "isCritical": false,
+      "id": "chk-tpl-1788988056429-c66o",
+      "currentValue": 0
+    },
+    {
+      "unit": "°C",
+      "type": "numeric",
+      "minValue": 0,
+      "measurementFields": [
+        {
+          "minValue": 0,
+          "ampState": "Encendido",
+          "name": "Cava Refrigeracion",
+          "unit": "°C",
+          "id": "1",
+          "maxValue": 50,
+          "lastNonZeroValue": 2.7,
+          "includeButtons": false,
+          "value": 2.7
+        }
+      ],
+      "id": "chk-tpl-1788988080039-nkgi",
+      "ampState": "Encendido",
+      "buttonActions": {},
+      "maxValue": 50,
+      "includeStatusButtons": false,
+      "category": "refrigeracion",
+      "isAlarmActive": false,
+      "currentValue": 2.7,
+      "requireNotesOnFailure": false,
+      "lastNonZeroValue": 0,
+      "isCritical": false,
+      "area": "Cocina S4",
+      "title": "Cava De Refrigeración",
+      "allowNotes": true
+    },
+    {
+      "type": "ok_nok",
+      "ampState": "Apagado",
+      "title": "Extracción",
+      "allowNotes": true,
+      "isCritical": false,
+      "buttonActions": {},
+      "currentValue": "Apagado",
+      "category": "extraccion",
+      "id": "chk-tpl-1788989380312-s3ia",
+      "statusValue": "Apagado",
+      "isAlarmActive": false,
+      "options": [
+        "Encendido",
+        "Apagado",
+        "Alarmado"
+      ],
+      "requireNotesOnFailure": false,
+      "area": "Cocina S4",
+      "lastNonZeroValue": 0
+    },
+    {
+      "category": "hidraulico",
+      "area": "Planta RCI S3",
+      "allowNotes": true,
+      "isAlarmActive": false,
+      "isCritical": false,
+      "id": "chk-tpl-1789054060776-tynz",
+      "ampState": "Encendido",
+      "currentValue": 273,
+      "title": "Bomba Jockey",
+      "requireNotesOnFailure": false,
+      "unit": "PSI",
+      "type": "numeric",
+      "lastNonZeroValue": 273
+    },
+    {
+      "ampState": "Encendido",
+      "id": "chk-tpl-1789058977130-dsm2",
+      "measurementFields": [
+        {
+          "value": 27.66,
+          "unit": "VDC",
+          "id": "1",
+          "name": "Bateria 1",
+          "ampState": "Encendido",
+          "lastNonZeroValue": 27.66
+        },
+        {
+          "ampState": "Encendido",
+          "lastNonZeroValue": 27.66,
+          "unit": "VDC",
+          "id": "1789059243278",
+          "name": "Bateria 2",
+          "value": 27.66
+        }
+      ],
+      "title": "Baterias",
+      "currentValue": 27.66,
+      "area": "Planta RCI S3",
+      "requireNotesOnFailure": false,
+      "category": "bateria",
+      "lastNonZeroValue": 0,
+      "allowNotes": true,
+      "isCritical": false,
+      "isAlarmActive": false,
+      "unit": "VDC",
+      "type": "numeric",
+      "includeStatusButtons": false
+    },
+    {
+      "options": [
+        "Sin Alarma",
+        "Sensor Alarmado"
+      ],
+      "id": "chk-tpl-1789060493962-91iv",
+      "requireNotesOnFailure": false,
+      "area": "Planta RCI S3",
+      "lastNonZeroValue": 61,
+      "isAlarmActive": true,
+      "measurementFields": [
+        {
+          "maxValue": 100,
+          "lastNonZeroValue": 60,
+          "ampState": "Encendido",
+          "minValue": 61,
+          "unit": "%",
+          "id": "1",
+          "name": "Nivel Combustible",
+          "value": 60
+        }
+      ],
+      "alarmReason": "Botón de alarma activado: \"Sensor Alarmado\"",
+      "statusValue": "Sensor Alarmado",
+      "allowNotes": true,
+      "ampState": "Encendido",
+      "minValue": 61,
+      "includeStatusButtons": true,
+      "title": "Combustible",
+      "maxValue": 100,
+      "currentValue": 60,
+      "unit": "%",
+      "category": "combustible",
+      "type": "numeric",
+      "isCritical": false
+    },
+    {
+      "currentValue": 260,
+      "area": "Planta RCI S3",
+      "lastNonZeroValue": 250,
+      "includeStatusButtons": false,
+      "requireNotesOnFailure": false,
+      "maxValue": 300,
+      "title": "Manometros Principales",
+      "allowNotes": true,
+      "isAlarmActive": false,
+      "category": "manometro",
+      "ampState": "Encendido",
+      "minValue": 250,
+      "measurementFields": [
+        {
+          "lastNonZeroValue": 260,
+          "value": 260,
+          "unit": "PSI",
+          "ampState": "Encendido",
+          "id": "1",
+          "name": "Manometro 1",
+          "minValue": 250,
+          "maxValue": 300
+        },
+        {
+          "maxValue": 180,
+          "id": "1789066651541",
+          "unit": "PSI",
+          "lastNonZeroValue": 170,
+          "ampState": "Encendido",
+          "minValue": 160,
+          "name": "Manometro 2",
+          "value": 170
+        }
+      ],
+      "id": "chk-tpl-1789066766097-j1e5",
+      "isCritical": false,
+      "unit": "PSI",
+      "type": "numeric"
+    },
+    {
+      "buttonActions": {
+        "Encendido": {
+          "actionType": "turn_on",
+          "color": "emerald"
+        },
+        "Apagado": {
+          "color": "slate",
+          "actionType": "turn_off"
+        }
+      },
+      "statusValue": "Encendido",
+      "isAlarmActive": false,
+      "requireNotesOnFailure": false,
+      "includeStatusButtons": true,
+      "lastNonZeroValue": 12,
+      "measurementFields": [
+        {
+          "name": "BOM-1",
+          "lastNonZeroValue": 19,
+          "value": 19,
+          "ampState": "Encendido",
+          "minValue": 12,
+          "id": "1",
+          "includeButtons": false,
+          "maxValue": 20,
+          "unit": "A"
+        }
+      ],
+      "unit": "A",
+      "type": "numeric",
+      "title": "BOM-1-S3",
+      "currentValue": 19,
+      "id": "chk-tpl-1789071231392-wx5f",
+      "maxValue": 20,
+      "isCritical": false,
+      "category": "hidraulico",
+      "area": "Bombas De Impulción S3",
+      "options": [
+        "Encendido",
+        "Apagado"
+      ],
+      "minValue": 12,
+      "ampState": "Encendido",
+      "allowNotes": true
+    },
+    {
+      "measurementFields": [
+        {
+          "ampState": "Apagado",
+          "unit": "A",
+          "minValue": 12,
+          "id": "1",
+          "lastNonZeroValue": 16,
+          "maxValue": 20,
+          "value": 0,
+          "name": "BOM-2",
+          "includeButtons": false
+        }
+      ],
+      "title": "BOM-2-S3",
+      "lastNonZeroValue": 12,
+      "currentValue": 0,
+      "type": "numeric",
+      "unit": "A",
+      "statusValue": "Apagado",
+      "isAlarmActive": false,
+      "includeStatusButtons": true,
+      "buttonActions": {},
+      "area": "Bombas De Impulción S3",
+      "maxValue": 20,
+      "isCritical": false,
+      "options": [
+        "Encendido",
+        "Apagado"
+      ],
+      "category": "hidraulico",
+      "id": "chk-tpl-1789072528074-19rc",
+      "ampState": "Apagado",
+      "minValue": 12,
+      "allowNotes": true,
+      "requireNotesOnFailure": false
+    },
+    {
+      "requireNotesOnFailure": false,
+      "category": "bateria",
+      "buttonActions": {},
+      "lastNonZeroValue": 0,
+      "isAlarmActive": false,
+      "type": "numeric",
+      "includeStatusButtons": false,
+      "unit": "VDC",
+      "ampState": "Encendido",
+      "id": "chk-tpl-1789072918083-tj8j",
+      "title": "Batería",
+      "allowNotes": true,
+      "area": "Planta De Emergencia S2",
+      "isCritical": false,
+      "currentValue": 27.6,
+      "measurementFields": [
+        {
+          "value": 27.6,
+          "name": "Bateria-",
+          "ampState": "Encendido",
+          "lastNonZeroValue": 27.6,
+          "id": "1",
+          "includeButtons": false,
+          "unit": "VDC"
+        }
+      ]
+    },
+    {
+      "id": "chk-tpl-1789082124733-70s2",
+      "lastNonZeroValue": 0,
+      "isCritical": false,
+      "unit": "%",
+      "type": "numeric",
+      "allowNotes": true,
+      "includeStatusButtons": false,
+      "isAlarmActive": false,
+      "currentValue": 62,
+      "category": "combustible",
+      "area": "Planta De Emergencia S2",
+      "measurementFields": [
+        {
+          "ampState": "Encendido",
+          "unit": "%",
+          "value": 62,
+          "id": "1",
+          "lastNonZeroValue": 62,
+          "name": "Combustible"
+        }
+      ],
+      "requireNotesOnFailure": false,
+      "ampState": "Encendido",
+      "title": "Combustible"
+    },
+    {
+      "measurementFields": [
+        {
+          "unit": "°C",
+          "lastNonZeroValue": 47,
+          "id": "1",
+          "ampState": "Encendido",
+          "value": 47,
+          "name": "Temperatura"
+        }
+      ],
+      "id": "chk-tpl-1789082328250-puzo",
+      "buttonActions": {},
+      "allowNotes": true,
+      "unit": "°C",
+      "type": "numeric",
+      "category": "temperatura",
+      "isAlarmActive": false,
+      "includeStatusButtons": false,
+      "currentValue": 47,
+      "requireNotesOnFailure": false,
+      "ampState": "Encendido",
+      "isCritical": false,
+      "lastNonZeroValue": 0,
+      "title": "Temperatura",
+      "area": "Planta De Emergencia S2"
+    },
+    {
+      "unit": "m³",
+      "type": "numeric",
+      "ampState": "Encendido",
+      "currentValue": 9.5,
+      "buttonActions": {},
+      "category": "tanque",
+      "isAlarmActive": false,
+      "id": "chk-tpl-1789181196563-joap",
+      "allowNotes": true,
+      "requireNotesOnFailure": false,
+      "includeStatusButtons": false,
+      "isCritical": false,
+      "title": "Tanques",
+      "area": "Terraza Piso 18",
+      "measurementFields": [
+        {
+          "includeButtons": false,
+          "unit": "m³",
+          "id": "1",
+          "lastNonZeroValue": 9.5,
+          "ampState": "Encendido",
+          "value": 9.5,
+          "name": "Tanques Hotel"
+        },
+        {
+          "ampState": "Encendido",
+          "name": "Tanques Apto",
+          "value": 2,
+          "unit": "m³",
+          "lastNonZeroValue": 2,
+          "includeButtons": false,
+          "id": "1789181031815"
+        }
+      ],
+      "lastNonZeroValue": 0
+    },
+    {
+      "ampState": "Encendido",
+      "allowNotes": true,
+      "isCritical": false,
+      "area": "Planta De Emergencia S2",
+      "title": "Condensadores",
+      "currentValue": 0.996,
+      "lastNonZeroValue": 0,
+      "category": "condensador",
+      "type": "numeric",
+      "unit": "FP",
+      "measurementFields": [
+        {
+          "value": 0.996,
+          "name": "Condensadores",
+          "includeButtons": false,
+          "ampState": "Encendido",
+          "lastNonZeroValue": 0.996,
+          "id": "1",
+          "unit": "FP"
+        }
+      ],
+      "isAlarmActive": false,
+      "buttonActions": {},
+      "id": "chk-tpl-1789181948808-tk08",
+      "requireNotesOnFailure": false,
+      "includeStatusButtons": false
+    },
+    {
+      "isAlarmActive": false,
+      "measurementFields": [
+        {
+          "maxValue": 60,
+          "buttonActions": {
+            "Apagado": {
+              "color": "slate",
+              "actionType": "default"
+            },
+            "Encendido": {
+              "actionType": "default",
+              "color": "emerald"
+            }
+          },
+          "lastNonZeroValue": 54,
+          "id": "1",
+          "name": "Precion",
+          "unit": "PSI",
+          "options": [
+            "Encendido",
+            "Apagado",
+            "Alarmado"
+          ],
+          "statusValue": "Encendido",
+          "ampState": "Encendido",
+          "minValue": 42,
+          "includeButtons": true,
+          "value": 54
+        }
+      ],
+      "minValue": 42,
+      "buttonActions": {},
+      "requireNotesOnFailure": false,
+      "isCritical": false,
+      "ampState": "Encendido",
+      "area": "Terraza Piso 18",
+      "allowNotes": true,
+      "currentValue": 54,
+      "category": "hidraulico",
+      "id": "chk-tpl-1789183131928-5ogv",
+      "maxValue": 60,
+      "type": "numeric",
+      "unit": "PSI",
+      "lastNonZeroValue": 42,
+      "includeStatusButtons": false,
+      "title": "Bombas De Presión"
+    },
+    {
+      "ampState": "Encendido",
+      "measurementFields": [
+        {
+          "value": 36.8,
+          "ampState": "Encendido",
+          "unit": "°C",
+          "name": "Temperatura/Sauna",
+          "buttonActions": {
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "default"
+            },
+            "Apagado": {
+              "actionType": "default",
+              "color": "slate"
+            }
+          },
+          "options": [
+            "Encendido",
+            "Apagado"
+          ],
+          "statusValue": "Encendido",
+          "lastNonZeroValue": 36.8,
+          "id": "1",
+          "includeButtons": true
+        },
+        {
+          "id": "1789184871874",
+          "lastNonZeroValue": 11.5,
+          "name": "Cold Plungue",
+          "includeButtons": true,
+          "unit": "°C",
+          "statusValue": "Encendido",
+          "buttonActions": {
+            "Apagado": {
+              "color": "slate",
+              "actionType": "default"
+            },
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "default"
+            }
+          },
+          "ampState": "Encendido",
+          "options": [
+            "Encendido",
+            "Apagado"
+          ],
+          "value": 11.5
+        }
+      ],
+      "area": "Zona Húmeda/Piso 6",
+      "category": "sauna_cold_plunge",
+      "requireNotesOnFailure": false,
+      "title": "Sauna/Cold Plungue",
+      "lastNonZeroValue": 0,
+      "isCritical": false,
+      "unit": "°C",
+      "type": "numeric",
+      "id": "chk-tpl-1789184914843-8qeh",
+      "currentValue": 36.8,
+      "allowNotes": true,
+      "buttonActions": {},
+      "includeStatusButtons": false,
+      "isAlarmActive": false
+    },
+    {
+      "type": "ok_nok",
+      "ampState": "Encendido",
+      "isCritical": false,
+      "suggestedNotes": [
+        "Musica Ascensores Ok",
+        "Musica Gym Ok",
+        "Televisor Gym Ok",
+        "Musica Piscina Ok",
+        "Musica Silo Ok",
+        "Musica Sastra Ok",
+        "Musica Sauna Ok"
+      ],
+      "buttonActions": {},
+      "title": "Musica",
+      "allowNotes": true,
+      "isAlarmActive": false,
+      "category": "musica",
+      "id": "chk-tpl-1789186187266-j679",
+      "requireNotesOnFailure": false,
+      "options": [
+        "Todo Ok",
+        "NO OK"
+      ],
+      "statusValue": "Todo Ok",
+      "currentValue": "Todo Ok",
+      "lastNonZeroValue": 0,
+      "area": "Zona Húmeda/Piso 6"
+    },
+    {
+      "measurementFields": [
+        {
+          "name": "Botellero Ventanal",
+          "value": -5,
+          "lastNonZeroValue": -5,
+          "buttonActions": {
+            "Encendido": {
+              "actionType": "turn_on",
+              "color": "emerald"
+            },
+            "Apagado": {
+              "actionType": "turn_off",
+              "color": "slate"
+            }
+          },
+          "includeButtons": true,
+          "statusValue": "OK",
+          "ampState": "Encendido",
+          "id": "1",
+          "unit": "°C",
+          "options": [
+            "OK",
+            "NO OK"
+          ]
+        },
+        {
+          "unit": "°C",
+          "statusValue": "OK",
+          "id": "1789227261860",
+          "ampState": "Encendido",
+          "includeButtons": true,
+          "lastNonZeroValue": -17,
+          "value": -17,
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "buttonActions": {
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "turn_on"
+            },
+            "Apagado": {
+              "color": "slate",
+              "actionType": "turn_off"
+            }
+          },
+          "name": "Nevera Cafetera"
+        },
+        {
+          "includeButtons": true,
+          "name": "Botellero Entrada Derecha",
+          "statusValue": "OK",
+          "lastNonZeroValue": 42,
+          "buttonActions": {
+            "Apagado": {
+              "actionType": "turn_off",
+              "color": "slate"
+            },
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "turn_on"
+            }
+          },
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "ampState": "Encendido",
+          "id": "1789227309459",
+          "value": 42,
+          "unit": "°F"
+        },
+        {
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "id": "1789227538808",
+          "statusValue": "OK",
+          "includeButtons": true,
+          "name": "Botellero Entrada Izquierda",
+          "unit": "°F",
+          "lastNonZeroValue": 34,
+          "buttonActions": {
+            "Apagado": {
+              "actionType": "turn_off",
+              "color": "slate"
+            },
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "turn_on"
+            }
+          },
+          "ampState": "Encendido",
+          "value": 34
+        }
+      ],
+      "requireNotesOnFailure": false,
+      "area": "Bar/ Piso 6",
+      "currentValue": -5,
+      "includeStatusButtons": false,
+      "category": "refrigeracion",
+      "isCritical": false,
+      "id": "chk-tpl-1789227609185-rbqi",
+      "type": "numeric",
+      "unit": "°C",
+      "isAlarmActive": false,
+      "allowNotes": true,
+      "buttonActions": {},
+      "lastNonZeroValue": 0,
+      "title": "Equipos Del Bar",
+      "ampState": "Encendido"
+    },
+    {
+      "category": "caldera",
+      "isAlarmActive": false,
+      "measurementFields": [
+        {
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "lastNonZeroValue": 50.8,
+          "unit": "°C",
+          "buttonActions": {
+            "Apagado": {
+              "actionType": "turn_off",
+              "color": "slate"
+            },
+            "Encendido": {
+              "actionType": "turn_on",
+              "color": "emerald"
+            }
+          },
+          "includeButtons": true,
+          "ampState": "Encendido",
+          "value": 50.8,
+          "name": "Bombas/Presurisacion",
+          "id": "1",
+          "statusValue": "OK"
+        },
+        {
+          "lastNonZeroValue": 47.9,
+          "id": "1789240544706",
+          "ampState": "Encendido",
+          "unit": "°C",
+          "statusValue": "OK",
+          "includeButtons": true,
+          "value": 47.9,
+          "name": "Bomba/Resirculacion",
+          "buttonActions": {
+            "Apagado": {
+              "color": "slate",
+              "actionType": "turn_off"
+            },
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "turn_on"
+            }
+          },
+          "options": [
+            "OK",
+            "NO OK"
+          ]
+        },
+        {
+          "unit": "PSI",
+          "ampState": "Encendido",
+          "lastNonZeroValue": 50,
+          "includeButtons": false,
+          "id": "1789240600468",
+          "name": "Manometros De Bombas",
+          "value": 50
+        },
+        {
+          "unit": "PSI",
+          "value": 50,
+          "id": "1789240637614",
+          "name": "Manometros Tanques",
+          "lastNonZeroValue": 50,
+          "ampState": "Encendido",
+          "includeButtons": false
+        }
+      ],
+      "buttonActions": {},
+      "requireNotesOnFailure": false,
+      "type": "numeric",
+      "unit": "°C",
+      "id": "chk-tpl-1789240659096-ji6y",
+      "ampState": "Encendido",
+      "area": "Cuarto De Bombas",
+      "isCritical": false,
+      "title": "Sistema De Agua Caliente",
+      "currentValue": 50.8,
+      "lastNonZeroValue": 0,
+      "includeStatusButtons": false,
+      "allowNotes": true
+    },
+    {
+      "allowNotes": true,
+      "statusValue": "Operativo",
+      "requireNotesOnFailure": false,
+      "title": "Ascensor Apto",
+      "type": "ok_nok",
+      "isCritical": false,
+      "id": "chk-tpl-1789423733318-xfh6",
+      "isAlarmActive": false,
+      "category": "extraccion",
+      "buttonActions": {},
+      "area": "Ascensores",
+      "ampState": "Encendido",
+      "lastNonZeroValue": 0,
+      "currentValue": "Operativo",
+      "options": [
+        "Operativo",
+        "Bloqueado"
+      ]
+    },
+    {
+      "options": [
+        "Nivel Bajo",
+        "Nivel Medio",
+        "Nivel Alto"
+      ],
+      "statusValue": "Nivel Alto",
+      "currentValue": "Nivel Alto",
+      "type": "ok_nok",
+      "lastNonZeroValue": 0,
+      "isCritical": false,
+      "category": "extraccion",
+      "requireNotesOnFailure": false,
+      "id": "chk-tpl-1789428026446-qnuc",
+      "title": "Tanques De Agua Potable",
+      "allowNotes": true,
+      "ampState": "Encendido",
+      "buttonActions": {
+        "Nivel Bajo": {
+          "color": "auto",
+          "actionType": "failure"
+        }
+      },
+      "isAlarmActive": false,
+      "area": "Bombas De Impulción S3"
+    },
+    {
+      "title": "Ascensor Hotel",
+      "type": "ok_nok",
+      "allowNotes": true,
+      "requireNotesOnFailure": false,
+      "statusValue": "Operativo",
+      "isCritical": false,
+      "id": "chk-tpl-1789428185062-g11h",
+      "options": [
+        "Operativo",
+        "Bloqueado"
+      ],
+      "isAlarmActive": false,
+      "ampState": "Encendido",
+      "currentValue": "Operativo",
+      "buttonActions": {},
+      "lastNonZeroValue": 0,
+      "area": "Ascensores",
+      "category": "extraccion"
+    },
+    {
+      "id": "chk-tpl-1789428511011-x67z",
+      "options": [
+        "Operativo",
+        "Bloqueado"
+      ],
+      "ampState": "Encendido",
+      "type": "ok_nok",
+      "category": "extraccion",
+      "area": "Ascensores",
+      "isCritical": false,
+      "lastNonZeroValue": 0,
+      "isAlarmActive": false,
+      "allowNotes": true,
+      "buttonActions": {},
+      "statusValue": "Operativo",
+      "currentValue": "Operativo",
+      "requireNotesOnFailure": false,
+      "title": "Ascensor De Servicio"
+    },
+    {
+      "options": [
+        "Energia/EMP",
+        "Energia/Planta",
+        "Bloqueado"
+      ],
+      "requireNotesOnFailure": false,
+      "id": "chk-tpl-1789435170225-zr6y",
+      "category": "subestacion",
+      "currentValue": "Energia/EMP",
+      "area": "Planta De Emergencia S2",
+      "ampState": "Encendido",
+      "allowNotes": true,
+      "type": "ok_nok",
+      "buttonActions": {
+        "Bloqueado": {
+          "actionType": "failure",
+          "color": "auto"
+        }
+      },
+      "isAlarmActive": false,
+      "statusValue": "Energia/EMP",
+      "lastNonZeroValue": 0,
+      "title": "Transferencia De Energia",
+      "isCritical": false
+    },
+    {
+      "currentValue": 2,
+      "area": "Cocina/Silo",
+      "measurementFields": [
+        {
+          "unit": "°C",
+          "lastNonZeroValue": 2,
+          "id": "1",
+          "statusValue": "OK",
+          "buttonActions": {
+            "Encendido": {
+              "actionType": "turn_on",
+              "color": "emerald"
+            },
+            "Apagado": {
+              "color": "slate",
+              "actionType": "turn_off"
+            }
+          },
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "value": 2,
+          "includeButtons": true,
+          "name": "Nevera 1",
+          "ampState": "Encendido"
+        },
+        {
+          "statusValue": "OK",
+          "name": "Nevera 2",
+          "ampState": "Encendido",
+          "value": 5,
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "id": "1789470556027",
+          "lastNonZeroValue": 5,
+          "unit": "°C",
+          "buttonActions": {
+            "Apagado": {
+              "actionType": "turn_off",
+              "color": "slate"
+            },
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "turn_on"
+            }
+          },
+          "includeButtons": true
+        },
+        {
+          "value": 4,
+          "includeButtons": true,
+          "buttonActions": {
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "turn_on"
+            },
+            "Apagado": {
+              "color": "slate",
+              "actionType": "turn_off"
+            }
+          },
+          "unit": "°C",
+          "name": "Nevera 3",
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "statusValue": "OK",
+          "ampState": "Encendido",
+          "lastNonZeroValue": 4,
+          "id": "1789470602027"
+        },
+        {
+          "ampState": "Encendido",
+          "id": "1789470634919",
+          "name": "Base Chef",
+          "lastNonZeroValue": 36,
+          "statusValue": "OK",
+          "unit": "°F",
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "buttonActions": {
+            "Apagado": {
+              "color": "slate",
+              "actionType": "turn_off"
+            },
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "turn_on"
+            }
+          },
+          "includeButtons": true,
+          "value": 36
+        },
+        {
+          "name": "Nevera De Entrada",
+          "includeButtons": true,
+          "options": [
+            "OK",
+            "NO OK"
+          ],
+          "statusValue": "OK",
+          "ampState": "Encendido",
+          "id": "1789470671546",
+          "value": -4,
+          "buttonActions": {
+            "Encendido": {
+              "color": "emerald",
+              "actionType": "turn_on"
+            },
+            "Apagado": {
+              "actionType": "turn_off",
+              "color": "slate"
+            }
+          },
+          "lastNonZeroValue": -4,
+          "unit": "°F"
+        }
+      ],
+      "isAlarmActive": false,
+      "ampState": "Encendido",
+      "buttonActions": {},
+      "lastNonZeroValue": 0,
+      "isCritical": false,
+      "allowNotes": true,
+      "requireNotesOnFailure": false,
+      "category": "refrigeracion",
+      "title": "Neveras",
+      "id": "chk-tpl-1789470717933-t9gy",
+      "includeStatusButtons": false,
+      "type": "numeric",
+      "unit": "°C"
+    }
+  ],
+  "progress": 100,
+  "completedAt": "2026-11-07T10:30:00Z"
+}
 ];

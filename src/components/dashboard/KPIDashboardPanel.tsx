@@ -47,7 +47,9 @@ export const KPIDashboardPanel: React.FC = () => {
     requests, 
     tasks, 
     stateAuditResult, 
-    runStateAudit 
+    runStateAudit,
+    currentUser,
+    isAdmin: ctxIsAdmin
   } = useMaintenance();
 
   const [activeTab, setActiveTab] = useState<DashboardTab>('resumen');
@@ -72,22 +74,89 @@ export const KPIDashboardPanel: React.FC = () => {
     return Date.now() - days * 24 * 60 * 60 * 1000;
   }, [timeFilter]);
 
+  // Role resolution
+  const isAdmin = Boolean(
+    ctxIsAdmin ||
+    currentUser?.role === 'admin' || 
+    currentUser?.email?.toLowerCase().trim() === 'juanmateoramosramos44@gmail.com' ||
+    currentUser?.id === 'usr-admin-master' ||
+    currentUser?.id === 'usr-1789230683226' ||
+    Boolean(currentUser?.permissions?.canManageUsers) || 
+    Boolean(currentUser?.permissions?.canEditSettings) ||
+    safeLower(currentUser?.displayName) === 'administrador principal' ||
+    safeLower(currentUser?.displayName) === 'juan mateo ramos' ||
+    safeLower(currentUser?.role) === 'administrador' ||
+    safeLower(currentUser?.role) === 'admin'
+  );
+
+  // User-filtered Tasks (Admin has total visibility, technicians see only assigned or created by them)
+  const isTaskAssigned = (t: any) => {
+    if (!currentUser || !t) return false;
+    if (t.assignedToId && t.assignedToId === currentUser.id) return true;
+    const myName = safeLower(currentUser.displayName || (currentUser as any).name);
+    const assigned = safeLower(t.assignedToName);
+    if (myName && assigned && (myName === assigned || myName.includes(assigned) || assigned.includes(myName))) return true;
+    if (assigned.includes('todo el equipo') || assigned.includes('general') || assigned.includes('todos')) return true;
+    return false;
+  };
+  const isTaskCreated = (t: any) => {
+    if (!currentUser || !t) return false;
+    if (t.createdById && t.createdById === currentUser.id) return true;
+    const myName = safeLower(currentUser.displayName || (currentUser as any).name);
+    const creator = safeLower(t.createdByName);
+    return Boolean(myName && creator && (myName === creator || myName.includes(creator) || creator.includes(myName)));
+  };
+
+  const userTasks = useMemo(() => {
+    const all = tasks || [];
+    if (isAdmin) return all;
+    return all.filter(t => isTaskAssigned(t) || isTaskCreated(t));
+  }, [tasks, isAdmin, currentUser]);
+
+  // User-filtered Requests
+  const isReqAssigned = (r: any) => {
+    if (!currentUser || !r) return false;
+    const myName = safeLower(currentUser.displayName || (currentUser as any).name);
+    const myEmail = safeLower(currentUser.email);
+    const assigned = safeLower(r.assignedTo);
+    if (myName && assigned && (myName === assigned || myName.includes(assigned) || assigned.includes(myName))) return true;
+    if (myEmail && assigned && (myEmail === assigned || assigned.includes(myEmail))) return true;
+    const isDept = ['mantenimiento', 'tecnico', 'housekeeping', 'recepcion', 'cocina', 'ayb', 'seguridad'].includes(assigned);
+    if (isDept && (safeLower(currentUser.department) === assigned || safeLower(currentUser.role).includes(assigned))) return true;
+    return false;
+  };
+  const isReqCreated = (r: any) => {
+    if (!currentUser || !r) return false;
+    if (r.requestedById && r.requestedById === currentUser.id) return true;
+    const myName = safeLower(currentUser.displayName || (currentUser as any).name);
+    const myEmail = safeLower(currentUser.email);
+    const reqBy = safeLower(r.requestedBy);
+    const reqEmail = safeLower(r.requestedByEmail);
+    if (myName && reqBy && (myName === reqBy || myName.includes(reqBy) || reqBy.includes(myName))) return true;
+    if (myEmail && reqEmail && myEmail === reqEmail) return true;
+    return false;
+  };
+
+  const userRequests = useMemo(() => {
+    const all = requests || [];
+    if (isAdmin) return all;
+    return all.filter(r => isReqAssigned(r) || isReqCreated(r));
+  }, [requests, isAdmin, currentUser]);
+
   // Global counts directly from PostgreSQL database (Authoritative Source of Truth)
   const dbTotals = useMemo(() => {
     const totalRounds = (rounds || []).length;
     const totalIncidents = (incidents || []).length;
-    const totalRequests = (requests || []).length;
-    const totalTasks = (tasks || []).length;
+    const totalRequests = (userRequests || []).length;
+    const totalTasks = (userTasks || []).length;
     const totalMeters = (meters || []).length;
     
-    // Total meter readings combines meterReadingsLog + rounds with meterReadings
-    const roundsWithMeters = (rounds || []).filter(r => r && r.meterReadings).length;
-    const logReadings = (meterReadingsLog || []).length;
-    const totalReadings = Math.max(logReadings, roundsWithMeters);
+    // Total meter readings reads exclusively from meterReadingsLog (independent module)
+    const totalReadings = (meterReadingsLog || []).length;
 
-    const inProgressTasks = (tasks || []).filter(t => t && t.status === 'en_progreso').length;
-    const pendingTasks = (tasks || []).filter(t => t && (t.status === 'pendiente' || !t.status)).length;
-    const completedTasks = (tasks || []).filter(t => t && t.status === 'completada').length;
+    const inProgressTasks = (userTasks || []).filter(t => t && t.status === 'en_progreso').length;
+    const pendingTasks = (userTasks || []).filter(t => t && (t.status === 'pendiente' || !t.status)).length;
+    const completedTasks = (userTasks || []).filter(t => t && t.status === 'completada').length;
 
     // Incidents: Check if resolved/ok
     const resolvedIncidents = (incidents || []).filter(i => {
@@ -97,11 +166,11 @@ export const KPIDashboardPanel: React.FC = () => {
     const activeIncidents = Math.max(0, totalIncidents - resolvedIncidents);
 
     // Requests: Check status
-    const resolvedReqs = (requests || []).filter(r => {
+    const resolvedReqs = (userRequests || []).filter(r => {
       const st = safeLower(r.status);
       return ['resuelto', 'solucionada', 'atendida', 'cerrada', 'completada'].includes(st);
     }).length;
-    const inProgressReqs = (requests || []).filter(r => {
+    const inProgressReqs = (userRequests || []).filter(r => {
       const st = safeLower(r.status);
       return ['en_revision', 'en_proceso', 'proceso'].includes(st);
     }).length;
@@ -131,7 +200,7 @@ export const KPIDashboardPanel: React.FC = () => {
       totalMeters,
       totalReadings
     };
-  }, [rounds, inProgressRounds, incidents, requests, tasks, meters, meterReadingsLog]);
+  }, [rounds, inProgressRounds, incidents, userRequests, userTasks, meters, meterReadingsLog]);
 
   // 1. Filtered Rondas
   const filteredRounds = useMemo(() => {
@@ -153,25 +222,25 @@ export const KPIDashboardPanel: React.FC = () => {
     });
   }, [incidents, cutoffTime]);
 
-  // 3. Filtered Requests
+  // 3. Filtered Requests (Strictly by user role)
   const filteredRequests = useMemo(() => {
-    const list = requests || [];
+    const list = userRequests || [];
     if (cutoffTime === 0) return list;
     return list.filter(req => {
       const t = new Date((req.createdAt || '').replace(' ', 'T')).getTime();
       return !isNaN(t) && t >= cutoffTime;
     });
-  }, [requests, cutoffTime]);
+  }, [userRequests, cutoffTime]);
 
-  // 4. Filtered Tasks
+  // 4. Filtered Tasks (Strictly by user role)
   const filteredTasks = useMemo(() => {
-    const list = tasks || [];
+    const list = userTasks || [];
     if (cutoffTime === 0) return list;
     return list.filter(tsk => {
       const t = new Date(tsk.createdAt || tsk.dueDate || 0).getTime();
       return !isNaN(t) && t >= cutoffTime;
     });
-  }, [tasks, cutoffTime]);
+  }, [userTasks, cutoffTime]);
 
   // -------------------------------------------------------------
   // DATA CALCULATION: 1. RONDAS (Completadas vs Pendientes por Día)
@@ -222,41 +291,20 @@ export const KPIDashboardPanel: React.FC = () => {
 
   // -------------------------------------------------------------
   // DATA CALCULATION: 2. CONTADORES (Tendencia y Consumo Registrado)
-  // Combines both meterReadingsLog AND round meterReadings
+  // Lectura exclusiva desde meterReadingsLog y meters (separado de rondas)
   // -------------------------------------------------------------
   const meterStats = useMemo(() => {
     const totalMeters = (meters || []).length;
-
-    // Build timeline from rounds and readings log
     const dateMap = new Map<string, { date: string; agua: number; electricidad: number; gas: number; totalReadings: number }>();
 
-    // 1. From rounds (Each round records waterCubicMeters, electricKwh, gasCubicMeters)
-    const sortedRounds = [...filteredRounds].sort((a, b) => {
-      const tA = new Date(a.date || a.lastUpdated || 0).getTime();
-      const tB = new Date(b.date || b.lastUpdated || 0).getTime();
-      return tA - tB;
-    });
-
-    sortedRounds.forEach(r => {
-      const d = r.date ? (r.date.length >= 10 ? r.date.slice(5) : r.date) : 'Hoy';
-      const cur = dateMap.get(d) || { date: d, agua: 0, electricidad: 0, gas: 0, totalReadings: 0 };
-      if (r.meterReadings) {
-        if (typeof r.meterReadings.waterCubicMeters === 'number') cur.agua = r.meterReadings.waterCubicMeters;
-        if (typeof r.meterReadings.electricKwh === 'number') cur.electricidad = r.meterReadings.electricKwh;
-        if (typeof r.meterReadings.gasCubicMeters === 'number') cur.gas = r.meterReadings.gasCubicMeters;
-        cur.totalReadings += 1;
-      }
-      dateMap.set(d, cur);
-    });
-
-    // 2. From meterReadingsLog (if present)
+    // Lectura exclusiva desde la tabla de registros de contadores
     (meterReadingsLog || []).forEach(rdg => {
       if (!rdg || !rdg.date) return;
       const d = rdg.date.length >= 10 ? rdg.date.slice(5) : rdg.date;
       const cur = dateMap.get(d) || { date: d, agua: 0, electricidad: 0, gas: 0, totalReadings: 0 };
       const m = (meters || []).find(item => item.id === rdg.meterId || item.code === rdg.meterId);
       const mType = safeLower(m?.type);
-      const val = Number(rdg.currentValue) || Number(rdg.consumption) || 0;
+      const val = Number(rdg.currentValue ?? rdg.consumption ?? 0);
       if (mType === 'agua') cur.agua = Math.max(cur.agua, val);
       else if (mType === 'electricidad') cur.electricidad = Math.max(cur.electricidad, val);
       else if (mType === 'gas') cur.gas = Math.max(cur.gas, val);
@@ -274,7 +322,7 @@ export const KPIDashboardPanel: React.FC = () => {
     };
 
     return { totalMeters, trendData, byType };
-  }, [meters, filteredRounds, meterReadingsLog]);
+  }, [meters, meterReadingsLog]);
 
   // -------------------------------------------------------------
   // DATA CALCULATION: 3. INCONVENIENTES / FALLAS (Activos vs Resueltos y Urgencia)

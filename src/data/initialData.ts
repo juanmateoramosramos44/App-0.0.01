@@ -11,7 +11,8 @@ import {
   MeterReadingRecord,
   TechnicianSchedule,
   HotelRequest,
-  User
+  User,
+  MaintenanceTask
 } from '../types';
 import { HISTORICAL_ROUNDS } from './historicalRounds';
 import {
@@ -21,7 +22,8 @@ import {
   SNAPSHOT_METERS,
   SNAPSHOT_METER_READINGS,
   SNAPSHOT_USERS,
-  SNAPSHOT_ROUND_TEMPLATE
+  SNAPSHOT_ROUND_TEMPLATE,
+  SNAPSHOT_TASKS
 } from './systemDataSnapshot';
 
 export const INITIAL_EQUIPMENT: Equipment[] = [
@@ -470,6 +472,7 @@ export const STANDARD_ROUND_CHECKPOINTS: RoundCheckpoint[] = SNAPSHOT_ROUND_TEMP
 export const INITIAL_ROUNDS: DailyRound[] = HISTORICAL_ROUNDS;
 export const INITIAL_SCHEDULES: TechnicianSchedule[] = SNAPSHOT_SCHEDULES;
 export const INITIAL_REQUESTS: HotelRequest[] = SNAPSHOT_REQUESTS;
+export const INITIAL_TASKS: MaintenanceTask[] = SNAPSHOT_TASKS;
 export const INITIAL_USERS_SNAPSHOT: User[] = SNAPSHOT_USERS;
 
 export const INITIAL_PUMP_INSPECTIONS: PumpInspection[] = [

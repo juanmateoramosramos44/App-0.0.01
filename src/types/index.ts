@@ -254,6 +254,7 @@ export interface DailyRound {
   };
   generalNotes: string;
   compliancePercentage: number;
+  progress?: number;
   lastUpdated?: string;
   lastHeartbeat?: string;
   completedAt?: string;

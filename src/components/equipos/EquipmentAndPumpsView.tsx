@@ -100,8 +100,8 @@ export const EquipmentAndPumpsView: React.FC<EquipmentAndPumpsViewProps> = ({
     Math.abs(inspForm.ampL2 - avgAmps),
     Math.abs(inspForm.ampL3 - avgAmps)
   );
-  const currentUnbalance = avgAmps > 0 ? ((maxAmpDev / avgAmps) * 100).toFixed(1) : '0';
-  const differentialPressure = (inspForm.dischargePressurePsi - inspForm.suctionPressurePsi).toFixed(1);
+  const currentUnbalance = avgAmps > 0 ? Number(((maxAmpDev / avgAmps) * 100) || 0).toFixed(1) : '0';
+  const differentialPressure = Number((inspForm.dischargePressurePsi ?? 0) - (inspForm.suctionPressurePsi ?? 0)).toFixed(1);
 
   // New/Edit equipment form state
   const [eqForm, setEqForm] = useState<Partial<Equipment>>({

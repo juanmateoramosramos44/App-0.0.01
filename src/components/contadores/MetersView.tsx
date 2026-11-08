@@ -43,6 +43,15 @@ import {
 } from 'lucide-react';
 import { SmartMeterScannerModal, MeterScanResult } from '../rondas/SmartMeterScannerModal';
 import { FuturisticMeterSelect } from './FuturisticMeterSelect';
+const safeToFixed = (val: unknown, digits: number = 2): string => {
+  const n = Number(val ?? 0);
+  return isNaN(n) ? (0).toFixed(digits) : n.toFixed(digits);
+};
+
+const safeParseFixed = (val: unknown, digits: number = 2): number => {
+  const n = Number(val ?? 0);
+  return isNaN(n) ? 0 : parseFloat(n.toFixed(digits));
+};
 
 export const MetersView: React.FC = () => {
   const { 
@@ -181,15 +190,15 @@ export const MetersView: React.FC = () => {
 
     if (last) {
       if (previous) {
-        lastIntervalConsumption = Math.max(0, parseFloat((last.currentValue - previous.currentValue).toFixed(3)));
-      } else if (last.consumption !== undefined && !isNaN(last.consumption)) {
-        lastIntervalConsumption = Math.max(0, parseFloat(Number(last.consumption).toFixed(3)));
-      } else if (last.previousValue !== undefined && !isNaN(last.previousValue)) {
-        lastIntervalConsumption = Math.max(0, parseFloat((last.currentValue - last.previousValue).toFixed(3)));
-      } else if (meter && meter.initialReading !== undefined && last.currentValue >= meter.initialReading) {
-        lastIntervalConsumption = Math.max(0, parseFloat((last.currentValue - meter.initialReading).toFixed(3)));
+        lastIntervalConsumption = Math.max(0, safeParseFixed(Number(last.currentValue ?? 0) - Number(previous.currentValue ?? 0), 3));
+      } else if (last.consumption !== undefined && !isNaN(Number(last.consumption))) {
+        lastIntervalConsumption = Math.max(0, safeParseFixed(last.consumption, 3));
+      } else if (last.previousValue !== undefined && !isNaN(Number(last.previousValue))) {
+        lastIntervalConsumption = Math.max(0, safeParseFixed(Number(last.currentValue ?? 0) - Number(last.previousValue ?? 0), 3));
+      } else if (meter && meter.initialReading !== undefined && Number(last.currentValue ?? 0) >= Number(meter.initialReading ?? 0)) {
+        lastIntervalConsumption = Math.max(0, safeParseFixed(Number(last.currentValue ?? 0) - Number(meter.initialReading ?? 0), 3));
       } else {
-        lastIntervalConsumption = Math.max(0, parseFloat(last.currentValue.toFixed(3)));
+        lastIntervalConsumption = Math.max(0, safeParseFixed(last.currentValue ?? 0, 3));
       }
       lastIntervalHours = last.intervalHours || 24;
     }
@@ -200,22 +209,22 @@ export const MetersView: React.FC = () => {
       const secondLast = logsDesc[1];
       const thirdLast = logsDesc[2];
       if (thirdLast) {
-        prevReadingConsumption = Math.max(0, parseFloat((secondLast.currentValue - thirdLast.currentValue).toFixed(3)));
-      } else if (secondLast.consumption !== undefined && !isNaN(secondLast.consumption)) {
-        prevReadingConsumption = Math.max(0, parseFloat(Number(secondLast.consumption).toFixed(3)));
-      } else if (secondLast.previousValue !== undefined && !isNaN(secondLast.previousValue)) {
-        prevReadingConsumption = Math.max(0, parseFloat((secondLast.currentValue - secondLast.previousValue).toFixed(3)));
-      } else if (meter && meter.initialReading !== undefined && secondLast.currentValue >= meter.initialReading) {
-        prevReadingConsumption = Math.max(0, parseFloat((secondLast.currentValue - meter.initialReading).toFixed(3)));
+        prevReadingConsumption = Math.max(0, safeParseFixed(Number(secondLast.currentValue ?? 0) - Number(thirdLast.currentValue ?? 0), 3));
+      } else if (secondLast.consumption !== undefined && !isNaN(Number(secondLast.consumption))) {
+        prevReadingConsumption = Math.max(0, safeParseFixed(secondLast.consumption, 3));
+      } else if (secondLast.previousValue !== undefined && !isNaN(Number(secondLast.previousValue))) {
+        prevReadingConsumption = Math.max(0, safeParseFixed(Number(secondLast.currentValue ?? 0) - Number(secondLast.previousValue ?? 0), 3));
+      } else if (meter && meter.initialReading !== undefined && Number(secondLast.currentValue ?? 0) >= Number(meter.initialReading ?? 0)) {
+        prevReadingConsumption = Math.max(0, safeParseFixed(Number(secondLast.currentValue ?? 0) - Number(meter.initialReading ?? 0), 3));
       } else {
-        prevReadingConsumption = Math.max(0, parseFloat(secondLast.currentValue.toFixed(3)));
+        prevReadingConsumption = Math.max(0, safeParseFixed(secondLast.currentValue ?? 0, 3));
       }
     }
 
     let trendComparison: 'mayor' | 'menor' | 'igual' | 'primera' = 'primera';
     let trendDiff = 0;
     if (logsDesc.length >= 2) {
-      trendDiff = parseFloat(Math.abs(lastIntervalConsumption - prevReadingConsumption).toFixed(2));
+      trendDiff = safeParseFixed(Math.abs(lastIntervalConsumption - prevReadingConsumption), 2);
       if (lastIntervalConsumption > prevReadingConsumption) {
         trendComparison = 'mayor';
       } else if (lastIntervalConsumption < prevReadingConsumption) {
@@ -258,15 +267,15 @@ export const MetersView: React.FC = () => {
       let cons = 0;
       if (idx > 0) {
         const prevReading = sortedLogsAsc[idx - 1];
-        cons = Math.max(0, parseFloat((r.currentValue - prevReading.currentValue).toFixed(3)));
-      } else if (r.consumption !== undefined && !isNaN(r.consumption)) {
-        cons = Math.max(0, parseFloat(Number(r.consumption).toFixed(3)));
-      } else if (r.previousValue !== undefined && !isNaN(r.previousValue)) {
-        cons = Math.max(0, parseFloat((r.currentValue - r.previousValue).toFixed(3)));
-      } else if (meter && meter.initialReading !== undefined && r.currentValue >= meter.initialReading) {
-        cons = Math.max(0, parseFloat((r.currentValue - meter.initialReading).toFixed(3)));
+        cons = Math.max(0, safeParseFixed(Number(r.currentValue ?? 0) - Number(prevReading.currentValue ?? 0), 3));
+      } else if (r.consumption !== undefined && !isNaN(Number(r.consumption))) {
+        cons = Math.max(0, safeParseFixed(r.consumption, 3));
+      } else if (r.previousValue !== undefined && !isNaN(Number(r.previousValue))) {
+        cons = Math.max(0, safeParseFixed(Number(r.currentValue ?? 0) - Number(r.previousValue ?? 0), 3));
+      } else if (meter && meter.initialReading !== undefined && Number(r.currentValue ?? 0) >= Number(meter.initialReading ?? 0)) {
+        cons = Math.max(0, safeParseFixed(Number(r.currentValue ?? 0) - Number(meter.initialReading ?? 0), 3));
       } else {
-        cons = Math.max(0, parseFloat(r.currentValue.toFixed(3)));
+        cons = Math.max(0, safeParseFixed(r.currentValue ?? 0, 3));
       }
 
       totalAccumulated += cons;
@@ -294,16 +303,16 @@ export const MetersView: React.FC = () => {
     });
 
     // 1. Consumo Diario = Delta exacto de la última lectura realizada (NO se suma con lecturas anteriores)
-    const daily = parseFloat(lastIntervalConsumption.toFixed(2));
+    const daily = safeParseFixed(lastIntervalConsumption, 2);
     const dailyLabel = last 
       ? (last.date === `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
           ? `Hoy ${last.time || ''}`.trim()
           : `${last.date} ${last.time || ''}`.trim())
       : 'Sin lecturas';
 
-    const weekly = parseFloat(weeklyAccumulated.toFixed(2));
-    const monthly = parseFloat(monthlyAccumulated.toFixed(2));
-    const yearly = parseFloat(yearlyAccumulated.toFixed(2));
+    const weekly = safeParseFixed(weeklyAccumulated, 2);
+    const monthly = safeParseFixed(monthlyAccumulated, 2);
+    const yearly = safeParseFixed(yearlyAccumulated, 2);
 
     const isWaterMeter = meter?.type === 'agua';
     const isMainWater = isWaterMeter && (meter?.isMainMeter || meter?.id === 'meter-agua-general' || meter?.code === 'MED-AGU-01');
@@ -318,7 +327,7 @@ export const MetersView: React.FC = () => {
     return {
       last,
       previous,
-      lastIntervalConsumption: parseFloat(lastIntervalConsumption.toFixed(2)),
+      lastIntervalConsumption: safeParseFixed(lastIntervalConsumption, 2),
       lastIntervalHours,
       totalReadingsCount: sortedLogsAsc.length,
       daily,
@@ -331,7 +340,7 @@ export const MetersView: React.FC = () => {
       monthlyReadingsCount,
       yearly,
       yearlyReadingsCount,
-      totalAccumulated: parseFloat(totalAccumulated.toFixed(2)),
+      totalAccumulated: safeParseFixed(totalAccumulated, 2),
       isMainWater,
       isSubWater
     };
@@ -466,23 +475,23 @@ export const MetersView: React.FC = () => {
       electricMeters,
       gasMeters,
       totalReadings: meterReadingsLog.length,
-      waterDaily: parseFloat(waterDaily.toFixed(2)),
-      waterWeekly: parseFloat(waterWeekly.toFixed(2)),
-      waterMonthly: parseFloat(waterMonthly.toFixed(2)),
-      waterYearly: parseFloat(waterYearly.toFixed(2)),
-      electricDaily: parseFloat(electricDaily.toFixed(2)),
-      electricWeekly: parseFloat(electricWeekly.toFixed(2)),
-      electricMonthly: parseFloat(electricMonthly.toFixed(2)),
-      electricYearly: parseFloat(electricYearly.toFixed(2)),
-      gasDaily: parseFloat(gasDaily.toFixed(2)),
-      gasWeekly: parseFloat(gasWeekly.toFixed(2)),
-      gasMonthly: parseFloat(gasMonthly.toFixed(2)),
-      gasYearly: parseFloat(gasYearly.toFixed(2)),
-      waterActive: parseFloat(waterActive.toFixed(2)),
-      electricActive: parseFloat(electricActive.toFixed(2)),
-      gasActive: parseFloat(gasActive.toFixed(2)),
-      waterKitchenActive: parseFloat(waterKitchenActive.toFixed(2)),
-      waterPoolActive: parseFloat(waterPoolActive.toFixed(2)),
+      waterDaily: safeParseFixed(waterDaily, 2),
+      waterWeekly: safeParseFixed(waterWeekly, 2),
+      waterMonthly: safeParseFixed(waterMonthly, 2),
+      waterYearly: safeParseFixed(waterYearly, 2),
+      electricDaily: safeParseFixed(electricDaily, 2),
+      electricWeekly: safeParseFixed(electricWeekly, 2),
+      electricMonthly: safeParseFixed(electricMonthly, 2),
+      electricYearly: safeParseFixed(electricYearly, 2),
+      gasDaily: safeParseFixed(gasDaily, 2),
+      gasWeekly: safeParseFixed(gasWeekly, 2),
+      gasMonthly: safeParseFixed(gasMonthly, 2),
+      gasYearly: safeParseFixed(gasYearly, 2),
+      waterActive: safeParseFixed(waterActive, 2),
+      electricActive: safeParseFixed(electricActive, 2),
+      gasActive: safeParseFixed(gasActive, 2),
+      waterKitchenActive: safeParseFixed(waterKitchenActive, 2),
+      waterPoolActive: safeParseFixed(waterPoolActive, 2),
       waterKitchenPct,
       waterPoolPct,
       hasSubmeters,
@@ -556,15 +565,15 @@ export const MetersView: React.FC = () => {
       sorted.forEach((r, idx) => {
         let cons = 0;
         if (idx > 0) {
-          cons = Math.max(0, parseFloat((r.currentValue - sorted[idx - 1].currentValue).toFixed(3)));
-        } else if (r.consumption !== undefined && !isNaN(r.consumption)) {
-          cons = Math.max(0, parseFloat(Number(r.consumption).toFixed(3)));
-        } else if (r.previousValue !== undefined && !isNaN(r.previousValue)) {
-          cons = Math.max(0, parseFloat((r.currentValue - r.previousValue).toFixed(3)));
-        } else if (targetMeter && targetMeter.initialReading !== undefined && r.currentValue >= targetMeter.initialReading) {
-          cons = Math.max(0, parseFloat((r.currentValue - targetMeter.initialReading).toFixed(3)));
+          cons = Math.max(0, safeParseFixed(Number(r.currentValue ?? 0) - Number(sorted[idx - 1].currentValue ?? 0), 3));
+        } else if (r.consumption !== undefined && !isNaN(Number(r.consumption))) {
+          cons = Math.max(0, safeParseFixed(r.consumption, 3));
+        } else if (r.previousValue !== undefined && !isNaN(Number(r.previousValue))) {
+          cons = Math.max(0, safeParseFixed(Number(r.currentValue ?? 0) - Number(r.previousValue ?? 0), 3));
+        } else if (targetMeter && targetMeter.initialReading !== undefined && Number(r.currentValue ?? 0) >= Number(targetMeter.initialReading ?? 0)) {
+          cons = Math.max(0, safeParseFixed(Number(r.currentValue ?? 0) - Number(targetMeter.initialReading ?? 0), 3));
         } else {
-          cons = Math.max(0, parseFloat(r.currentValue.toFixed(3)));
+          cons = Math.max(0, safeParseFixed(r.currentValue ?? 0, 3));
         }
         const dObj = new Date(r.timestamp || `${r.date}T${r.time || '12:00'}:00`);
         allEnrichedReadings.push({
@@ -804,11 +813,11 @@ export const MetersView: React.FC = () => {
         year: w.year,
         isCurrent: w.isCurrent,
         isClosed: w.isClosed,
-        totalWater: parseFloat(w.totalWater.toFixed(2)),
-        totalElectric: parseFloat(w.totalElectric.toFixed(2)),
-        totalGas: parseFloat(w.totalGas.toFixed(2)),
+        totalWater: safeParseFixed(w.totalWater, 2),
+        totalElectric: safeParseFixed(w.totalElectric, 2),
+        totalGas: safeParseFixed(w.totalGas, 2),
         totalReadingsCount: w.readingsCount,
-        byMeter: Array.from(w.byMeter.values()).map(b => ({ ...b, consumption: parseFloat(b.consumption.toFixed(2)) })),
+        byMeter: Array.from(w.byMeter.values()).map(b => ({ ...b, consumption: safeParseFixed(b.consumption, 2) })),
         readings: w.readings.sort((a, b) => b.dateObj.getTime() - a.dateObj.getTime())
       }))
       .sort((a, b) => b.id.localeCompare(a.id));
@@ -822,11 +831,11 @@ export const MetersView: React.FC = () => {
         year: m.year,
         isCurrent: m.isCurrent,
         isClosed: m.isClosed,
-        totalWater: parseFloat(m.totalWater.toFixed(2)),
-        totalElectric: parseFloat(m.totalElectric.toFixed(2)),
-        totalGas: parseFloat(m.totalGas.toFixed(2)),
+        totalWater: safeParseFixed(m.totalWater, 2),
+        totalElectric: safeParseFixed(m.totalElectric, 2),
+        totalGas: safeParseFixed(m.totalGas, 2),
         totalReadingsCount: m.readingsCount,
-        byMeter: Array.from(m.byMeter.values()).map(b => ({ ...b, consumption: parseFloat(b.consumption.toFixed(2)) })),
+        byMeter: Array.from(m.byMeter.values()).map(b => ({ ...b, consumption: safeParseFixed(b.consumption, 2) })),
         readings: m.readings.sort((a, b) => b.dateObj.getTime() - a.dateObj.getTime())
       }))
       .sort((a, b) => b.id.localeCompare(a.id));
@@ -840,11 +849,11 @@ export const MetersView: React.FC = () => {
         year: y.year,
         isCurrent: y.isCurrent,
         isClosed: y.isClosed,
-        totalWater: parseFloat(y.totalWater.toFixed(2)),
-        totalElectric: parseFloat(y.totalElectric.toFixed(2)),
-        totalGas: parseFloat(y.totalGas.toFixed(2)),
+        totalWater: safeParseFixed(y.totalWater, 2),
+        totalElectric: safeParseFixed(y.totalElectric, 2),
+        totalGas: safeParseFixed(y.totalGas, 2),
         totalReadingsCount: y.readingsCount,
-        byMeter: Array.from(y.byMeter.values()).map(b => ({ ...b, consumption: parseFloat(b.consumption.toFixed(2)) })),
+        byMeter: Array.from(y.byMeter.values()).map(b => ({ ...b, consumption: safeParseFixed(b.consumption, 2) })),
         readings: y.readings.sort((a, b) => b.dateObj.getTime() - a.dateObj.getTime())
       }))
       .sort((a, b) => b.year - a.year);
@@ -1404,7 +1413,7 @@ export const MetersView: React.FC = () => {
                   </span>
                 )}
                 <span className="text-slate-400 px-1 text-[10px]">
-                  🏨 Resto / Habitaciones: <strong>+{Math.max(0, parseFloat((metrics.waterActive - metrics.waterKitchenActive - metrics.waterPoolActive).toFixed(2)))} m³</strong>
+                  🏨 Resto / Habitaciones: <strong>+{Math.max(0, safeParseFixed(Number(metrics.waterActive ?? 0) - Number(metrics.waterKitchenActive ?? 0) - Number(metrics.waterPoolActive ?? 0), 2))} m³</strong>
                 </span>
               </div>
             </div>
@@ -2698,11 +2707,11 @@ export const MetersView: React.FC = () => {
                   <div className="mt-2 p-2.5 bg-slate-50 rounded-xl border border-slate-200 flex items-center justify-between text-xs">
                     <span className="text-slate-600 font-medium">Consumo calculado en este intervalo:</span>
                     <span className={`font-mono font-black ${
-                      parseFloat(readingForm.currentValue) - selectedMeterForReading.currentReading >= 0
+                      (Number(readingForm.currentValue || 0) - Number(selectedMeterForReading.currentReading || 0)) >= 0
                         ? 'text-emerald-700'
                         : 'text-amber-700'
                     }`}>
-                      +{(parseFloat(readingForm.currentValue) - selectedMeterForReading.currentReading).toFixed(2)} {selectedMeterForReading.unit}
+                      +{safeToFixed(Number(readingForm.currentValue || 0) - Number(selectedMeterForReading.currentReading || 0), 2)} {selectedMeterForReading.unit}
                     </span>
                   </div>
                 )}

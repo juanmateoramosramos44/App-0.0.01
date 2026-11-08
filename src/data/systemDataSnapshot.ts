@@ -1,4 +1,4 @@
-import { TechnicianSchedule, HotelRequest, Incident, MeterDefinition, MeterReadingRecord, User, RoundCheckpoint } from "../types";
+import { TechnicianSchedule, HotelRequest, Incident, MeterDefinition, MeterReadingRecord, User, RoundCheckpoint, MaintenanceTask } from "../types";
 
 export const SNAPSHOT_SCHEDULES: TechnicianSchedule[] = [
   {
@@ -7657,3 +7657,69 @@ export const SNAPSHOT_ROUND_TEMPLATE: RoundCheckpoint[] = [
     "area": "Cocina/Silo"
   }
 ];
+
+export const SNAPSHOT_TASKS: MaintenanceTask[] = [
+  {
+    "id": "tsk-001",
+    "title": "Mantenimiento preventivo de grupo de presión",
+    "description": "Revisión mensual de bombas hidroneumáticas, comprobación de presión de arranque y alternancia.",
+    "priority": "alta",
+    "status": "completada",
+    "category": "mantenimiento",
+    "area": "Sala de Bombas Principal",
+    "assignedToName": "Todo el equipo",
+    "createdById": "admin-1",
+    "createdByName": "Administrador Hotel",
+    "createdAt": "2026-10-15T08:00:00Z",
+    "completedAt": "2026-10-15T11:30:00Z",
+    "checklist": [],
+    "comments": []
+  },
+  {
+    "id": "tsk-002",
+    "title": "Purga y desinfección de acumuladores de ACS",
+    "description": "Apertura de válvulas de purga de fondo para arrastre de lodos y toma de temperaturas preventivas.",
+    "priority": "urgente",
+    "status": "en_progreso",
+    "category": "plomeria",
+    "area": "Sala de Calderas",
+    "assignedToName": "Carlos Gómez",
+    "createdById": "admin-1",
+    "createdByName": "Administrador Hotel",
+    "createdAt": "2026-10-22T09:30:00Z",
+    "checklist": [],
+    "comments": []
+  },
+  {
+    "id": "tsk-003",
+    "title": "Revisión y engrase de extractores de cocina",
+    "description": "Verificación de tensión de correas, rodamientos y limpieza de filtros metálicos de campana.",
+    "priority": "media",
+    "status": "completada",
+    "category": "climatizacion",
+    "area": "Cocina Central",
+    "assignedToName": "David Torres",
+    "createdById": "admin-1",
+    "createdByName": "Administrador Hotel",
+    "createdAt": "2026-10-28T14:00:00Z",
+    "completedAt": "2026-10-28T16:45:00Z",
+    "checklist": [],
+    "comments": []
+  },
+  {
+    "id": "tsk-004",
+    "title": "Comprobación de luces de emergencia y salidas",
+    "description": "Test de autonomía mediante pulsador de corte en cuadros secundarios de plantas 1 a 4.",
+    "priority": "baja",
+    "status": "pendiente",
+    "category": "electrico",
+    "area": "Pasillos y Escaleras",
+    "assignedToName": "Miguel Ángel",
+    "createdById": "admin-1",
+    "createdByName": "Administrador Hotel",
+    "createdAt": "2026-11-04T10:00:00Z",
+    "checklist": [],
+    "comments": []
+  }
+];
+

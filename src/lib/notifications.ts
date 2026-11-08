@@ -388,3 +388,161 @@ export async function sendSystemNotification(title: string, options?: Notificati
     }
   }
 }
+
+// =========================================================================
+// SISTEMA DE NOTIFICACIONES PERSISTENTES ENCOLADAS (ESTILO WHATSAPP/FACEBOOK)
+// Permite que las notificaciones queden encoladas y se sincronicen al recuperar
+// conexión a internet o al abrir la app tras haber estado desconectado.
+// =========================================================================
+
+export interface AppNotification {
+  id: string;
+  title: string;
+  body: string;
+  category: 'tareas' | 'solicitudes' | 'rondas' | 'incidencias' | 'sistema';
+  timestamp: string; // ISO string
+  read: boolean;
+  targetUserId?: string;
+  targetUserName?: string;
+  targetRole?: string;
+  relatedId?: string;
+  priority?: 'normal' | 'alta' | 'urgente';
+}
+
+const IN_APP_NOTIFICATIONS_STORAGE_KEY = 'hotel_maint_in_app_notifications_v3';
+
+export function getQueuedNotifications(): AppNotification[] {
+  if (typeof window === 'undefined') return [];
+  try {
+    const raw = localStorage.getItem(IN_APP_NOTIFICATIONS_STORAGE_KEY);
+    if (!raw) return getInitialDefaultNotifications();
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+    return getInitialDefaultNotifications();
+  } catch {
+    return getInitialDefaultNotifications();
+  }
+}
+
+function getInitialDefaultNotifications(): AppNotification[] {
+  const initial: AppNotification[] = [
+    {
+      id: 'notif-initial-01',
+      title: '📋 Tarea Asignada: Purga y desinfección de ACS',
+      body: 'Se te ha asignado la tarea urgente #2 en Sala de Calderas.',
+      category: 'tareas',
+      timestamp: new Date(Date.now() - 35 * 60000).toISOString(),
+      read: false,
+      priority: 'urgente',
+      relatedId: 'tsk-002',
+      targetUserName: 'Carlos Gómez'
+    },
+    {
+      id: 'notif-initial-02',
+      title: '🛎️ Nueva Solicitud: Cambio de cerradura suite 501',
+      body: 'Recepción reporta requerimiento urgente en Piso 5 Suite.',
+      category: 'solicitudes',
+      timestamp: new Date(Date.now() - 120 * 60000).toISOString(),
+      read: false,
+      priority: 'alta',
+      relatedId: 'req-2'
+    },
+    {
+      id: 'notif-initial-03',
+      title: '🔄 Ronda Técnica Sincronizada',
+      body: '98 rondas técnicas cargadas y consolidadas en PostgreSQL.',
+      category: 'rondas',
+      timestamp: new Date(Date.now() - 240 * 60000).toISOString(),
+      read: true,
+      priority: 'normal'
+    }
+  ];
+  try {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem(IN_APP_NOTIFICATIONS_STORAGE_KEY, JSON.stringify(initial));
+    }
+  } catch {}
+  return initial;
+}
+
+export function saveQueuedNotifications(list: AppNotification[]) {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem(IN_APP_NOTIFICATIONS_STORAGE_KEY, JSON.stringify(list.slice(0, 100)));
+  } catch {}
+}
+
+export function queueInAppNotification(notif: {
+  title: string;
+  body: string;
+  category: 'tareas' | 'solicitudes' | 'rondas' | 'incidencias' | 'sistema';
+  id?: string;
+  timestamp?: string;
+  targetUserId?: string;
+  targetUserName?: string;
+  targetRole?: string;
+  relatedId?: string;
+  priority?: 'normal' | 'alta' | 'urgente';
+}) {
+  const current = getQueuedNotifications();
+  const id = notif.id || `notif-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+
+  // Deduplicación por id o por contenido reciente
+  const isDuplicate = current.some(item => 
+    item.id === id || 
+    (item.title === notif.title && Math.abs(new Date(item.timestamp).getTime() - Date.now()) < 8000)
+  );
+
+  if (isDuplicate) return;
+
+  const item: AppNotification = {
+    id,
+    title: notif.title,
+    body: notif.body,
+    category: notif.category,
+    timestamp: notif.timestamp || new Date().toISOString(),
+    read: false,
+    targetUserId: notif.targetUserId,
+    targetUserName: notif.targetUserName,
+    targetRole: notif.targetRole,
+    relatedId: notif.relatedId,
+    priority: notif.priority || 'normal'
+  };
+
+  const updated = [item, ...current].slice(0, 100);
+  saveQueuedNotifications(updated);
+
+  // Reproducir aviso sonoro y emitir evento en la ventana
+  playAlertSound();
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('in_app_notifications_updated', { detail: updated }));
+  }
+}
+
+export function markAllNotificationsAsRead() {
+  const current = getQueuedNotifications();
+  const updated = current.map(item => ({ ...item, read: true }));
+  saveQueuedNotifications(updated);
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('in_app_notifications_updated', { detail: updated }));
+  }
+}
+
+export function markNotificationAsRead(id: string) {
+  const current = getQueuedNotifications();
+  const updated = current.map(item => item.id === id ? { ...item, read: true } : item);
+  saveQueuedNotifications(updated);
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('in_app_notifications_updated', { detail: updated }));
+  }
+}
+
+export function deleteQueuedNotification(id: string) {
+  const current = getQueuedNotifications();
+  const updated = current.filter(item => item.id !== id);
+  saveQueuedNotifications(updated);
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('in_app_notifications_updated', { detail: updated }));
+  }
+}
+

@@ -208,18 +208,19 @@ export const RequestsView: React.FC = () => {
 
   const [scopeFilter, setScopeFilter] = useState<'all' | 'assigned_to_me' | 'created_by_me'>('all');
 
-  const isAdmin = ctxIsAdmin ||
-                  !currentUser ||
-                  currentUser?.role === 'admin' || 
-                  currentUser?.email?.toLowerCase().trim() === 'juanmateoramosramos44@gmail.com' ||
-                  currentUser?.id === 'usr-admin-master' ||
-                  currentUser?.id === 'usr-1789230683226' ||
-                  Boolean(currentUser?.permissions?.canManageUsers) || 
-                  Boolean(currentUser?.permissions?.canEditSettings) ||
-                  normalize(currentUser?.displayName || '') === 'administrador principal' ||
-                  normalize(currentUser?.displayName || '') === 'juan mateo ramos' ||
-                  normalize(currentUser?.role || '') === 'administrador' ||
-                  normalize(currentUser?.role || '') === 'admin';
+  const isAdmin = Boolean(
+    ctxIsAdmin ||
+    currentUser?.role === 'admin' || 
+    currentUser?.email?.toLowerCase().trim() === 'juanmateoramosramos44@gmail.com' ||
+    currentUser?.id === 'usr-admin-master' ||
+    currentUser?.id === 'usr-1789230683226' ||
+    Boolean(currentUser?.permissions?.canManageUsers) || 
+    Boolean(currentUser?.permissions?.canEditSettings) ||
+    normalize(currentUser?.displayName || '') === 'administrador principal' ||
+    normalize(currentUser?.displayName || '') === 'juan mateo ramos' ||
+    normalize(currentUser?.role || '') === 'administrador' ||
+    normalize(currentUser?.role || '') === 'admin'
+  );
 
   const isAssignedToUser = (req: HotelRequest) => {
     if (!currentUser || !req.assignedTo) return false;

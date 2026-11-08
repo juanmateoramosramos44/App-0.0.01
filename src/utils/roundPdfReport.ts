@@ -288,11 +288,11 @@ export function extractRoundEquipments(round: DailyRound): IndividualEquipment[]
         if (!isFieldOff && hasNum) {
           if (minVal !== undefined && rawNum < minVal) {
             isOutOfRange = true;
-            const diff = (minVal - rawNum).toFixed(1);
+            const diff = Number((minVal - rawNum) || 0).toFixed(1);
             alarmReason = `Bajo: ${rawNum} ${unit} (Mínimo: ${minVal} ${unit}) [-${diff} ${unit}]`.trim();
           } else if (maxVal !== undefined && rawNum > maxVal) {
             isOutOfRange = true;
-            const diff = (rawNum - maxVal).toFixed(1);
+            const diff = Number((rawNum - maxVal) || 0).toFixed(1);
             alarmReason = `Exceso: ${rawNum} ${unit} (Máximo: ${maxVal} ${unit}) [+${diff} ${unit}]`.trim();
           }
         }
@@ -407,11 +407,11 @@ export function extractRoundEquipments(round: DailyRound): IndividualEquipment[]
       if (!isChkOff && hasNum) {
         if (minVal !== undefined && rawNum < minVal) {
           isOutOfRange = true;
-          const diff = (minVal - rawNum).toFixed(1);
+          const diff = Number((minVal - rawNum) || 0).toFixed(1);
           alarmReason = `Bajo: ${rawNum} ${unit} (Mínimo: ${minVal} ${unit}) [-${diff} ${unit}]`.trim();
         } else if (maxVal !== undefined && rawNum > maxVal) {
           isOutOfRange = true;
-          const diff = (rawNum - maxVal).toFixed(1);
+          const diff = Number((rawNum - maxVal) || 0).toFixed(1);
           alarmReason = `Exceso: ${rawNum} ${unit} (Máximo: ${maxVal} ${unit}) [+${diff} ${unit}]`.trim();
         }
       }
@@ -573,7 +573,7 @@ export function evaluateCheckpointStatus(c: RoundCheckpoint): EvaluatedCheckpoin
     
     if (!isNaN(numVal)) {
       if (c.minValue !== undefined && numVal < c.minValue) {
-        const diff = (c.minValue - numVal).toFixed(1);
+        const diff = Number((c.minValue - numVal) || 0).toFixed(1);
         alarmIssues.push({
           parameterName: c.title,
           measuredValue: `${numVal} ${c.unit || ''}`.trim(),
@@ -582,7 +582,7 @@ export function evaluateCheckpointStatus(c: RoundCheckpoint): EvaluatedCheckpoin
           alarmType: 'LOW'
         });
       } else if (c.maxValue !== undefined && numVal > c.maxValue) {
-        const diff = (numVal - c.maxValue).toFixed(1);
+        const diff = Number((numVal - c.maxValue) || 0).toFixed(1);
         alarmIssues.push({
           parameterName: c.title,
           measuredValue: `${numVal} ${c.unit || ''}`.trim(),
@@ -632,7 +632,7 @@ export function evaluateCheckpointStatus(c: RoundCheckpoint): EvaluatedCheckpoin
 
         if (!isNaN(fNum)) {
           if (f.minValue !== undefined && fNum < f.minValue) {
-            const diff = (f.minValue - fNum).toFixed(1);
+            const diff = Number((f.minValue - fNum) || 0).toFixed(1);
             alarmIssues.push({
               parameterName: `${c.title} ➔ ${fieldLabel}`,
               measuredValue: `${fNum} ${f.unit || ''}`.trim(),
@@ -641,7 +641,7 @@ export function evaluateCheckpointStatus(c: RoundCheckpoint): EvaluatedCheckpoin
               alarmType: 'LOW'
             });
           } else if (f.maxValue !== undefined && fNum > f.maxValue) {
-            const diff = (fNum - f.maxValue).toFixed(1);
+            const diff = Number((fNum - f.maxValue) || 0).toFixed(1);
             alarmIssues.push({
               parameterName: `${c.title} ➔ ${fieldLabel}`,
               measuredValue: `${fNum} ${f.unit || ''}`.trim(),

@@ -42,6 +42,7 @@ import {
   INITIAL_METER_READINGS,
   INITIAL_SCHEDULES,
   INITIAL_REQUESTS,
+  INITIAL_TASKS,
   INITIAL_USERS_SNAPSHOT
 } from '../data/initialData';
 import { HISTORICAL_ROUNDS } from '../data/historicalRounds';
@@ -2476,13 +2477,18 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
   const [tasks, setTasks] = useState<MaintenanceTask[]>(() => {
     const deletedIds = getDeletedTaskIds();
     const saved = localStorage.getItem(STORAGE_KEYS.TASKS);
+    let baseList: MaintenanceTask[] = [];
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) return parsed.filter(t => t && t.id && !deletedIds.has(t.id));
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          baseList = parsed.filter(t => t && t.id && !deletedIds.has(t.id));
+        }
       } catch (e) { console.error(e); }
     }
-    return [];
+    const merged = mergeTaskLists(baseList, INITIAL_TASKS || [], deletedIds);
+    safeSetItem(STORAGE_KEYS.TASKS, JSON.stringify(merged));
+    return merged;
   });
 
   const [schedules, setSchedules] = useState<TechnicianSchedule[]>(() => {
@@ -7628,7 +7634,7 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
       }
     }
 
-    const consumption = Math.max(0, parseFloat((data.currentValue - prevVal).toFixed(3)));
+    const consumption = Math.max(0, parseFloat(Number((Number(data.currentValue ?? 0) - Number(prevVal ?? 0)) || 0).toFixed(3)));
 
     let intervalHours = 24;
     if (prevReading && (prevReading.timestamp || prevReading.date)) {
@@ -7636,7 +7642,7 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
       const currTime = new Date(data.timestamp || `${data.date}T${data.time || '00:00'}:00.000Z`).getTime();
       const diffHours = (currTime - prevTime) / (1000 * 60 * 60);
       if (!isNaN(diffHours) && diffHours > 0) {
-        intervalHours = parseFloat(diffHours.toFixed(1));
+        intervalHours = parseFloat(Number(diffHours || 24).toFixed(1));
       }
     }
 
