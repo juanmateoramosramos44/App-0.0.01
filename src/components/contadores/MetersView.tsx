@@ -2050,18 +2050,18 @@ export const MetersView: React.FC = () => {
                           </div>
                         </td>
                         <td className="py-3 px-3.5 text-right font-mono text-slate-500">
-                          {r.previousValue !== undefined ? `${r.previousValue.toLocaleString('es-CO')} ${r.unit}` : '—'}
+                          {r.previousValue !== undefined && r.previousValue !== null ? `${Number(r?.previousValue ?? 0).toLocaleString('es-CO')} ${r?.unit || ''}` : '—'}
                         </td>
                         <td className="py-3 px-3.5 text-right font-mono font-bold text-slate-900">
-                          {r.currentValue.toLocaleString('es-CO')} {r.unit}
+                          {Number(r?.currentValue ?? 0).toLocaleString('es-CO')} {r?.unit || ''}
                         </td>
                         <td className="py-3 px-3.5 text-right">
                           <span className={`inline-flex items-center px-2 py-0.5 rounded-md font-mono font-extrabold text-xs ${
-                            r.consumption && r.consumption > 0 
+                            Number(r?.consumption ?? 0) > 0 
                               ? 'bg-emerald-100 text-emerald-900 border border-emerald-300' 
                               : 'bg-slate-100 text-slate-700'
                           }`}>
-                            +{r.consumption !== undefined ? r.consumption.toLocaleString('es-CO') : 0} {r.unit}
+                            +{Number(r?.consumption ?? 0).toLocaleString('es-CO')} {r?.unit || ''}
                           </span>
                         </td>
                         <td className="py-3 px-3.5 text-center font-mono text-slate-500 text-[11px]">
@@ -2614,7 +2614,7 @@ export const MetersView: React.FC = () => {
                   options={meters.map(m => ({
                     value: m.id,
                     label: m.name,
-                    sublabel: `${m.location} • Lectura actual: ${m.currentReading.toLocaleString('es-CO')} ${m.unit}`,
+                    sublabel: `${m.location} • Lectura actual: ${Number(m?.currentReading ?? 0).toLocaleString('es-CO')} ${m.unit || ''}`,
                     badge: m.unit,
                     code: m.code,
                     color: (m.type === 'agua' ? 'cyan' : m.type === 'energia' ? 'amber' : m.type === 'gas' ? 'rose' : 'slate') as any,

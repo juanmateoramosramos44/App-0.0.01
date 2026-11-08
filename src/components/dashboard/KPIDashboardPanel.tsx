@@ -291,10 +291,29 @@ export const KPIDashboardPanel: React.FC = () => {
 
   // -------------------------------------------------------------
   // DATA CALCULATION: 2. CONTADORES (Tendencia y Consumo Registrado)
-  // Lectura exclusiva desde meterReadingsLog y meters (separado de rondas)
+  // Lectura exclusiva y dinámica desde meters y meterReadingsLog
   // -------------------------------------------------------------
   const meterStats = useMemo(() => {
-    const totalMeters = (meters || []).length;
+    const meterList = meters || [];
+    const totalMeters = meterList.length;
+
+    // Helper functions to categorize meters dynamically
+    const isWater = (m?: any) => {
+      const t = safeLower(m?.type);
+      const n = safeLower(m?.name);
+      return t === 'agua' || t.includes('agua') || t === 'water' || n.includes('agua');
+    };
+    const isElectric = (m?: any) => {
+      const t = safeLower(m?.type);
+      const n = safeLower(m?.name);
+      return t === 'energia' || t === 'electricidad' || t === 'luz' || t === 'electrico' || t.includes('energ') || t.includes('electr') || n.includes('energia') || n.includes('activa') || n.includes('reactiva');
+    };
+    const isGas = (m?: any) => {
+      const t = safeLower(m?.type);
+      const n = safeLower(m?.name);
+      return t === 'gas' || n.includes('gas');
+    };
+
     const dateMap = new Map<string, { date: string; agua: number; electricidad: number; gas: number; totalReadings: number }>();
 
     // Lectura exclusiva desde la tabla de registros de contadores
@@ -302,23 +321,27 @@ export const KPIDashboardPanel: React.FC = () => {
       if (!rdg || !rdg.date) return;
       const d = rdg.date.length >= 10 ? rdg.date.slice(5) : rdg.date;
       const cur = dateMap.get(d) || { date: d, agua: 0, electricidad: 0, gas: 0, totalReadings: 0 };
-      const m = (meters || []).find(item => item.id === rdg.meterId || item.code === rdg.meterId);
-      const mType = safeLower(m?.type);
+      const m = meterList.find(item => item.id === rdg.meterId || item.code === rdg.meterId);
       const val = Number(rdg.currentValue ?? rdg.consumption ?? 0);
-      if (mType === 'agua') cur.agua = Math.max(cur.agua, val);
-      else if (mType === 'electricidad') cur.electricidad = Math.max(cur.electricidad, val);
-      else if (mType === 'gas') cur.gas = Math.max(cur.gas, val);
+      if (isWater(m)) cur.agua = Math.max(cur.agua, val);
+      else if (isElectric(m)) cur.electricidad = Math.max(cur.electricidad, val);
+      else if (isGas(m)) cur.gas = Math.max(cur.gas, val);
       cur.totalReadings += 1;
       dateMap.set(d, cur);
     });
 
     const trendData = Array.from(dateMap.values()).slice(-16);
 
+    const aguaCount = meterList.filter(isWater).length;
+    const electricCount = meterList.filter(isElectric).length;
+    const gasCount = meterList.filter(isGas).length;
+    const otherCount = meterList.filter(m => !isWater(m) && !isElectric(m) && !isGas(m)).length;
+
     const byType = {
-      agua: (meters || []).filter(m => safeLower(m.type) === 'agua').length,
-      electricidad: (meters || []).filter(m => safeLower(m.type) === 'electricidad').length,
-      gas: (meters || []).filter(m => safeLower(m.type) === 'gas').length,
-      piscina: (meters || []).filter(m => safeLower(m.type) === 'piscina').length,
+      agua: aguaCount,
+      electricidad: electricCount,
+      gas: gasCount,
+      otros: otherCount,
     };
 
     return { totalMeters, trendData, byType };
@@ -907,7 +930,7 @@ export const KPIDashboardPanel: React.FC = () => {
               <div className="bg-amber-50 p-2.5 rounded-xl border border-amber-200 flex items-center justify-between">
                 <span className="font-semibold text-amber-900 flex items-center gap-1">
                   <Zap className="w-3.5 h-3.5 text-amber-600" />
-                  Luz:
+                  Luz / Energía:
                 </span>
                 <span className="font-black text-amber-700">{meterStats.byType.electricidad} contadores</span>
               </div>
@@ -919,8 +942,11 @@ export const KPIDashboardPanel: React.FC = () => {
                 <span className="font-black text-rose-700">{meterStats.byType.gas} contadores</span>
               </div>
               <div className="bg-teal-50 p-2.5 rounded-xl border border-teal-200 flex items-center justify-between">
-                <span className="font-semibold text-teal-900">Total Lecturas:</span>
-                <span className="font-black text-teal-700">{dbTotals.totalReadings} registros</span>
+                <span className="font-semibold text-teal-900 flex items-center gap-1">
+                  <Gauge className="w-3.5 h-3.5 text-teal-600" />
+                  Total Contadores:
+                </span>
+                <span className="font-black text-teal-700">{meterStats.totalMeters} registrados</span>
               </div>
             </div>
           </div>

@@ -610,18 +610,15 @@ function getCachedData() {
     }
 
     if (Array.isArray(memoryCache.rounds)) {
-      if (Array.isArray(memoryCache.deletedIds)) {
-        memoryCache.deletedIds = memoryCache.deletedIds.filter((id: string) => !CANONICAL_HISTORICAL_ROUND_IDS.has(id));
-      }
       const deletedIdsSet = new Set(memoryCache.deletedIds || []);
 
       const existingRoundsMap = new Map((memoryCache.rounds || []).map((r: any) => [r.id, r]));
       for (const hr of HISTORICAL_ROUNDS) {
-        if (!existingRoundsMap.has(hr.id)) {
+        if (!existingRoundsMap.has(hr.id) && !deletedIdsSet.has(hr.id)) {
           existingRoundsMap.set(hr.id, { ...hr, status: 'completada', compliancePercentage: 100 });
         }
       }
-      memoryCache.rounds = Array.from(existingRoundsMap.values());
+      memoryCache.rounds = Array.from(existingRoundsMap.values()).filter((r: any) => r && r.id && !deletedIdsSet.has(r.id));
 
       const todayStr = getLocalDateStringServer();
       const sampleRoundWithChks = memoryCache.rounds.find((r: any) => r && Array.isArray(r.checkpoints) && r.checkpoints.length >= 22);
@@ -1341,7 +1338,7 @@ function mergeAppData(incoming: any) {
   if (Array.isArray(incoming.deletedIds)) {
     const delSet = new Set(current.deletedIds);
     for (const id of incoming.deletedIds) {
-      if (typeof id === 'string' && id && !CANONICAL_HISTORICAL_ROUND_IDS.has(id)) {
+      if (typeof id === 'string' && id) {
         delSet.add(id);
       }
     }
@@ -1527,18 +1524,17 @@ function mergeAppData(incoming: any) {
     }
     const combined = Array.from(existingRoundsMap.values());
     
-    // Non-destructive ID preservation (do not discard valid historical rounds)
+    // Non-destructive ID preservation (do not discard valid historical rounds, but respect deletions)
     const deduped: any[] = [];
     const seenIds = new Set<string>();
     for (const r of combined) {
       if (!r || !r.id || seenIds.has(r.id)) continue;
-      const isCanonical = CANONICAL_HISTORICAL_ROUND_IDS.has(r.id);
-      if (!isCanonical && deletedIdsSet.has(r.id)) continue;
+      if (deletedIdsSet.has(r.id)) continue;
       seenIds.add(r.id);
       deduped.push(r);
     }
     for (const hr of HISTORICAL_ROUNDS) {
-      if (!seenIds.has(hr.id)) {
+      if (!seenIds.has(hr.id) && !deletedIdsSet.has(hr.id)) {
         seenIds.add(hr.id);
         deduped.push({ ...hr, status: 'completada', compliancePercentage: 100 });
       }
@@ -1837,33 +1833,39 @@ app.get("/api/data", async (req, res) => {
 
   if (pgPool) {
     try {
+      const qDeleted = await pgPool.query('SELECT id FROM deleted_ids');
+      const pgDeletedSet = new Set((qDeleted.rows || []).map((r: any) => r.id));
+      const memoryDeleted = new Set(data.deletedIds || []);
+      const allDeleted = new Set([...pgDeletedSet, ...memoryDeleted]);
+      data.deletedIds = Array.from(allDeleted);
+
       const qRounds = await pgPool.query('SELECT data FROM rounds ORDER BY updated_at DESC');
-      if (qRounds.rows.length > 0) {
-        data.rounds = qRounds.rows.map((r: any) => r.data).filter(Boolean);
+      if (qRounds.rows) {
+        data.rounds = qRounds.rows.map((r: any) => r.data).filter((r: any) => r && r.id && !allDeleted.has(r.id));
       }
       const qIncidents = await pgPool.query('SELECT data FROM incidents ORDER BY updated_at DESC');
-      if (qIncidents.rows.length > 0) {
-        data.incidents = qIncidents.rows.map((r: any) => r.data).filter(Boolean);
+      if (qIncidents.rows) {
+        data.incidents = qIncidents.rows.map((r: any) => r.data).filter((r: any) => r && r.id && !allDeleted.has(r.id));
       }
       const qRequests = await pgPool.query('SELECT data FROM requests ORDER BY updated_at DESC');
-      if (qRequests.rows.length > 0) {
-        data.requests = qRequests.rows.map((r: any) => r.data).filter(Boolean);
+      if (qRequests.rows) {
+        data.requests = qRequests.rows.map((r: any) => r.data).filter((r: any) => r && r.id && !allDeleted.has(r.id));
       }
       const qTasks = await pgPool.query('SELECT data FROM tasks ORDER BY updated_at DESC');
-      if (qTasks.rows.length > 0) {
-        data.tasks = qTasks.rows.map((r: any) => r.data).filter(Boolean);
+      if (qTasks.rows) {
+        data.tasks = qTasks.rows.map((r: any) => r.data).filter((r: any) => r && r.id && !allDeleted.has(r.id));
       }
       const qMeters = await pgPool.query('SELECT data FROM meters ORDER BY updated_at DESC');
-      if (qMeters.rows.length > 0) {
-        data.meters = qMeters.rows.map((r: any) => r.data).filter(Boolean);
+      if (qMeters.rows) {
+        data.meters = qMeters.rows.map((r: any) => r.data).filter((r: any) => r && r.id && !allDeleted.has(r.id));
       }
       const qReadings = await pgPool.query('SELECT data FROM meter_readings_log ORDER BY updated_at DESC');
-      if (qReadings.rows.length > 0) {
-        data.meterReadingsLog = qReadings.rows.map((r: any) => r.data).filter(Boolean);
+      if (qReadings.rows) {
+        data.meterReadingsLog = qReadings.rows.map((r: any) => r.data).filter((r: any) => r && r.id && !allDeleted.has(r.id));
       }
       const qUsers = await pgPool.query('SELECT data FROM users ORDER BY updated_at DESC');
-      if (qUsers.rows.length > 0) {
-        data.users = qUsers.rows.map((r: any) => r.data).filter(Boolean);
+      if (qUsers.rows) {
+        data.users = qUsers.rows.map((r: any) => r.data).filter((r: any) => r && r.id && !allDeleted.has(r.id));
       }
     } catch (e) {
       console.warn("[PostgreSQL] Notice syncing /api/data with DB:", (e as any)?.message || e);
