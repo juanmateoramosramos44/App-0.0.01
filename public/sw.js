@@ -149,6 +149,7 @@ self.addEventListener('notificationclick', (event) => {
           if (client.navigate && targetUrl && targetUrl !== '/') {
             client.navigate(targetUrl).catch(() => {});
           }
+          client.postMessage({ type: 'NAVIGATE_TAB', url: targetUrl });
           return client.focus();
         }
       }

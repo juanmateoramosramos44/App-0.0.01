@@ -774,40 +774,21 @@ const getDeletedRoundIds = (): Set<string> => {
     if (raw) {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed)) {
-        let hadCanonicalStale = false;
-        const cleanedList: string[] = [];
         parsed.forEach(id => {
           if (typeof id === 'string' && id) {
-            // Never allow stale localStorage or session to hide official historical rounds
-            if (CANONICAL_HISTORICAL_ROUND_IDS.has(id)) {
-              deletedRoundIdsMemorySet.delete(id);
-              sessionDeletedRoundIds.delete(id);
-              hadCanonicalStale = true;
-              return;
-            }
             deletedRoundIdsMemorySet.add(id);
-            cleanedList.push(id);
           }
         });
-        if (hadCanonicalStale) {
-          try {
-            localStorage.setItem(DELETED_ROUNDS_STORAGE_KEY, JSON.stringify(cleanedList));
-          } catch {}
-        }
       }
     }
   } catch (e) {
     console.warn('Error reading deleted round ids:', e);
   }
-  CANONICAL_HISTORICAL_ROUND_IDS.forEach(id => {
-    deletedRoundIdsMemorySet.delete(id);
-    sessionDeletedRoundIds.delete(id);
-  });
   return new Set(deletedRoundIdsMemorySet);
 };
 
 const markDeletedRoundId = (id: string) => {
-  if (!id || CANONICAL_HISTORICAL_ROUND_IDS.has(id)) return;
+  if (!id) return;
   unmarkLocalCreation(id);
   sessionDeletedRoundIds.set(id, Date.now());
   deletedRoundIdsMemorySet.add(id);
@@ -868,12 +849,18 @@ const unmarkDeletedUserId = (id: string) => {
   }
 };
 
+const RECOVERED_CANONICAL_TASK_IDS = new Set(['tsk-001', 'tsk-002', 'tsk-003', 'tsk-004']);
+
 const getDeletedTaskIds = (): Set<string> => {
   try {
     const raw = localStorage.getItem(DELETED_TASKS_STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) return new Set(parsed);
+      if (Array.isArray(parsed)) {
+        // Protect recovered tasks tsk-001..004 so they are never filtered out
+        const valid = parsed.filter(id => !RECOVERED_CANONICAL_TASK_IDS.has(id));
+        return new Set(valid);
+      }
     }
   } catch (e) {
     console.warn('Error reading deleted task ids:', e);
@@ -1299,16 +1286,12 @@ const mergeTaskLists = (
   return result;
 };
 
-export const safeCloudWrite = async (operation: () => Promise<any>): Promise<any> => {
-  try {
-    return await operation();
-  } catch (e) {
-    return null;
-  }
+export const safeCloudWrite = async (_operation?: () => Promise<any>): Promise<any> => {
+  return null;
 };
 
 const recordCloudDeletion = async (id: string) => {
-  if (!id || CANONICAL_HISTORICAL_ROUND_IDS.has(id)) return;
+  if (!id) return;
   try {
     await fetch('/api/app-data/deleted_records', {
       method: 'POST',
@@ -2386,6 +2369,13 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
 
   const [selectedTab, setSelectedTabState] = useState<NavigationTab>(() => {
     try {
+      if (typeof window !== 'undefined') {
+        const urlParams = new URLSearchParams(window.location.search);
+        const queryTab = urlParams.get('tab') as NavigationTab | null;
+        if (queryTab && ['dashboard', 'rondas', 'contadores', 'bombas', 'hojas_vida', 'incidencias', 'preventivo', 'solicitudes', 'tareas', 'cronograma', 'horarios', 'usuarios', 'configuraciones'].includes(queryTab)) {
+          return queryTab;
+        }
+      }
       const saved = sessionStorage.getItem('hotel_maint_active_tab') || localStorage.getItem('hotel_maint_active_tab');
       if (saved) return saved as NavigationTab;
     } catch (e) {
@@ -2399,8 +2389,74 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
     try {
       sessionStorage.setItem('hotel_maint_active_tab', tab);
       localStorage.setItem('hotel_maint_active_tab', tab);
+      if (typeof window !== 'undefined' && window.history?.replaceState) {
+        const url = new URL(window.location.href);
+        url.searchParams.set('tab', tab);
+        window.history.replaceState({}, '', url.toString());
+      }
     } catch {}
   }, []);
+
+  useEffect(() => {
+    const handleUrlTab = () => {
+      try {
+        const urlParams = new URLSearchParams(window.location.search);
+        const queryTab = urlParams.get('tab') as NavigationTab | null;
+        if (queryTab && ['dashboard', 'rondas', 'contadores', 'bombas', 'hojas_vida', 'incidencias', 'preventivo', 'solicitudes', 'tareas', 'cronograma', 'horarios', 'usuarios', 'configuraciones'].includes(queryTab)) {
+          setSelectedTab(queryTab);
+        }
+      } catch (e) {}
+    };
+
+    window.addEventListener('popstate', handleUrlTab);
+
+    const handleSwMessage = (event: MessageEvent) => {
+      if (event.data?.type === 'NAVIGATE_TAB') {
+        const targetUrl = event.data.url || '';
+        try {
+          const urlObj = new URL(targetUrl, window.location.origin);
+          const tab = urlObj.searchParams.get('tab') as NavigationTab | null;
+          if (tab && ['dashboard', 'rondas', 'contadores', 'bombas', 'hojas_vida', 'incidencias', 'preventivo', 'solicitudes', 'tareas', 'cronograma', 'horarios', 'usuarios', 'configuraciones'].includes(tab)) {
+            setSelectedTab(tab);
+          }
+        } catch (e) {}
+      }
+    };
+
+    if (navigator.serviceWorker) {
+      navigator.serviceWorker.addEventListener('message', handleSwMessage);
+    }
+
+    const handleOnlineReconnect = async () => {
+      try {
+        const lastSync = localStorage.getItem('last_notif_sync_ts') || '0';
+        const res = await fetch(`/api/notifications/pending?since=${lastSync}`);
+        if (res.ok) {
+          const data = await res.json();
+          if (Array.isArray(data.notifications) && data.notifications.length > 0) {
+            localStorage.setItem('last_notif_sync_ts', String(Date.now()));
+            for (const notif of data.notifications) {
+              sendSystemNotification(notif.title, {
+                body: notif.body,
+                tag: notif.tag || `notif-${notif.id}`,
+                data: notif.data
+              });
+            }
+          }
+        }
+      } catch (e) {}
+    };
+
+    window.addEventListener('online', handleOnlineReconnect);
+
+    return () => {
+      window.removeEventListener('popstate', handleUrlTab);
+      if (navigator.serviceWorker) {
+        navigator.serviceWorker.removeEventListener('message', handleSwMessage);
+      }
+      window.removeEventListener('online', handleOnlineReconnect);
+    };
+  }, [setSelectedTab]);
   const [notification, setNotification] = useState<string | null>(null);
   const [isCloudSynced, setIsCloudSynced] = useState<boolean>(true);
   const [hasNewAppVersion, setHasNewAppVersion] = useState<boolean>(false);
@@ -5053,14 +5109,14 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
     }).catch(() => {});
 
     idbGet<MaintenanceTask[]>(STORAGE_KEYS.TASKS).then(idbTasks => {
-      if (idbTasks && Array.isArray(idbTasks) && idbTasks.length > 0) {
-        const deletedIds = getDeletedTaskIds();
-        const cleanIdbTasks = idbTasks.filter(t => t && t.id && !deletedIds.has(t.id));
-        if (cleanIdbTasks.length > (tasksRef.current?.length || 0)) {
-          const merged = mergeTaskLists(tasksRef.current || [], cleanIdbTasks, deletedIds);
-          tasksRef.current = merged;
-          setTasks(merged);
-        }
+      RECOVERED_CANONICAL_TASK_IDS.forEach(id => unmarkDeletedTaskId(id));
+      const deletedIds = getDeletedTaskIds();
+      const cleanIdbTasks = (idbTasks && Array.isArray(idbTasks)) ? idbTasks.filter(t => t && t.id && !deletedIds.has(t.id)) : [];
+      const merged = mergeTaskLists(tasksRef.current || [], [...cleanIdbTasks, ...(INITIAL_TASKS || [])], deletedIds);
+      if (merged.length > (tasksRef.current?.length || 0)) {
+        tasksRef.current = merged;
+        setTasks(merged);
+        safeSetItem(STORAGE_KEYS.TASKS, JSON.stringify(merged));
       }
     }).catch(() => {});
   }, []);
@@ -9111,9 +9167,8 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
       return;
     }
 
-    // Requisito ineludible: La ronda solo se puede cerrar y cargar cuando hay conexión a Internet/Wi-Fi confirmada
-    const isOnline = navigator.onLine && (await checkRealInternetConnection());
-    if (!isOnline) {
+    // Requisito ineludible: La ronda solo se puede cerrar y cargar cuando hay conexión (Wi-Fi o datos móviles con señal mínima)
+    if (!navigator.onLine) {
       notify('⚠️ Sin conexión a Internet: No es posible cargar la ronda en el sistema. Por favor busca señal Wi-Fi o datos móviles para cerrar la ronda.');
       throw new Error('OFFLINE_NO_INTERNET');
     }
@@ -9254,44 +9309,7 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
       lastUpdated: new Date().toISOString()
     };
 
-    // Subir al servidor API y a la nube Firestore de forma garantizada y sin bloqueos
-    let uploadConfirmed = false;
-    try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 12000);
-      const res = await fetch('/api/rounds', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Client-Id': clientSessionId.current
-        },
-        body: JSON.stringify(completed),
-        signal: controller.signal
-      });
-      clearTimeout(timeoutId);
-      if (res.ok) {
-        uploadConfirmed = true;
-      }
-    } catch (netErr) {
-      console.warn('Advertencia en carga a servidor API:', netErr);
-    }
-
-    // Persistir de inmediato en la nube Firestore
-    try {
-      await safeCloudWrite(() => setDoc(doc(db, 'rounds', completed.id), cleanForFirestore(completed)));
-      uploadConfirmed = true;
-    } catch (fsErr) {
-      console.warn('Advertencia en carga a Firestore:', fsErr);
-    }
-
-    if (!uploadConfirmed) {
-      // Si la conexión tuvo un micro-corte, guardar en cola de sincronización para que suba en segundo plano
-      queuePendingOfflineRound(completed);
-    }
-
-    hasPendingLocalChanges.current = true;
-    persistToServer();
-
+    // 1. Guardar de inmediato en estado local e IndexedDB para cero pérdida de datos
     completedRoundIdsRef.current.add(completed.id);
     unmarkDeletedRoundId(completed.id);
     const updated = [completed, ...(roundsRef.current || []).filter(r => r.id !== completed.id)];
@@ -9309,7 +9327,32 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
     localActionIds.current.add(completed.id);
     setTimeout(() => { localActionIds.current.delete(completed.id); }, 15000);
 
-    removePendingOfflineRound(completed.id);
+    // 2. Subir directamente a la API de PostgreSQL con tolerancia a señal baja (timeout 8s)
+    let uploadConfirmed = false;
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 8000);
+      const res = await fetch('/api/rounds', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Client-Id': clientSessionId.current
+        },
+        body: JSON.stringify(completed),
+        signal: controller.signal
+      });
+      clearTimeout(timeoutId);
+      if (res.ok) {
+        uploadConfirmed = true;
+        removePendingOfflineRound(completed.id);
+      }
+    } catch (netErr) {
+      console.warn('Advertencia en carga inicial a servidor API:', netErr);
+    }
+
+    if (!uploadConfirmed) {
+      queuePendingOfflineRound(completed);
+    }
 
     notify('✅ Ronda finalizada y cargada al 100% en el sistema con éxito');
 
@@ -9325,9 +9368,6 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
       roundsChannel.current?.postMessage({ type: 'round_completed', round: completed });
     } catch (e) {}
 
-    hasPendingLocalChanges.current = true;
-    await persistToServer();
-
     // Notificar por Push al teléfono de todos los compañeros según su configuración
     const compShift = completed.shift === 'manana' ? 'Turno Mañana' : completed.shift === 'tarde' ? 'Turno Tarde' : 'Turno Noche';
     const anomaliesCount = completed.anomaliesCount || (completed.anomalies ? completed.anomalies.length : 0);
@@ -9341,30 +9381,8 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
       excludeEmail: currentUser?.email
     });
 
-
-
-    try {
-      const res = await fetch('/api/rounds', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Client-Id': clientSessionId.current
-        },
-        body: JSON.stringify(completed)
-      });
-      if (res.ok) {
-        removePendingOfflineRound(completed.id);
-      }
-    } catch (err) {
-      console.warn('Error posting completed round to API:', err);
-    }
-
-    try {
-      await safeCloudWrite(() => setDoc(doc(db, 'rounds', completed.id), cleanForFirestore(completed)));
-      removePendingOfflineRound(completed.id);
-    } catch (err) {
-      console.warn('Error saving completed round in Firestore:', err);
-    }
+    hasPendingLocalChanges.current = true;
+    persistToServer();
 
     return completed;
   };

@@ -872,11 +872,10 @@ export const DailyRoundsView: React.FC = () => {
       return;
     }
 
-    // VERIFICACIÓN ESTRICTA DE INTERNET O WI-FI:
-    // La ronda solo puede cargarse y cerrarse con internet. Si no hay señal, NO se puede cargar ni cerrar, y no se borran datos.
+    // VERIFICACIÓN DE CONECTIVIDAD:
+    // La ronda solo puede cargarse y cerrarse con señal (Wi-Fi o datos móviles).
     setIsSubmittingRound(true);
-    const isRealOnline = navigator.onLine && (await checkRealInternetConnection());
-    if (!isRealOnline) {
+    if (!navigator.onLine) {
       setIsSubmittingRound(false);
       setShowOfflineModal(true);
       notify('⚠️ Sin conexión a Internet: No es posible cargar la ronda en el sistema. Por favor busca señal Wi-Fi o datos móviles para cerrar la ronda.');

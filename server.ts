@@ -174,6 +174,71 @@ if (DATABASE_URL) {
   console.log("[Server] DATABASE_URL not set in environment, operating with persistent local JSON store.");
 }
 
+const RECOVERED_CANONICAL_TASKS = [
+  {
+    id: "tsk-001",
+    title: "Mantenimiento preventivo de grupo de presión",
+    description: "Revisión mensual de bombas hidroneumáticas, comprobación de presión de arranque y alternancia.",
+    priority: "alta",
+    status: "completada",
+    category: "mantenimiento",
+    area: "Sala de Bombas Principal",
+    assignedToName: "Todo el equipo",
+    createdByName: "Administrador Hotel",
+    createdAt: "2026-10-15T08:00:00Z",
+    completedAt: "2026-10-15T11:30:00Z",
+    checklist: [],
+    comments: [],
+    createdById: "admin-1"
+  },
+  {
+    id: "tsk-002",
+    title: "Purga y desinfección de acumuladores de ACS",
+    description: "Apertura de válvulas de purga de fondo para arrastre de lodos y toma de temperaturas preventivas.",
+    priority: "urgente",
+    status: "en_progreso",
+    category: "fontaneria",
+    area: "Sala de Calderas",
+    assignedToName: "Carlos Gómez",
+    createdByName: "Administrador Hotel",
+    createdAt: "2026-10-22T09:30:00Z",
+    checklist: [],
+    comments: [],
+    createdById: "admin-1"
+  },
+  {
+    id: "tsk-003",
+    title: "Revisión y engrase de extractores de cocina",
+    description: "Verificación de tensión de correas, rodamientos y limpieza de filtros metálicos de campana.",
+    priority: "media",
+    status: "completada",
+    category: "climatizacion",
+    area: "Cocina Central",
+    assignedToName: "David Torres",
+    createdByName: "Administrador Hotel",
+    createdAt: "2026-10-28T14:00:00Z",
+    completedAt: "2026-10-28T16:45:00Z",
+    checklist: [],
+    comments: [],
+    createdById: "admin-1"
+  },
+  {
+    id: "tsk-004",
+    title: "Comprobación de luces de emergencia y salidas",
+    description: "Test de autonomía mediante pulsador de corte en cuadros secundarios de plantas 1 a 4.",
+    priority: "baja",
+    status: "pendiente",
+    category: "electricidad",
+    area: "Pasillos y Escaleras",
+    assignedToName: "Miguel Ángel",
+    createdByName: "Administrador Hotel",
+    createdAt: "2026-11-04T10:00:00Z",
+    checklist: [],
+    comments: [],
+    createdById: "admin-1"
+  }
+];
+
 async function initPostgresSchema() {
   if (!pgPool) return;
   try {
@@ -289,10 +354,31 @@ async function initPostgresSchema() {
           id VARCHAR(255) PRIMARY KEY,
           deleted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
+        CREATE TABLE IF NOT EXISTS notifications_queue (
+          id VARCHAR(255) PRIMARY KEY,
+          category VARCHAR(50),
+          title VARCHAR(255) NOT NULL,
+          body TEXT NOT NULL,
+          url VARCHAR(255),
+          data JSONB,
+          target_user_id VARCHAR(255),
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
       `);
       pgAvailable = true;
       console.log("[PostgreSQL] All tables verified / created successfully.");
       await syncMemoryToPostgresIfEmpty(client);
+
+      // Safe recovery of canonical tasks (tsk-001..tsk-004) if accidentally marked deleted
+      try {
+        await client.query("DELETE FROM deleted_ids WHERE id IN ('tsk-001', 'tsk-002', 'tsk-003', 'tsk-004')");
+        for (const tsk of RECOVERED_CANONICAL_TASKS) {
+          await client.query(
+            `INSERT INTO tasks (id, data, status, updated_at) VALUES ($1, $2, $3, CURRENT_TIMESTAMP) ON CONFLICT (id) DO NOTHING`,
+            [tsk.id, JSON.stringify(tsk), tsk.status]
+          );
+        }
+      } catch (err) {}
     } finally {
       client.release();
     }
@@ -439,6 +525,10 @@ async function pgUpsert(table: string, id: string, data: any) {
        DO UPDATE SET data = EXCLUDED.data, updated_at = CURRENT_TIMESTAMP`,
       [id, JSON.stringify(data)]
     );
+    await pgPool.query(`DELETE FROM deleted_ids WHERE id = $1`, [id]);
+    if (memoryCache && Array.isArray(memoryCache.deletedIds)) {
+      memoryCache.deletedIds = memoryCache.deletedIds.filter((dId: string) => dId !== id);
+    }
   } catch (err) {
     console.warn(`[PostgreSQL] Notice on ${table} (falling back to JSON store):`, (err as any)?.message || err);
   }
@@ -1967,14 +2057,78 @@ app.post("/api/push/check-subscription", (req, res) => {
   });
 });
 
+app.get("/api/notifications/pending", async (req, res) => {
+  const { since } = req.query;
+  const sinceMs = since ? (Number(since) || new Date(since as string).getTime()) : (Date.now() - 24 * 60 * 60 * 1000);
+  const sinceDate = new Date(sinceMs);
+
+  if (pgPool) {
+    try {
+      const q = await pgPool.query(
+        `SELECT * FROM notifications_queue WHERE created_at > $1 ORDER BY created_at ASC`,
+        [sinceDate]
+      );
+      if (q.rows.length > 0) {
+        return res.json({
+          notifications: q.rows.map((r: any) => ({
+            id: r.id,
+            category: r.category,
+            title: r.title,
+            body: r.body,
+            url: r.url,
+            data: r.data,
+            targetUserId: r.target_user_id,
+            createdAt: r.created_at
+          }))
+        });
+      }
+    } catch (e) {
+      console.warn('[PostgreSQL] Error querying notifications_queue:', e);
+    }
+  }
+
+  const store = getCachedData();
+  const queue = store.notificationsQueue || [];
+  const pending = queue.filter((n: any) => (n.timestamp || 0) > sinceMs);
+  res.json({ notifications: pending });
+});
+
 app.post("/api/push/send", async (req, res) => {
   initWebPush();
   const { category, targetDepartment, targetUserId, title, body, icon, badge, tag, url, data, excludeUserId, excludeEmail, excludeEndpoint } = req.body;
   const store = getCachedData();
+
+  // 1. Queue notification in persistent store and PostgreSQL notifications_queue (Offline-First)
+  const notifId = `notif-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
+  const notifItem = {
+    id: notifId,
+    category: category || 'general',
+    title: title || 'Mantenimiento Hotelero',
+    body: body || 'Nueva actualización del sistema',
+    url: url || '/',
+    data: data || {},
+    targetUserId: targetUserId || null,
+    timestamp: Date.now()
+  };
+
+  if (!store.notificationsQueue) store.notificationsQueue = [];
+  store.notificationsQueue.push(notifItem);
+  if (store.notificationsQueue.length > 200) {
+    store.notificationsQueue = store.notificationsQueue.slice(-200);
+  }
+
+  if (pgPool) {
+    pgPool.query(
+      `INSERT INTO notifications_queue (id, category, title, body, url, data, target_user_id, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, CURRENT_TIMESTAMP)`,
+      [notifId, notifItem.category, notifItem.title, notifItem.body, notifItem.url, JSON.stringify(notifItem.data), notifItem.targetUserId]
+    ).catch(() => {});
+  }
+
   const subscriptions = store.pushSubscriptions || [];
 
   if (!Array.isArray(subscriptions) || subscriptions.length === 0) {
-    return res.json({ sentCount: 0, total: 0, status: "no_subscriptions" });
+    return res.json({ sentCount: 0, total: 0, status: "queued_no_push_subscribers", notificationId: notifId });
   }
 
   const payload = JSON.stringify({
@@ -2350,9 +2504,17 @@ app.post("/api/pms/sync", (req, res) => {
   res.json({ success: true, pmsData: store.pmsData });
 });
 
+function unregisterDeletion(id: string) {
+  if (!id) return;
+  const current = getCachedData();
+  if (Array.isArray(current.deletedIds)) {
+    current.deletedIds = current.deletedIds.filter((item: string) => item !== id);
+  }
+}
+
 // A robust function to register a deletion in memoryCache and remove it from lists
 function registerDeletion(id: string) {
-  if (!id || CANONICAL_HISTORICAL_ROUND_IDS.has(id)) return;
+  if (!id) return;
   const current = getCachedData();
   if (!Array.isArray(current.deletedIds)) {
     current.deletedIds = [];
@@ -3537,12 +3699,14 @@ app.post("/api/users", async (req, res) => {
          DO UPDATE SET data = EXCLUDED.data, email = EXCLUDED.email, role = EXCLUDED.role, updated_at = CURRENT_TIMESTAMP`,
         [item.id, JSON.stringify(item), item.email ? String(item.email).toLowerCase().trim() : null, item.role || 'técnico']
       );
+      await pgPool.query('DELETE FROM deleted_ids WHERE id = $1', [item.id]);
       console.log(`[PostgreSQL] User ${item.id} (${item.displayName}) created/saved in DB.`);
     } catch (pgErr) {
       console.warn("[PostgreSQL] Error executing INSERT on users table:", (pgErr as any)?.message || pgErr);
     }
   }
 
+  unregisterDeletion(item.id);
   scheduleSaveToDisk();
   const clientId = req.headers['x-client-id'] || null;
   broadcastSse({ type: 'user_created', user: item, clientId, time: Date.now() });
@@ -3598,12 +3762,14 @@ const handleUpdateUserRoute = async (req: express.Request, res: express.Response
           [id, JSON.stringify(finalUser), finalUser.email ? String(finalUser.email).toLowerCase().trim() : null, finalUser.role || 'técnico']
         );
       }
+      await pgPool.query('DELETE FROM deleted_ids WHERE id = $1', [id]);
       console.log(`[PostgreSQL] User ${id} (${finalUser.displayName}) updated in DB successfully.`);
     } catch (pgErr) {
       console.warn("[PostgreSQL] Error executing UPDATE on users table:", (pgErr as any)?.message || pgErr);
     }
   }
 
+  unregisterDeletion(id);
   scheduleSaveToDisk();
   const clientId = req.headers['x-client-id'] || null;
   broadcastSse({ type: 'user_updated', user: finalUser, clientId, time: Date.now() });
