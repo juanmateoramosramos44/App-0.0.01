@@ -756,14 +756,8 @@ const unmarkDeletedEquipmentId = (id: string) => {
   }
 };
 
-const CANONICAL_HISTORICAL_ROUND_IDS = new Set<string>([
-  ...(HISTORICAL_ROUNDS || []).map(r => r?.id).filter(Boolean),
-  'rnd-1792630031894',
-  'rnd-1792550582453'
-]);
-const CANONICAL_HISTORICAL_ROUNDS_MAP = new Map<string, DailyRound>(
-  (HISTORICAL_ROUNDS || []).filter(r => r && r.id).map(r => [r.id, r])
-);
+const CANONICAL_HISTORICAL_ROUND_IDS = new Set<string>();
+const CANONICAL_HISTORICAL_ROUNDS_MAP = new Map<string, DailyRound>();
 const sessionDeletedRoundIds = new Map<string, number>();
 
 const deletedRoundIdsMemorySet = new Set<string>();
@@ -849,7 +843,7 @@ const unmarkDeletedUserId = (id: string) => {
   }
 };
 
-const RECOVERED_CANONICAL_TASK_IDS = new Set(['tsk-001', 'tsk-002', 'tsk-003', 'tsk-004']);
+const RECOVERED_CANONICAL_TASK_IDS = new Set<string>();
 
 const getDeletedTaskIds = (): Set<string> => {
   try {
@@ -857,9 +851,7 @@ const getDeletedTaskIds = (): Set<string> => {
     if (raw) {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed)) {
-        // Protect recovered tasks tsk-001..004 so they are never filtered out
-        const valid = parsed.filter(id => !RECOVERED_CANONICAL_TASK_IDS.has(id));
-        return new Set(valid);
+        return new Set(parsed.filter(id => typeof id === 'string' && id));
       }
     }
   } catch (e) {
@@ -962,7 +954,7 @@ const markDeletedAnyId = (id: string) => {
   else if (id.startsWith('inc-') || id.startsWith('inc_')) markDeletedIncidentId(id);
   else if (id.startsWith('eq-')) markDeletedEquipmentId(id);
   else if (id.startsWith('rnd-')) {
-    if (!CANONICAL_HISTORICAL_ROUND_IDS.has(id)) markDeletedRoundId(id);
+    markDeletedRoundId(id);
   }
   else if (id.startsWith('usr-')) markDeletedUserId(id);
   else if (id.startsWith('task-')) markDeletedTaskId(id);
@@ -1060,7 +1052,6 @@ const reconcileServerDeletedRoundIds = (
   if (Array.isArray(serverDeletedIds)) {
     for (const id of serverDeletedIds) {
       if (typeof id === 'string' && id.startsWith('rnd-')) {
-        if (CANONICAL_HISTORICAL_ROUND_IDS.has(id)) continue;
         serverDelSet.add(id);
       }
     }
@@ -1074,10 +1065,6 @@ const reconcileServerDeletedRoundIds = (
   const authoritative = new Set<string>(serverDelSet);
 
   for (const id of currentLocal) {
-    if (CANONICAL_HISTORICAL_ROUND_IDS.has(id)) {
-      deletedRoundIdsMemorySet.delete(id);
-      continue;
-    }
     const sessionDelTime = sessionDeletedRoundIds.get(id);
     const isRecentlyDeletedInSession = Boolean(sessionDelTime && (now - sessionDelTime < 30000));
     const isLocalInFlight = Boolean(activeLocalActions && activeLocalActions.has(id));
@@ -1086,16 +1073,13 @@ const reconcileServerDeletedRoundIds = (
       authoritative.add(id);
       continue;
     }
-    // If the round exists on the server (or in canonical historical rounds) and is NOT in serverDeletedIds, unmark it so all users see the exact same rounds
-    if (serverRoundIds.has(id) || CANONICAL_HISTORICAL_ROUND_IDS.has(id)) {
+    // If the round exists on the server and is NOT in serverDeletedIds, unmark it so all users see the exact same rounds
+    if (serverRoundIds.has(id)) {
       deletedRoundIdsMemorySet.delete(id);
       continue;
     }
     authoritative.add(id);
   }
-
-  // Guarantee canonical historical rounds can NEVER be marked as deleted
-  CANONICAL_HISTORICAL_ROUND_IDS.forEach(id => authoritative.delete(id));
 
   deletedRoundIdsMemorySet.clear();
   authoritative.forEach(id => deletedRoundIdsMemorySet.add(id));
@@ -1769,21 +1753,13 @@ const mergeRoundLists = (
     });
   };
 
-  // 0. Sembrar siempre las rondas históricas oficiales para garantizar que las 64 rondas estén presentes en todos los usuarios por igual
-  for (const histR of (HISTORICAL_ROUNDS || [])) {
-    if (histR && histR.id && (!deletedIds.has(histR.id) || CANONICAL_HISTORICAL_ROUND_IDS.has(histR.id))) {
-      const r = normalizeRoundRecord(histR, currentActiveId);
-      map.set(r.id, r);
-    }
-  }
-
-  // 1. Fusionar de forma atómica y sin parpadeos las rondas locales y del servidor / Firestore preservando siempre las fotos reales
+  // 1. Fusionar de forma atómica y sin parpadeos las rondas locales y del servidor preservando siempre las fotos reales
   const combinedInput = [...(baseList || []), ...(incomingList || [])];
   for (const rawR of combinedInput) {
-    if (rawR && rawR.id && (!deletedIds.has(rawR.id) || CANONICAL_HISTORICAL_ROUND_IDS.has(rawR.id))) {
+    if (rawR && rawR.id && !deletedIds.has(rawR.id)) {
       const r = normalizeRoundRecord(rawR, currentActiveId);
       const isActivelyPerforming = r.id === currentActiveId || isRoundActivelyBeingPerformed(r, currentActiveId);
-      if (r.status !== 'completada' && !isActivelyPerforming && !CANONICAL_HISTORICAL_ROUND_IDS.has(r.id)) {
+      if (r.status !== 'completada' && !isActivelyPerforming) {
         continue;
       }
       const existing = map.get(r.id);
@@ -1856,7 +1832,7 @@ const mergeRoundLists = (
   const seenIds = new Set<string>();
 
   for (const r of result) {
-    const isDeleted = deletedIds.has(r.id) && !CANONICAL_HISTORICAL_ROUND_IDS.has(r.id);
+    const isDeleted = deletedIds.has(r.id);
     if (!r || !r.id || isDeleted || seenIds.has(r.id)) continue;
     seenIds.add(r.id);
     deduped.push(r);
@@ -2499,21 +2475,19 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
       } catch (e) { console.error(e); }
     }
     const deletedIds = getDeletedIncidentIds();
-    const baseIncidents = mergeIncidentLists(parsedIncidents, INITIAL_INCIDENTS as Incident[], deletedIds);
+    const baseIncidents = parsedIncidents.filter(i => i && i.id && !deletedIds.has(i.id));
     const savedRounds = localStorage.getItem(STORAGE_KEYS.ROUNDS);
-    let roundsList: DailyRound[] = HISTORICAL_ROUNDS;
+    let roundsList: DailyRound[] = [];
     if (savedRounds) {
       try {
         const parsedR = JSON.parse(savedRounds);
         if (Array.isArray(parsedR) && parsedR.length > 0) {
-          roundsList = mergeRoundLists(parsedR, HISTORICAL_ROUNDS, getDeletedRoundIds());
+          roundsList = parsedR.filter(r => r && r.id && !getDeletedRoundIds().has(r.id));
         }
       } catch (e) {}
     }
     return extractAnomaliesAsIncidents(roundsList, baseIncidents, deletedIds);
   });
-
-  const DEFAULT_HOTEL_REQUESTS: HotelRequest[] = INITIAL_REQUESTS;
 
   const [requests, setRequests] = useState<HotelRequest[]>(() => {
     const deletedIds = getDeletedRequestIds();
@@ -2527,7 +2501,7 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
         }
       } catch (e) { console.error(e); }
     }
-    return mergeRequestLists(baseList, DEFAULT_HOTEL_REQUESTS, deletedIds);
+    return baseList;
   });
 
   const [tasks, setTasks] = useState<MaintenanceTask[]>(() => {
@@ -2542,9 +2516,8 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
         }
       } catch (e) { console.error(e); }
     }
-    const merged = mergeTaskLists(baseList, INITIAL_TASKS || [], deletedIds);
-    safeSetItem(STORAGE_KEYS.TASKS, JSON.stringify(merged));
-    return merged;
+    safeSetItem(STORAGE_KEYS.TASKS, JSON.stringify(baseList));
+    return baseList;
   });
 
   const [schedules, setSchedules] = useState<TechnicianSchedule[]>(() => {
@@ -2559,9 +2532,8 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
         }
       } catch (e) { console.error(e); }
     }
-    const merged = mergeScheduleLists(baseList, INITIAL_SCHEDULES, deletedIds);
-    safeSetItem(STORAGE_KEYS.SCHEDULES, JSON.stringify(merged));
-    return merged;
+    safeSetItem(STORAGE_KEYS.SCHEDULES, JSON.stringify(baseList));
+    return baseList;
   });
 
   const [shiftSwapRequests, setShiftSwapRequests] = useState<ShiftSwapRequest[]>(() => {
@@ -2603,7 +2575,7 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
         }
       } catch (e) { console.error(e); }
     }
-    return mergeMeterLists(baseList, INITIAL_METERS, deletedIds);
+    return baseList;
   });
   const metersRef = useRef<MeterDefinition[]>(meters);
   useEffect(() => { 
@@ -2631,7 +2603,7 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
         }
       } catch (e) { console.error(e); }
     }
-    return mergeMeterReadingLists(baseList, INITIAL_METER_READINGS, deletedIds, deletedMeterIds);
+    return baseList;
   });
   const meterReadingsLogRef = useRef<MeterReadingRecord[]>(meterReadingsLog);
   useEffect(() => { meterReadingsLogRef.current = meterReadingsLog; }, [meterReadingsLog]);
@@ -2659,14 +2631,13 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
       try {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length > 0) {
-          baseList = parsed.filter(r => r && r.id && (!deletedIds.has(r.id) || CANONICAL_HISTORICAL_ROUND_IDS.has(r.id)));
+          baseList = parsed.filter(r => r && r.id && !deletedIds.has(r.id));
         }
       } catch (e) { console.error(e); }
     }
-    const initialMerged = mergeRoundLists(baseList, HISTORICAL_ROUNDS, deletedIds);
-    safeSetItem(STORAGE_KEYS.ROUNDS, JSON.stringify(initialMerged));
-    idbSet(STORAGE_KEYS.ROUNDS, initialMerged).catch(() => {});
-    return initialMerged;
+    safeSetItem(STORAGE_KEYS.ROUNDS, JSON.stringify(baseList));
+    idbSet(STORAGE_KEYS.ROUNDS, baseList).catch(() => {});
+    return baseList;
   });
 
   const [activeRound, setActiveRound] = useState<DailyRound | null>(() => {
@@ -3136,7 +3107,6 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
       const data = await res.json();
       if (data && Array.isArray(data.deletedIds)) {
         data.deletedIds.forEach((id: string) => {
-          if (CANONICAL_HISTORICAL_ROUND_IDS.has(id)) return;
           markDeletedAnyId(id);
           if (typeof id === 'string' && id.startsWith('rnd-')) {
             removePendingOfflineRound(id);
@@ -3151,7 +3121,7 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
       }
       if (data && Array.isArray(data.rounds)) {
         const deletedIds = reconcileServerDeletedRoundIds(data.deletedIds, data.rounds, localActionIds.current);
-        const cleanRounds = data.rounds.filter((r: any) => r && (!deletedIds.has(r.id) || CANONICAL_HISTORICAL_ROUND_IDS.has(r.id)));
+        const cleanRounds = data.rounds.filter((r: any) => r && !deletedIds.has(r.id));
         const currentActiveId = activeRoundRef.current?.id;
         const unsyncedIds = getUnsyncedRoundIds();
         const pendingLocalRounds = (roundsRef.current || []).filter(r =>
@@ -3178,7 +3148,7 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
             const delIds = getDeletedRoundIds();
             snap.forEach(docSnap => {
               const d = docSnap.data() as DailyRound;
-              if (d && d.id && (!delIds.has(d.id) || CANONICAL_HISTORICAL_ROUND_IDS.has(d.id))) {
+              if (d && d.id && !delIds.has(d.id)) {
                 list.push(d);
               }
             });
@@ -5109,11 +5079,10 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
     }).catch(() => {});
 
     idbGet<MaintenanceTask[]>(STORAGE_KEYS.TASKS).then(idbTasks => {
-      RECOVERED_CANONICAL_TASK_IDS.forEach(id => unmarkDeletedTaskId(id));
       const deletedIds = getDeletedTaskIds();
       const cleanIdbTasks = (idbTasks && Array.isArray(idbTasks)) ? idbTasks.filter(t => t && t.id && !deletedIds.has(t.id)) : [];
-      const merged = mergeTaskLists(tasksRef.current || [], [...cleanIdbTasks, ...(INITIAL_TASKS || [])], deletedIds);
-      if (merged.length > (tasksRef.current?.length || 0)) {
+      if (cleanIdbTasks.length > 0) {
+        const merged = mergeTaskLists(tasksRef.current || [], cleanIdbTasks, deletedIds);
         tasksRef.current = merged;
         setTasks(merged);
         safeSetItem(STORAGE_KEYS.TASKS, JSON.stringify(merged));
@@ -5271,7 +5240,7 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
           }
           if (Array.isArray(data.rounds)) {
             const deletedIds = reconcileServerDeletedRoundIds(data.deletedIds, data.rounds, localActionIds.current);
-            const cleanRounds = data.rounds.filter(r => r && (!deletedIds.has(r.id) || CANONICAL_HISTORICAL_ROUND_IDS.has(r.id)));
+            const cleanRounds = data.rounds.filter(r => r && !deletedIds.has(r.id));
             const currentActiveId = activeRoundRef.current?.id;
             const unsyncedIds = getUnsyncedRoundIds();
             const pendingLocalRounds = (roundsRef.current || []).filter(r =>
@@ -5455,7 +5424,7 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
           }
           if (Array.isArray(data.rounds)) {
             const deletedIds = reconcileServerDeletedRoundIds(data.deletedIds, data.rounds, localActionIds.current);
-            const cleanRounds = data.rounds.filter(r => r && (!deletedIds.has(r.id) || CANONICAL_HISTORICAL_ROUND_IDS.has(r.id)));
+            const cleanRounds = data.rounds.filter(r => r && !deletedIds.has(r.id));
             const currentActiveId = activeRoundRef.current?.id;
             const unsyncedIds = getUnsyncedRoundIds();
             const pendingLocalRounds = (roundsRef.current || []).filter(r =>
@@ -5929,7 +5898,7 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
                 }
                 if (Array.isArray(fresh.rounds)) {
                   const deletedIds = reconcileServerDeletedRoundIds(fresh.deletedIds, fresh.rounds, localActionIds.current);
-                  const cleanFresh = fresh.rounds.filter(r => r && (!deletedIds.has(r.id) || CANONICAL_HISTORICAL_ROUND_IDS.has(r.id)));
+                  const cleanFresh = fresh.rounds.filter(r => r && !deletedIds.has(r.id));
                   const currentActiveId = activeRoundRef.current?.id;
                   const unsyncedIds = getUnsyncedRoundIds();
                   const pendingLocalRounds = (roundsRef.current || []).filter(r =>
@@ -6516,7 +6485,7 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
 
           const currentActiveId = activeRoundRef.current?.id;
           const deletedIds = getDeletedRoundIds();
-          const list = rawList.filter(r => !deletedIds.has(r.id) || CANONICAL_HISTORICAL_ROUND_IDS.has(r.id));
+          const list = rawList.filter(r => !deletedIds.has(r.id));
           const mergedList = mergeRoundLists(roundsRef.current || [], list, deletedIds, currentActiveId, localActionIds.current);
 
           if (!areRoundsEqual(mergedList, roundsRef.current || [])) {
@@ -6845,9 +6814,6 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
               const currentAll = getAllDeletedIds();
               for (const id of data.ids) {
                 if (typeof id === 'string' && id && !currentAll.has(id)) {
-                  if (CANONICAL_HISTORICAL_ROUND_IDS.has(id)) {
-                    continue;
-                  }
                   markDeletedAnyId(id);
                   anyNew = true;
                 }
@@ -6912,7 +6878,7 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
                 });
 
                 setRounds(prev => {
-                  const filtered = (prev || []).filter(r => !delRnd.has(r.id) || CANONICAL_HISTORICAL_ROUND_IDS.has(r.id));
+                  const filtered = (prev || []).filter(r => !delRnd.has(r.id));
                   if (filtered.length !== (prev || []).length) {
                     roundsRef.current = filtered;
                     safeSetItem(STORAGE_KEYS.ROUNDS, JSON.stringify(filtered));

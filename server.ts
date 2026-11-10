@@ -9,12 +9,7 @@ import pg from "pg";
 const { Pool } = pg;
 import { HISTORICAL_ROUNDS } from "./src/data/historicalRounds.ts";
 
-const CANONICAL_HISTORICAL_ROUND_IDS = new Set<string>(
-  (HISTORICAL_ROUNDS || []).map((r: any) => r?.id).filter(Boolean)
-);
-CANONICAL_HISTORICAL_ROUND_IDS.add('rnd-1793041800000'); // Alonso 2026-10-26 tarde
-CANONICAL_HISTORICAL_ROUND_IDS.add('rnd-1793236464859'); // Carlos 2026-10-28 tarde
-CANONICAL_HISTORICAL_ROUND_IDS.add('rnd-1793318700000'); // Carlos 2026-10-29 noche
+const CANONICAL_HISTORICAL_ROUND_IDS = new Set<string>();
 
 
 
@@ -174,70 +169,7 @@ if (DATABASE_URL) {
   console.log("[Server] DATABASE_URL not set in environment, operating with persistent local JSON store.");
 }
 
-const RECOVERED_CANONICAL_TASKS = [
-  {
-    id: "tsk-001",
-    title: "Mantenimiento preventivo de grupo de presión",
-    description: "Revisión mensual de bombas hidroneumáticas, comprobación de presión de arranque y alternancia.",
-    priority: "alta",
-    status: "completada",
-    category: "mantenimiento",
-    area: "Sala de Bombas Principal",
-    assignedToName: "Todo el equipo",
-    createdByName: "Administrador Hotel",
-    createdAt: "2026-10-15T08:00:00Z",
-    completedAt: "2026-10-15T11:30:00Z",
-    checklist: [],
-    comments: [],
-    createdById: "admin-1"
-  },
-  {
-    id: "tsk-002",
-    title: "Purga y desinfección de acumuladores de ACS",
-    description: "Apertura de válvulas de purga de fondo para arrastre de lodos y toma de temperaturas preventivas.",
-    priority: "urgente",
-    status: "en_progreso",
-    category: "fontaneria",
-    area: "Sala de Calderas",
-    assignedToName: "Carlos Gómez",
-    createdByName: "Administrador Hotel",
-    createdAt: "2026-10-22T09:30:00Z",
-    checklist: [],
-    comments: [],
-    createdById: "admin-1"
-  },
-  {
-    id: "tsk-003",
-    title: "Revisión y engrase de extractores de cocina",
-    description: "Verificación de tensión de correas, rodamientos y limpieza de filtros metálicos de campana.",
-    priority: "media",
-    status: "completada",
-    category: "climatizacion",
-    area: "Cocina Central",
-    assignedToName: "David Torres",
-    createdByName: "Administrador Hotel",
-    createdAt: "2026-10-28T14:00:00Z",
-    completedAt: "2026-10-28T16:45:00Z",
-    checklist: [],
-    comments: [],
-    createdById: "admin-1"
-  },
-  {
-    id: "tsk-004",
-    title: "Comprobación de luces de emergencia y salidas",
-    description: "Test de autonomía mediante pulsador de corte en cuadros secundarios de plantas 1 a 4.",
-    priority: "baja",
-    status: "pendiente",
-    category: "electricidad",
-    area: "Pasillos y Escaleras",
-    assignedToName: "Miguel Ángel",
-    createdByName: "Administrador Hotel",
-    createdAt: "2026-11-04T10:00:00Z",
-    checklist: [],
-    comments: [],
-    createdById: "admin-1"
-  }
-];
+const RECOVERED_CANONICAL_TASKS: any[] = [];
 
 async function initPostgresSchema() {
   if (!pgPool) return;
@@ -369,16 +301,7 @@ async function initPostgresSchema() {
       console.log("[PostgreSQL] All tables verified / created successfully.");
       await syncMemoryToPostgresIfEmpty(client);
 
-      // Safe recovery of canonical tasks (tsk-001..tsk-004) if accidentally marked deleted
-      try {
-        await client.query("DELETE FROM deleted_ids WHERE id IN ('tsk-001', 'tsk-002', 'tsk-003', 'tsk-004')");
-        for (const tsk of RECOVERED_CANONICAL_TASKS) {
-          await client.query(
-            `INSERT INTO tasks (id, data, status, updated_at) VALUES ($1, $2, $3, CURRENT_TIMESTAMP) ON CONFLICT (id) DO NOTHING`,
-            [tsk.id, JSON.stringify(tsk), tsk.status]
-          );
-        }
-      } catch (err) {}
+      // Schema ready
     } finally {
       client.release();
     }
@@ -488,16 +411,17 @@ async function loadPostgresIntoMemory(client: any) {
 
     if (!memoryCache) getCachedData();
 
+    const delQ = await client.query('SELECT id FROM deleted_ids');
+    const deletedSet = new Set<string>((delQ.rows || []).map((r: any) => r.id));
+    memoryCache.deletedIds = Array.from(deletedSet);
+
     for (const t of tables) {
       const q = await client.query(`SELECT data FROM ${t.name}`);
-      if (q.rows.length > 0) {
-        memoryCache[t.key] = q.rows.map((r: any) => r.data);
+      if (q.rows && q.rows.length > 0) {
+        memoryCache[t.key] = q.rows.map((r: any) => r.data).filter((d: any) => d && d.id && !deletedSet.has(d.id));
+      } else {
+        memoryCache[t.key] = [];
       }
-    }
-
-    const delQ = await client.query('SELECT id FROM deleted_ids');
-    if (delQ.rows.length > 0) {
-      memoryCache.deletedIds = delQ.rows.map((r: any) => r.id);
     }
 
     const setQ = await client.query('SELECT data FROM settings WHERE id = $1', ['app_settings']);
@@ -590,10 +514,25 @@ async function persistMemoryToPostgres(incoming: any) {
       { key: 'users', table: 'users' }
     ];
 
+    const deletedIdsSet = new Set<string>();
+    if (Array.isArray(incoming.deletedIds)) {
+      for (const id of incoming.deletedIds) {
+        if (typeof id === 'string' && id) {
+          deletedIdsSet.add(id);
+          try {
+            await pgPool.query(
+              `INSERT INTO deleted_ids (id, deleted_at) VALUES ($1, CURRENT_TIMESTAMP) ON CONFLICT (id) DO NOTHING`,
+              [id]
+            );
+          } catch {}
+        }
+      }
+    }
+
     for (const m of mappings) {
       if (Array.isArray(incoming[m.key])) {
         for (const item of incoming[m.key]) {
-          if (item && item.id) {
+          if (item && item.id && !deletedIdsSet.has(item.id)) {
             await pgUpsert(m.table, item.id, item);
           }
         }
@@ -716,75 +655,59 @@ function getCachedData() {
         ? JSON.parse(JSON.stringify(sampleRoundWithChks.checkpoints))
         : (Array.isArray(memoryCache.roundTemplate) && memoryCache.roundTemplate.length >= 22 ? JSON.parse(JSON.stringify(memoryCache.roundTemplate)) : []);
 
-      // Ensure Alonso 2026-10-26 tarde is present and complete
-      if (!memoryCache.rounds.some((r: any) => r && (r.id === 'rnd-1793041800000' || (r.date === '2026-10-26' && r.shift === 'tarde')))) {
+      // Alonso 2026-10-26 tarde initial seed only if not deleted
+      if (!deletedIdsSet.has('rnd-1793041800000') && !memoryCache.rounds.some((r: any) => r && (r.id === 'rnd-1793041800000' || (r.date === '2026-10-26' && r.shift === 'tarde')))) {
         const sampleAlonso = memoryCache.rounds.find((r: any) => r && r.id === 'rnd-1791427641734') || memoryCache.rounds[0];
-        memoryCache.rounds.push({
-          ...(sampleAlonso ? JSON.parse(JSON.stringify(sampleAlonso)) : {}),
-          id: 'rnd-1793041800000',
-          date: '2026-10-26',
-          shift: 'tarde',
-          time: '21:30',
-          technician: 'Ferney Alonso/Supervisor',
-          technicianName: 'Ferney Alonso/Supervisor',
-          technicianSignature: 'Ferney Alonso',
-          status: 'completada',
-          compliancePercentage: 100,
-          progress: 100,
-          completedAt: '2026-10-26T21:48:30.000Z',
-          generalNotes: 'Ronda de tarde ejecutada con normalidad. Todos los sistemas y equipos inspeccionados al 100%.',
-          anomalies: [],
-          anomaliesCount: 0,
-          meterReadings: {
-            mainWaterPressurePsi: 72,
-            hotWaterSupplyTempC: 60,
-            hotWaterReturnTempC: 53.5,
-            waterCubicMeters: 48925,
-            electricKwh: 341950,
-            gasCubicMeters: 18215,
-            poolPh: 7.35,
-            poolChlorinePpm: 2.1
-          }
-        });
+        if (sampleAlonso) {
+          memoryCache.rounds.push({
+            ...JSON.parse(JSON.stringify(sampleAlonso)),
+            id: 'rnd-1793041800000',
+            date: '2026-10-26',
+            shift: 'tarde',
+            time: '21:30',
+            technician: 'Ferney Alonso/Supervisor',
+            technicianName: 'Ferney Alonso/Supervisor',
+            technicianSignature: 'Ferney Alonso',
+            status: 'completada',
+            compliancePercentage: 100,
+            progress: 100,
+            completedAt: '2026-10-26T21:48:30.000Z',
+            generalNotes: 'Ronda de tarde ejecutada con normalidad. Todos los sistemas y equipos inspeccionados al 100%.',
+            anomalies: [],
+            anomaliesCount: 0
+          });
+        }
       }
 
-      // Ensure Carlos 2026-10-29 noche is present and complete
-      if (!memoryCache.rounds.some((r: any) => r && (r.id === 'rnd-1793318700000' || (r.date === '2026-10-29' && (r.shift === 'noche' || r.shift === 'tarde') && String(r.technicianName||'').includes('Carlos'))))) {
+      // Carlos 2026-10-29 noche initial seed only if not deleted
+      if (!deletedIdsSet.has('rnd-1793318700000') && !memoryCache.rounds.some((r: any) => r && (r.id === 'rnd-1793318700000' || (r.date === '2026-10-29' && (r.shift === 'noche' || r.shift === 'tarde') && String(r.technicianName||'').includes('Carlos'))))) {
         const sampleCarlos = memoryCache.rounds.find((r: any) => r && r.id === 'rnd-1793236464859') || memoryCache.rounds[0];
-        memoryCache.rounds.push({
-          ...(sampleCarlos ? JSON.parse(JSON.stringify(sampleCarlos)) : {}),
-          id: 'rnd-1793318700000',
-          date: '2026-10-29',
-          shift: 'noche',
-          time: '20:45',
-          technician: 'Carlos Manuel/ Técnico',
-          technicianName: 'Carlos Manuel/ Técnico',
-          technicianSignature: 'Carlos Manuel',
-          status: 'completada',
-          compliancePercentage: 100,
-          progress: 100,
-          completedAt: '2026-10-29T21:30:00.000Z',
-          generalNotes: 'Ronda nocturna finalizada al 100%. Parámetros y lecturas clave dentro de rangos normales de operación.',
-          anomalies: [],
-          anomaliesCount: 0,
-          meterReadings: {
-            mainWaterPressurePsi: 72,
-            hotWaterSupplyTempC: 60,
-            hotWaterReturnTempC: 53.5,
-            waterCubicMeters: 48925,
-            electricKwh: 341950,
-            gasCubicMeters: 18215,
-            poolPh: 7.35,
-            poolChlorinePpm: 2.1
-          }
-        });
+        if (sampleCarlos) {
+          memoryCache.rounds.push({
+            ...JSON.parse(JSON.stringify(sampleCarlos)),
+            id: 'rnd-1793318700000',
+            date: '2026-10-29',
+            shift: 'noche',
+            time: '20:45',
+            technician: 'Carlos Manuel/ Técnico',
+            technicianName: 'Carlos Manuel/ Técnico',
+            technicianSignature: 'Carlos Manuel',
+            status: 'completada',
+            compliancePercentage: 100,
+            progress: 100,
+            completedAt: '2026-10-29T21:30:00.000Z',
+            generalNotes: 'Ronda nocturna finalizada al 100%. Parámetros y lecturas clave dentro de rangos normales de operación.',
+            anomalies: [],
+            anomaliesCount: 0
+          });
+        }
       }
 
       // Quality validation & complete readings guarantee for all rounds
       memoryCache.rounds.forEach((r: any) => {
         if (!r) return;
         // If a round is actively in progress by a technician, NEVER override its status, readings or auto-complete it
-        if (r.status === 'en_progreso' && !CANONICAL_HISTORICAL_ROUND_IDS.has(r.id)) {
+        if (r.status === 'en_progreso') {
           return;
         }
 
@@ -1361,8 +1284,7 @@ function performServerStateAudit(data: any): { isConsistent: boolean; totalCorre
     const seenRndIds = new Set<string>();
     for (const raw of data.rounds) {
       if (!raw || typeof raw !== 'object' || !raw.id) continue;
-      const isCanonical = CANONICAL_HISTORICAL_ROUND_IDS.has(raw.id);
-      if (!isCanonical && deletedSet.has(raw.id)) continue;
+      if (deletedSet.has(raw.id)) continue;
       if (seenRndIds.has(raw.id)) continue;
       seenRndIds.add(raw.id);
       const rnd = { ...raw };
@@ -1370,12 +1292,6 @@ function performServerStateAudit(data: any): { isConsistent: boolean; totalCorre
         rnd.anomaliesCount = rnd.anomalies.length;
       }
       cleanRounds.push(rnd);
-    }
-    for (const hr of HISTORICAL_ROUNDS) {
-      if (!seenRndIds.has(hr.id)) {
-        seenRndIds.add(hr.id);
-        cleanRounds.push({ ...hr, status: 'completada', compliancePercentage: 100 });
-      }
     }
     data.rounds = cleanRounds;
   }
@@ -1537,14 +1453,12 @@ function mergeAppData(incoming: any) {
     const existingRoundsMap = new Map<string, any>();
     for (const cur of (current.rounds || [])) {
       if (!cur || !cur.id) continue;
-      const isCanonical = CANONICAL_HISTORICAL_ROUND_IDS.has(cur.id);
-      if (!isCanonical && deletedIdsSet.has(cur.id)) continue;
+      if (deletedIdsSet.has(cur.id)) continue;
       existingRoundsMap.set(cur.id, cur);
     }
     for (let rndItem of incoming.rounds) {
       if (!rndItem || !rndItem.id) continue;
-      const isCanonical = CANONICAL_HISTORICAL_ROUND_IDS.has(rndItem.id);
-      if (!isCanonical && deletedIdsSet.has(rndItem.id)) continue;
+      if (deletedIdsSet.has(rndItem.id)) continue;
       const existing = existingRoundsMap.get(rndItem.id);
       if (!existing) {
         existingRoundsMap.set(rndItem.id, rndItem);
@@ -1622,12 +1536,6 @@ function mergeAppData(incoming: any) {
       if (deletedIdsSet.has(r.id)) continue;
       seenIds.add(r.id);
       deduped.push(r);
-    }
-    for (const hr of HISTORICAL_ROUNDS) {
-      if (!seenIds.has(hr.id) && !deletedIdsSet.has(hr.id)) {
-        seenIds.add(hr.id);
-        deduped.push({ ...hr, status: 'completada', compliancePercentage: 100 });
-      }
     }
 
     const getRoundChronoTime = (r: any): number => {
@@ -1956,6 +1864,42 @@ app.get("/api/data", async (req, res) => {
       const qUsers = await pgPool.query('SELECT data FROM users ORDER BY updated_at DESC');
       if (qUsers.rows) {
         data.users = qUsers.rows.map((r: any) => r.data).filter((r: any) => r && r.id && !allDeleted.has(r.id));
+      }
+      const qEquipments = await pgPool.query('SELECT data FROM equipments ORDER BY updated_at DESC');
+      if (qEquipments.rows) {
+        data.equipments = qEquipments.rows.map((r: any) => r.data).filter((r: any) => r && r.id && !allDeleted.has(r.id));
+      }
+      const qSchedules = await pgPool.query('SELECT data FROM schedules ORDER BY updated_at DESC');
+      if (qSchedules.rows) {
+        data.schedules = qSchedules.rows.map((r: any) => r.data).filter((r: any) => r && r.id && !allDeleted.has(r.id));
+      }
+      const qCronogramas = await pgPool.query('SELECT data FROM cronogramas ORDER BY updated_at DESC');
+      if (qCronogramas.rows) {
+        data.cronogramas = qCronogramas.rows.map((r: any) => r.data).filter((r: any) => r && r.id && !allDeleted.has(r.id));
+      }
+      const qShiftSwaps = await pgPool.query('SELECT data FROM shift_swaps ORDER BY updated_at DESC');
+      if (qShiftSwaps.rows) {
+        data.shiftSwaps = qShiftSwaps.rows.map((r: any) => r.data).filter((r: any) => r && r.id && !allDeleted.has(r.id));
+      }
+      const qPreventivePlans = await pgPool.query('SELECT data FROM preventive_plans ORDER BY updated_at DESC');
+      if (qPreventivePlans.rows) {
+        data.preventivePlans = qPreventivePlans.rows.map((r: any) => r.data).filter((r: any) => r && r.id && !allDeleted.has(r.id));
+      }
+      const qWorkOrders = await pgPool.query('SELECT data FROM work_orders ORDER BY updated_at DESC');
+      if (qWorkOrders.rows) {
+        data.workOrders = qWorkOrders.rows.map((r: any) => r.data).filter((r: any) => r && r.id && !allDeleted.has(r.id));
+      }
+      const qPumpInspections = await pgPool.query('SELECT data FROM pump_inspections ORDER BY updated_at DESC');
+      if (qPumpInspections.rows) {
+        data.pumpInspections = qPumpInspections.rows.map((r: any) => r.data).filter((r: any) => r && r.id && !allDeleted.has(r.id));
+      }
+      const qUploadedDocuments = await pgPool.query('SELECT data FROM uploaded_documents ORDER BY updated_at DESC');
+      if (qUploadedDocuments.rows) {
+        data.uploadedDocuments = qUploadedDocuments.rows.map((r: any) => r.data).filter((r: any) => r && r.id && !allDeleted.has(r.id));
+      }
+      const qDocumentFolders = await pgPool.query('SELECT data FROM document_folders ORDER BY updated_at DESC');
+      if (qDocumentFolders.rows) {
+        data.documentFolders = qDocumentFolders.rows.map((r: any) => r.data).filter((r: any) => r && r.id && !allDeleted.has(r.id));
       }
     } catch (e) {
       console.warn("[PostgreSQL] Notice syncing /api/data with DB:", (e as any)?.message || e);
@@ -2553,10 +2497,16 @@ function registerDeletion(id: string) {
 
 // Individual exact routes for compatibility and immediate multi-screen broadcasts
 
-app.delete("/api/schedules/:id", (req, res) => {
+app.delete("/api/schedules/:id", async (req, res) => {
   const { id } = req.params;
   const clientId = req.headers['x-client-id'] || null;
   registerDeletion(id);
+  const cache = getCachedData();
+  if (Array.isArray(cache.schedules)) {
+    cache.schedules = cache.schedules.filter((s: any) => s.id !== id);
+  }
+  await pgDelete('schedules', id);
+  scheduleSaveToDisk();
   broadcastSse({
     type: 'schedule_deleted',
     scheduleId: id,
@@ -2707,7 +2657,7 @@ app.post("/api/rounds", async (req, res) => {
 
   for (let round of validRounds) {
     // Si una ronda fue eliminada o descartada, NUNCA resucitarla por paquetes en tránsito
-    if (deletedSet.has(round.id) && !CANONICAL_HISTORICAL_ROUND_IDS.has(round.id) && !round.forceRestore) {
+    if (deletedSet.has(round.id) && !round.forceRestore) {
       continue;
     }
 
@@ -2851,7 +2801,7 @@ app.post("/api/rounds", async (req, res) => {
   }
 
   // Deduplicate and sort rounds
-  current.rounds = current.rounds.filter((r: any) => r && r.id && (!deletedSet.has(r.id) || CANONICAL_HISTORICAL_ROUND_IDS.has(r.id)));
+  current.rounds = current.rounds.filter((r: any) => r && r.id && !deletedSet.has(r.id));
   current.rounds.sort((a: any, b: any) => {
     const getT = (r: any) => {
       const dateStr = String(r?.date || '').replace(/\//g, '-').trim();
@@ -3247,19 +3197,16 @@ app.get("/api/meters", async (_req, res) => {
   const store = getCachedData();
   if (pgPool) {
     try {
-      const q = await pgPool.query('SELECT data FROM meters ORDER BY updated_at DESC');
-      if (q && q.rows && q.rows.length > 0) {
-        const pgMeters = q.rows.map((r: any) => r.data).filter(Boolean);
-        const mMap = new Map();
-        (store.meters || []).forEach((m: any) => { if (m && m.id) mMap.set(m.id, m); });
-        pgMeters.forEach((m: any) => { if (m && m.id) mMap.set(m.id, m); });
-        store.meters = Array.from(mMap.values());
-      }
+      const q = await pgPool.query('SELECT data FROM meters WHERE id NOT IN (SELECT id FROM deleted_ids) ORDER BY updated_at DESC');
+      const pgMeters = (q.rows || []).map((r: any) => r.data).filter(Boolean);
+      store.meters = pgMeters;
+      return res.json(pgMeters);
     } catch (e) {
       console.warn("[PostgreSQL] Notice loading meters from DB:", (e as any)?.message || e);
     }
   }
-  res.json(store.meters || []);
+  const deletedSet = new Set(store.deletedIds || []);
+  res.json((store.meters || []).filter((m: any) => m && m.id && !deletedSet.has(m.id) && (!m.code || !deletedSet.has(m.code))));
 });
 app.post("/api/meters", async (req, res) => {
   const meter = req.body;
@@ -3324,19 +3271,16 @@ app.get("/api/meter-readings", async (_req, res) => {
   const store = getCachedData();
   if (pgPool) {
     try {
-      const q = await pgPool.query('SELECT data FROM meter_readings_log ORDER BY updated_at DESC');
-      if (q && q.rows && q.rows.length > 0) {
-        const pgReadings = q.rows.map((r: any) => r.data).filter(Boolean);
-        const rMap = new Map();
-        (store.meterReadingsLog || []).forEach((r: any) => { if (r && r.id) rMap.set(r.id, r); });
-        pgReadings.forEach((r: any) => { if (r && r.id) rMap.set(r.id, r); });
-        store.meterReadingsLog = Array.from(rMap.values());
-      }
+      const q = await pgPool.query('SELECT data FROM meter_readings_log WHERE id NOT IN (SELECT id FROM deleted_ids) ORDER BY updated_at DESC');
+      const pgReadings = (q.rows || []).map((r: any) => r.data).filter(Boolean);
+      store.meterReadingsLog = pgReadings;
+      return res.json(pgReadings);
     } catch (e) {
       console.warn("[PostgreSQL] Notice loading meter readings from DB:", (e as any)?.message || e);
     }
   }
-  res.json(store.meterReadingsLog || []);
+  const deletedSet = new Set(store.deletedIds || []);
+  res.json((store.meterReadingsLog || []).filter((r: any) => r && r.id && !deletedSet.has(r.id)));
 });
 
 app.post("/api/meter-readings", async (req, res) => {
@@ -3392,19 +3336,16 @@ app.get("/api/rounds", async (_req, res) => {
   const store = getCachedData();
   if (pgPool) {
     try {
-      const q = await pgPool.query('SELECT data FROM rounds ORDER BY updated_at DESC');
-      if (q && q.rows && q.rows.length > 0) {
-        const pgRounds = q.rows.map((r: any) => r.data).filter(Boolean);
-        const rMap = new Map();
-        (store.rounds || []).forEach((r: any) => { if (r && r.id) rMap.set(r.id, r); });
-        pgRounds.forEach((r: any) => { if (r && r.id) rMap.set(r.id, r); });
-        store.rounds = Array.from(rMap.values());
-      }
+      const q = await pgPool.query('SELECT data FROM rounds WHERE id NOT IN (SELECT id FROM deleted_ids) ORDER BY updated_at DESC');
+      const pgRounds = (q.rows || []).map((r: any) => r.data).filter(Boolean);
+      store.rounds = pgRounds;
+      return res.json(pgRounds);
     } catch (e) {
       console.warn("[PostgreSQL] Notice loading rounds from DB:", (e as any)?.message || e);
     }
   }
-  res.json(store.rounds || []);
+  const deletedSet = new Set(store.deletedIds || []);
+  res.json((store.rounds || []).filter((r: any) => r && r.id && !deletedSet.has(r.id)));
 });
 
 // 2. Incidents
@@ -3412,19 +3353,16 @@ app.get("/api/incidents", async (_req, res) => {
   const store = getCachedData();
   if (pgPool) {
     try {
-      const q = await pgPool.query('SELECT data FROM incidents ORDER BY updated_at DESC');
-      if (q && q.rows && q.rows.length > 0) {
-        const pgInc = q.rows.map((r: any) => r.data).filter(Boolean);
-        const iMap = new Map();
-        (store.incidents || []).forEach((i: any) => { if (i && i.id) iMap.set(i.id, i); });
-        pgInc.forEach((i: any) => { if (i && i.id) iMap.set(i.id, i); });
-        store.incidents = Array.from(iMap.values());
-      }
+      const q = await pgPool.query('SELECT data FROM incidents WHERE id NOT IN (SELECT id FROM deleted_ids) ORDER BY updated_at DESC');
+      const pgInc = (q.rows || []).map((r: any) => r.data).filter(Boolean);
+      store.incidents = pgInc;
+      return res.json(pgInc);
     } catch (e) {
       console.warn("[PostgreSQL] Notice loading incidents from DB:", (e as any)?.message || e);
     }
   }
-  res.json(store.incidents || []);
+  const deletedSet = new Set(store.deletedIds || []);
+  res.json((store.incidents || []).filter((i: any) => i && i.id && !deletedSet.has(i.id)));
 });
 app.post("/api/incidents", async (req, res) => {
   const inc = req.body;
@@ -3460,19 +3398,16 @@ app.get("/api/requests", async (_req, res) => {
   const store = getCachedData();
   if (pgPool) {
     try {
-      const q = await pgPool.query('SELECT data FROM requests ORDER BY updated_at DESC');
-      if (q && q.rows && q.rows.length > 0) {
-        const pgReq = q.rows.map((r: any) => r.data).filter(Boolean);
-        const reqMap = new Map();
-        (store.requests || []).forEach((r: any) => { if (r && r.id) reqMap.set(r.id, r); });
-        pgReq.forEach((r: any) => { if (r && r.id) reqMap.set(r.id, r); });
-        store.requests = Array.from(reqMap.values());
-      }
+      const q = await pgPool.query('SELECT data FROM requests WHERE id NOT IN (SELECT id FROM deleted_ids) ORDER BY updated_at DESC');
+      const pgReq = (q.rows || []).map((r: any) => r.data).filter(Boolean);
+      store.requests = pgReq;
+      return res.json(pgReq);
     } catch (e) {
       console.warn("[PostgreSQL] Notice loading requests from DB:", (e as any)?.message || e);
     }
   }
-  res.json(store.requests || []);
+  const deletedSet = new Set(store.deletedIds || []);
+  res.json((store.requests || []).filter((r: any) => r && r.id && !deletedSet.has(r.id)));
 });
 app.post("/api/requests", async (req, res) => {
   const item = req.body;
@@ -3508,19 +3443,16 @@ app.get("/api/tasks", async (_req, res) => {
   const store = getCachedData();
   if (pgPool) {
     try {
-      const q = await pgPool.query('SELECT data FROM tasks ORDER BY updated_at DESC');
-      if (q && q.rows && q.rows.length > 0) {
-        const pgTasks = q.rows.map((r: any) => r.data).filter(Boolean);
-        const tMap = new Map();
-        (store.tasks || []).forEach((t: any) => { if (t && t.id) tMap.set(t.id, t); });
-        pgTasks.forEach((t: any) => { if (t && t.id) tMap.set(t.id, t); });
-        store.tasks = Array.from(tMap.values());
-      }
+      const q = await pgPool.query('SELECT data FROM tasks WHERE id NOT IN (SELECT id FROM deleted_ids) ORDER BY updated_at DESC');
+      const pgTasks = (q.rows || []).map((r: any) => r.data).filter(Boolean);
+      store.tasks = pgTasks;
+      return res.json(pgTasks);
     } catch (e) {
       console.warn("[PostgreSQL] Notice loading tasks from DB:", (e as any)?.message || e);
     }
   }
-  res.json(store.tasks || []);
+  const deletedSet = new Set(store.deletedIds || []);
+  res.json((store.tasks || []).filter((t: any) => t && t.id && !deletedSet.has(t.id)));
 });
 app.put("/api/tasks/:id", async (req, res) => {
   const { id } = req.params;
@@ -3538,9 +3470,20 @@ app.put("/api/tasks/:id", async (req, res) => {
 });
 
 // 5. Schedules
-app.get("/api/schedules", (_req, res) => {
+app.get("/api/schedules", async (_req, res) => {
   const store = getCachedData();
-  res.json(store.schedules || []);
+  if (pgPool) {
+    try {
+      const q = await pgPool.query('SELECT data FROM schedules WHERE id NOT IN (SELECT id FROM deleted_ids) ORDER BY updated_at DESC');
+      const pgSched = (q.rows || []).map((r: any) => r.data).filter(Boolean);
+      store.schedules = pgSched;
+      return res.json(pgSched);
+    } catch (e) {
+      console.warn("[PostgreSQL] Notice loading schedules from DB:", (e as any)?.message || e);
+    }
+  }
+  const deletedSet = new Set(store.deletedIds || []);
+  res.json((store.schedules || []).filter((s: any) => s && s.id && !deletedSet.has(s.id)));
 });
 app.post("/api/schedules", async (req, res) => {
   const items = Array.isArray(req.body) ? req.body : [req.body];
@@ -3573,9 +3516,20 @@ app.delete("/api/schedules/:id", async (req, res) => {
 });
 
 // 6. Equipments
-app.get("/api/equipments", (_req, res) => {
+app.get("/api/equipments", async (_req, res) => {
   const store = getCachedData();
-  res.json(store.equipments || []);
+  if (pgPool) {
+    try {
+      const q = await pgPool.query('SELECT data FROM equipments WHERE id NOT IN (SELECT id FROM deleted_ids) ORDER BY updated_at DESC');
+      const pgEq = (q.rows || []).map((r: any) => r.data).filter(Boolean);
+      store.equipments = pgEq;
+      return res.json(pgEq);
+    } catch (e) {
+      console.warn("[PostgreSQL] Notice loading equipments from DB:", (e as any)?.message || e);
+    }
+  }
+  const deletedSet = new Set(store.deletedIds || []);
+  res.json((store.equipments || []).filter((e: any) => e && e.id && !deletedSet.has(e.id)));
 });
 app.post("/api/equipments", async (req, res) => {
   const item = req.body;
@@ -3597,19 +3551,16 @@ app.get("/api/users", async (_req, res) => {
   const store = getCachedData();
   if (pgPool) {
     try {
-      const q = await pgPool.query('SELECT data FROM users ORDER BY updated_at DESC');
-      if (q && q.rows && q.rows.length > 0) {
-        const pgUsers = q.rows.map((r: any) => r.data).filter(Boolean);
-        const uMap = new Map();
-        (store.users || []).forEach((u: any) => { if (u && u.id) uMap.set(u.id, u); });
-        pgUsers.forEach((u: any) => { if (u && u.id) uMap.set(u.id, u); });
-        store.users = Array.from(uMap.values());
-      }
+      const q = await pgPool.query('SELECT data FROM users WHERE id NOT IN (SELECT id FROM deleted_ids) ORDER BY updated_at DESC');
+      const pgUsers = (q.rows || []).map((r: any) => r.data).filter(Boolean);
+      store.users = pgUsers;
+      return res.json(pgUsers);
     } catch (e) {
       console.warn("[PostgreSQL] Notice loading users from DB:", (e as any)?.message || e);
     }
   }
-  res.json(store.users || []);
+  const deletedSet = new Set(store.deletedIds || []);
+  res.json((store.users || []).filter((u: any) => u && u.id && !deletedSet.has(u.id)));
 });
 
 // Live auth session profile endpoint (supports query or headers for zero-logout live updates)
