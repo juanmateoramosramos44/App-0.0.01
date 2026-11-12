@@ -1831,76 +1831,65 @@ app.get("/api/data", async (req, res) => {
 
   if (pgPool) {
     try {
-      const qDeleted = await pgPool.query('SELECT id FROM deleted_ids');
+      const [
+        qDeleted,
+        qRounds,
+        qIncidents,
+        qRequests,
+        qTasks,
+        qMeters,
+        qReadings,
+        qUsers,
+        qEquipments,
+        qSchedules,
+        qCronogramas,
+        qShiftSwaps,
+        qPreventivePlans,
+        qWorkOrders,
+        qPumpInspections,
+        qUploadedDocuments,
+        qDocumentFolders
+      ] = await Promise.all([
+        pgPool.query('SELECT id FROM deleted_ids').catch(() => ({ rows: [] })),
+        pgPool.query('SELECT data FROM rounds ORDER BY updated_at DESC').catch(() => ({ rows: [] })),
+        pgPool.query('SELECT data FROM incidents ORDER BY updated_at DESC').catch(() => ({ rows: [] })),
+        pgPool.query('SELECT data FROM requests ORDER BY updated_at DESC').catch(() => ({ rows: [] })),
+        pgPool.query('SELECT data FROM tasks ORDER BY updated_at DESC').catch(() => ({ rows: [] })),
+        pgPool.query('SELECT data FROM meters ORDER BY updated_at DESC').catch(() => ({ rows: [] })),
+        pgPool.query('SELECT data FROM meter_readings_log ORDER BY updated_at DESC').catch(() => ({ rows: [] })),
+        pgPool.query('SELECT data FROM users ORDER BY updated_at DESC').catch(() => ({ rows: [] })),
+        pgPool.query('SELECT data FROM equipments ORDER BY updated_at DESC').catch(() => ({ rows: [] })),
+        pgPool.query('SELECT data FROM schedules ORDER BY updated_at DESC').catch(() => ({ rows: [] })),
+        pgPool.query('SELECT data FROM cronogramas ORDER BY updated_at DESC').catch(() => ({ rows: [] })),
+        pgPool.query('SELECT data FROM shift_swaps ORDER BY updated_at DESC').catch(() => ({ rows: [] })),
+        pgPool.query('SELECT data FROM preventive_plans ORDER BY updated_at DESC').catch(() => ({ rows: [] })),
+        pgPool.query('SELECT data FROM work_orders ORDER BY updated_at DESC').catch(() => ({ rows: [] })),
+        pgPool.query('SELECT data FROM pump_inspections ORDER BY updated_at DESC').catch(() => ({ rows: [] })),
+        pgPool.query('SELECT data FROM uploaded_documents ORDER BY updated_at DESC').catch(() => ({ rows: [] })),
+        pgPool.query('SELECT data FROM document_folders ORDER BY updated_at DESC').catch(() => ({ rows: [] }))
+      ]);
+
       const pgDeletedSet = new Set((qDeleted.rows || []).map((r: any) => r.id));
       const memoryDeleted = new Set(data.deletedIds || []);
       const allDeleted = new Set([...pgDeletedSet, ...memoryDeleted]);
       data.deletedIds = Array.from(allDeleted);
 
-      const qRounds = await pgPool.query('SELECT data FROM rounds ORDER BY updated_at DESC');
-      if (qRounds.rows) {
-        data.rounds = qRounds.rows.map((r: any) => r.data).filter((r: any) => r && r.id && !allDeleted.has(r.id));
-      }
-      const qIncidents = await pgPool.query('SELECT data FROM incidents ORDER BY updated_at DESC');
-      if (qIncidents.rows) {
-        data.incidents = qIncidents.rows.map((r: any) => r.data).filter((r: any) => r && r.id && !allDeleted.has(r.id));
-      }
-      const qRequests = await pgPool.query('SELECT data FROM requests ORDER BY updated_at DESC');
-      if (qRequests.rows) {
-        data.requests = qRequests.rows.map((r: any) => r.data).filter((r: any) => r && r.id && !allDeleted.has(r.id));
-      }
-      const qTasks = await pgPool.query('SELECT data FROM tasks ORDER BY updated_at DESC');
-      if (qTasks.rows) {
-        data.tasks = qTasks.rows.map((r: any) => r.data).filter((r: any) => r && r.id && !allDeleted.has(r.id));
-      }
-      const qMeters = await pgPool.query('SELECT data FROM meters ORDER BY updated_at DESC');
-      if (qMeters.rows) {
-        data.meters = qMeters.rows.map((r: any) => r.data).filter((r: any) => r && r.id && !allDeleted.has(r.id));
-      }
-      const qReadings = await pgPool.query('SELECT data FROM meter_readings_log ORDER BY updated_at DESC');
-      if (qReadings.rows) {
-        data.meterReadingsLog = qReadings.rows.map((r: any) => r.data).filter((r: any) => r && r.id && !allDeleted.has(r.id));
-      }
-      const qUsers = await pgPool.query('SELECT data FROM users ORDER BY updated_at DESC');
-      if (qUsers.rows) {
-        data.users = qUsers.rows.map((r: any) => r.data).filter((r: any) => r && r.id && !allDeleted.has(r.id));
-      }
-      const qEquipments = await pgPool.query('SELECT data FROM equipments ORDER BY updated_at DESC');
-      if (qEquipments.rows) {
-        data.equipments = qEquipments.rows.map((r: any) => r.data).filter((r: any) => r && r.id && !allDeleted.has(r.id));
-      }
-      const qSchedules = await pgPool.query('SELECT data FROM schedules ORDER BY updated_at DESC');
-      if (qSchedules.rows) {
-        data.schedules = qSchedules.rows.map((r: any) => r.data).filter((r: any) => r && r.id && !allDeleted.has(r.id));
-      }
-      const qCronogramas = await pgPool.query('SELECT data FROM cronogramas ORDER BY updated_at DESC');
-      if (qCronogramas.rows) {
-        data.cronogramas = qCronogramas.rows.map((r: any) => r.data).filter((r: any) => r && r.id && !allDeleted.has(r.id));
-      }
-      const qShiftSwaps = await pgPool.query('SELECT data FROM shift_swaps ORDER BY updated_at DESC');
-      if (qShiftSwaps.rows) {
-        data.shiftSwaps = qShiftSwaps.rows.map((r: any) => r.data).filter((r: any) => r && r.id && !allDeleted.has(r.id));
-      }
-      const qPreventivePlans = await pgPool.query('SELECT data FROM preventive_plans ORDER BY updated_at DESC');
-      if (qPreventivePlans.rows) {
-        data.preventivePlans = qPreventivePlans.rows.map((r: any) => r.data).filter((r: any) => r && r.id && !allDeleted.has(r.id));
-      }
-      const qWorkOrders = await pgPool.query('SELECT data FROM work_orders ORDER BY updated_at DESC');
-      if (qWorkOrders.rows) {
-        data.workOrders = qWorkOrders.rows.map((r: any) => r.data).filter((r: any) => r && r.id && !allDeleted.has(r.id));
-      }
-      const qPumpInspections = await pgPool.query('SELECT data FROM pump_inspections ORDER BY updated_at DESC');
-      if (qPumpInspections.rows) {
-        data.pumpInspections = qPumpInspections.rows.map((r: any) => r.data).filter((r: any) => r && r.id && !allDeleted.has(r.id));
-      }
-      const qUploadedDocuments = await pgPool.query('SELECT data FROM uploaded_documents ORDER BY updated_at DESC');
-      if (qUploadedDocuments.rows) {
-        data.uploadedDocuments = qUploadedDocuments.rows.map((r: any) => r.data).filter((r: any) => r && r.id && !allDeleted.has(r.id));
-      }
-      const qDocumentFolders = await pgPool.query('SELECT data FROM document_folders ORDER BY updated_at DESC');
-      if (qDocumentFolders.rows) {
-        data.documentFolders = qDocumentFolders.rows.map((r: any) => r.data).filter((r: any) => r && r.id && !allDeleted.has(r.id));
-      }
+      if (qRounds.rows) data.rounds = qRounds.rows.map((r: any) => r.data).filter((r: any) => r && r.id && !allDeleted.has(r.id));
+      if (qIncidents.rows) data.incidents = qIncidents.rows.map((r: any) => r.data).filter((r: any) => r && r.id && !allDeleted.has(r.id));
+      if (qRequests.rows) data.requests = qRequests.rows.map((r: any) => r.data).filter((r: any) => r && r.id && !allDeleted.has(r.id));
+      if (qTasks.rows) data.tasks = qTasks.rows.map((r: any) => r.data).filter((r: any) => r && r.id && !allDeleted.has(r.id));
+      if (qMeters.rows) data.meters = qMeters.rows.map((r: any) => r.data).filter((r: any) => r && r.id && !allDeleted.has(r.id));
+      if (qReadings.rows) data.meterReadingsLog = qReadings.rows.map((r: any) => r.data).filter((r: any) => r && r.id && !allDeleted.has(r.id));
+      if (qUsers.rows) data.users = qUsers.rows.map((r: any) => r.data).filter((r: any) => r && r.id && !allDeleted.has(r.id));
+      if (qEquipments.rows) data.equipments = qEquipments.rows.map((r: any) => r.data).filter((r: any) => r && r.id && !allDeleted.has(r.id));
+      if (qSchedules.rows) data.schedules = qSchedules.rows.map((r: any) => r.data).filter((r: any) => r && r.id && !allDeleted.has(r.id));
+      if (qCronogramas.rows) data.cronogramas = qCronogramas.rows.map((r: any) => r.data).filter((r: any) => r && r.id && !allDeleted.has(r.id));
+      if (qShiftSwaps.rows) data.shiftSwaps = qShiftSwaps.rows.map((r: any) => r.data).filter((r: any) => r && r.id && !allDeleted.has(r.id));
+      if (qPreventivePlans.rows) data.preventivePlans = qPreventivePlans.rows.map((r: any) => r.data).filter((r: any) => r && r.id && !allDeleted.has(r.id));
+      if (qWorkOrders.rows) data.workOrders = qWorkOrders.rows.map((r: any) => r.data).filter((r: any) => r && r.id && !allDeleted.has(r.id));
+      if (qPumpInspections.rows) data.pumpInspections = qPumpInspections.rows.map((r: any) => r.data).filter((r: any) => r && r.id && !allDeleted.has(r.id));
+      if (qUploadedDocuments.rows) data.uploadedDocuments = qUploadedDocuments.rows.map((r: any) => r.data).filter((r: any) => r && r.id && !allDeleted.has(r.id));
+      if (qDocumentFolders.rows) data.documentFolders = qDocumentFolders.rows.map((r: any) => r.data).filter((r: any) => r && r.id && !allDeleted.has(r.id));
     } catch (e) {
       console.warn("[PostgreSQL] Notice syncing /api/data with DB:", (e as any)?.message || e);
     }

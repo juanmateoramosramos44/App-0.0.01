@@ -340,12 +340,15 @@ export const TasksView: React.FC = () => {
     return all.filter(task => isTaskAssignedToUser(task) || isTaskCreatedByUser(task));
   }, [tasks, isAdmin, isTaskAssignedToUser, isTaskCreatedByUser]);
 
-  // Configured technicians from system settings (Source of truth)
+  // Configured technicians from system settings or database users (Source of truth)
   const configuredCompanions = useMemo(() => {
-    return (settings?.technicians && settings.technicians.length > 0)
-      ? settings.technicians
-      : ['Mateo Ramos (Mecánico & Bombas)', 'Carlos Gómez (Técnico Nocturno)', 'Luis Peña (Fontanería & Piscinas)', 'Andrés Salazar (Electricista)', 'Roberto Méndez (Climatización & Chillers)'];
-  }, [settings?.technicians]);
+    if (settings?.technicians && settings.technicians.length > 0) {
+      return settings.technicians;
+    }
+    const realUsers = (users || []).map(u => u.displayName).filter(Boolean);
+    if (realUsers.length > 0) return realUsers;
+    return [];
+  }, [settings?.technicians, users]);
 
   // Search and filter states
   const [searchTerm, setSearchTerm] = useState('');

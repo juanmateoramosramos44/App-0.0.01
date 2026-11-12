@@ -233,32 +233,8 @@ export const isRoundActivelyBeingPerformed = (round: DailyRound, currentActiveId
   if (getDeletedRoundIds().has(round.id)) return false;
   // Solo se considera culminada si fue cerrada explícitamente con completedAt y firma
   if (Boolean(round.completedAt && round.technicianSignature)) return false;
-
-  // Si es la ronda que el usuario local tiene abierta o reanudó actualmente en su pantalla: siempre está en curso activo
-  if (currentActiveId && round.id === currentActiveId) {
-    return true;
-  }
-
-  const todayStr = getLocalDateString();
-  const roundDate = (round.date || '').replace(/\//g, '-').trim();
-  const timeStr = round.lastHeartbeat || round.lastUpdated || (round.date && round.time ? `${roundDate}T${round.time}:00` : null);
-  const ts = timeStr ? new Date(timeStr).getTime() : 0;
-
-  // Turno noche (22:00 a 06:00): Puede haber iniciado el día anterior y continuar en la madrugada de hoy
-  const isNightShiftRecent = round.shift === 'noche' && (!ts || isNaN(ts) || (Date.now() - ts) <= 14 * 60 * 60 * 1000);
-
-  // Una ronda de días pasados (ayer o antes) sólo se considera activa si es turno noche reciente
-  if (roundDate && roundDate < todayStr && !isNightShiftRecent) {
-    return false;
-  }
-
-  if (!timeStr) {
-    return roundDate === todayStr || isNightShiftRecent;
-  }
-  if (isNaN(ts)) return false;
-  // Ventana máxima para un turno activo en vivo dentro del día: 10 horas
-  const SHIFT_WINDOW_MS = 10 * 60 * 60 * 1000;
-  return (Date.now() - ts) <= SHIFT_WINDOW_MS;
+  // Si la ronda está en curso (por ejemplo la de condensadoras de Carlos), debe permanecer 100% visible en vivo
+  return true;
 };
 
 export const isUserOwnRound = (round: DailyRound | null | undefined, user: User | null | undefined): boolean => {
@@ -1207,49 +1183,65 @@ const mergeTaskLists = (
   baseList: MaintenanceTask[],
   incomingList: MaintenanceTask[],
   deletedIds: Set<string>,
-  localCreatedIds?: Set<string>
+  localCreatedIds?: Set<string>,
+  isServerAuthoritative: boolean = true
 ): MaintenanceTask[] => {
   const map = new Map<string, MaintenanceTask>();
+  const incomingMap = new Map<string, MaintenanceTask>();
 
-  // Add existing local items first (unless deleted)
-  (baseList || []).forEach(item => {
-    if (item && item.id && !deletedIds.has(item.id)) {
-      map.set(item.id, { ...item });
-    }
-  });
-
-  // Merge incoming items
   (incomingList || []).forEach(item => {
-    if (!item || !item.id || deletedIds.has(item.id)) return;
-
-    if (!map.has(item.id)) {
-      map.set(item.id, { ...item });
-    } else {
-      const existing = map.get(item.id)!;
-      const advancedStatus = getMoreAdvancedTaskStatus(existing.status, item.status) as any;
-      const completedAt = existing.completedAt || item.completedAt;
-      const completedBy = existing.completedBy || item.completedBy;
-      const resolutionNotes = (existing as any).resolutionNotes || (item as any).resolutionNotes;
-      const completedEvidenceUrl = (existing as any).completedEvidenceUrl || (item as any).completedEvidenceUrl;
-
-      const existingTime = new Date(existing.updatedAt || existing.createdAt || 0).getTime();
-      const incomingTime = new Date(item.updatedAt || item.createdAt || 0).getTime();
-      
-      const mergedItem = incomingTime >= existingTime ? { ...existing, ...item } : { ...item, ...existing };
-      mergedItem.status = advancedStatus;
-      if (completedAt) mergedItem.completedAt = completedAt;
-      if (completedBy) mergedItem.completedBy = completedBy;
-      if (resolutionNotes) (mergedItem as any).resolutionNotes = resolutionNotes;
-      if (completedEvidenceUrl) (mergedItem as any).completedEvidenceUrl = completedEvidenceUrl;
-      map.set(item.id, mergedItem);
+    if (item && item.id && !deletedIds.has(item.id)) {
+      incomingMap.set(item.id, { ...item });
     }
   });
 
-  // Preserve local actions that might not have landed on cloud yet
-  if (localCreatedIds) {
+  if (isServerAuthoritative && Array.isArray(incomingList)) {
+    // Modo sincronización autoritaria con PostgreSQL:
+    // Los datos del servidor son la verdad absoluta. Si un elemento no está en la base de datos,
+    // se descarta (a menos que haya sido creado localmente en los últimos segundos pendiente de envío).
+    incomingMap.forEach((incItem, id) => {
+      const localItem = (baseList || []).find(b => b && b.id === id);
+      if (!localItem) {
+        map.set(id, { ...incItem });
+      } else {
+        const advancedStatus = getMoreAdvancedTaskStatus(localItem.status, incItem.status) as any;
+        const timeLocal = new Date(localItem.updatedAt || localItem.createdAt || 0).getTime();
+        const timeInc = new Date(incItem.updatedAt || incItem.createdAt || 0).getTime();
+        const mergedItem = timeInc >= timeLocal ? { ...localItem, ...incItem } : { ...incItem, ...localItem };
+        mergedItem.status = advancedStatus;
+        if (localItem.completedAt || incItem.completedAt) mergedItem.completedAt = localItem.completedAt || incItem.completedAt;
+        if (localItem.completedBy || incItem.completedBy) mergedItem.completedBy = localItem.completedBy || incItem.completedBy;
+        map.set(id, mergedItem);
+      }
+    });
+
+    // Preservar únicamente elementos recién creados en este dispositivo local pendientes de enviar a la API
+    if (localCreatedIds && localCreatedIds.size > 0) {
+      (baseList || []).forEach(item => {
+        if (item && item.id && localCreatedIds.has(item.id) && !deletedIds.has(item.id) && !map.has(item.id)) {
+          map.set(item.id, { ...item });
+        }
+      });
+    }
+  } else {
+    // Modo fusión local
     (baseList || []).forEach(item => {
-      if (item && item.id && localCreatedIds.has(item.id) && !deletedIds.has(item.id)) {
-        map.set(item.id, item);
+      if (item && item.id && !deletedIds.has(item.id)) {
+        map.set(item.id, { ...item });
+      }
+    });
+
+    incomingMap.forEach((item, id) => {
+      if (!map.has(id)) {
+        map.set(id, { ...item });
+      } else {
+        const existing = map.get(id)!;
+        const advancedStatus = getMoreAdvancedTaskStatus(existing.status, item.status) as any;
+        const existingTime = new Date(existing.updatedAt || existing.createdAt || 0).getTime();
+        const incomingTime = new Date(item.updatedAt || item.createdAt || 0).getTime();
+        const mergedItem = incomingTime >= existingTime ? { ...existing, ...item } : { ...item, ...existing };
+        mergedItem.status = advancedStatus;
+        map.set(id, mergedItem);
       }
     });
   }
@@ -1758,10 +1750,6 @@ const mergeRoundLists = (
   for (const rawR of combinedInput) {
     if (rawR && rawR.id && !deletedIds.has(rawR.id)) {
       const r = normalizeRoundRecord(rawR, currentActiveId);
-      const isActivelyPerforming = r.id === currentActiveId || isRoundActivelyBeingPerformed(r, currentActiveId);
-      if (r.status !== 'completada' && !isActivelyPerforming) {
-        continue;
-      }
       const existing = map.get(r.id);
       if (!existing) {
         map.set(r.id, r);
@@ -2218,7 +2206,7 @@ const mergeRequestLists = (
 
       map.set(item.id, mergedItem);
       incomingMap.delete(item.id); // marked as processed
-    } else {
+    } else if (!isServerSync || (localPendingIds && localPendingIds.has(item.id))) {
       map.set(item.id, { ...item });
     }
   });
@@ -2635,6 +2623,10 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
         }
       } catch (e) { console.error(e); }
     }
+    // Carga instantánea (0 ms): Si localStorage está vacío, precargar inmediatamente las 98 rondas canónicas
+    if (baseList.length === 0 && Array.isArray(HISTORICAL_ROUNDS) && HISTORICAL_ROUNDS.length > 0) {
+      baseList = (HISTORICAL_ROUNDS as DailyRound[]).filter(r => r && r.id && !deletedIds.has(r.id));
+    }
     safeSetItem(STORAGE_KEYS.ROUNDS, JSON.stringify(baseList));
     idbSet(STORAGE_KEYS.ROUNDS, baseList).catch(() => {});
     return baseList;
@@ -2668,27 +2660,24 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
   });
 
   const inProgressRounds = useMemo(() => {
-    const todayStr = getLocalDateString();
     const list = (rounds || []).filter(r => {
       if (!r || !r.id) return false;
+      if (getDeletedRoundIds().has(r.id)) return false;
       // Solo excluir si ya fue cerrada oficialmente con firma
       if (r.status === 'completada' && Boolean(r.completedAt && r.technicianSignature)) return false;
-      const rDate = (r.date || '').replace(/\//g, '-').trim();
-      if (rDate && rDate < todayStr) return false;
-      return isRoundActivelyBeingPerformed(r, activeRound?.id) && (!rDate || rDate === todayStr);
+      // Cualquier ronda en progreso (como la de condensadoras de Carlos) debe ser 100% visible
+      return r.status === 'en_progreso';
     });
     const map = new Map<string, DailyRound>();
     for (const r of list) {
-      const normTech = (r.technicianName || '').toLowerCase().split('/')[0].trim();
-      const shiftKey = `${r.date}_${r.shift || ''}_${normTech}`;
-      const existing = map.get(shiftKey);
+      const existing = map.get(r.id);
       if (!existing) {
-        map.set(shiftKey, r);
+        map.set(r.id, r);
       } else {
         const existingTime = new Date(existing.lastUpdated || existing.lastHeartbeat || 0).getTime();
         const rTime = new Date(r.lastUpdated || r.lastHeartbeat || 0).getTime();
         if (r.id === activeRound?.id || rTime > existingTime) {
-          map.set(shiftKey, r);
+          map.set(r.id, r);
         }
       }
     }
@@ -3002,27 +2991,23 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
 
   const refreshRoundsFromCloud = async () => {
     try {
-      const snap = await getDocs(collection(db, 'rounds'));
-      const list: DailyRound[] = [];
+      const res = await fetch(`/api/rounds?_t=${Date.now()}`, { cache: 'no-store' });
+      if (!res.ok) throw new Error('Error al consultar rondas');
+      const list = await res.json();
       const deletedRoundIds = getDeletedRoundIds();
-      snap.forEach(docSnap => {
-        const data = docSnap.data() as DailyRound;
-        if (data && data.id && (!deletedRoundIds.has(data.id) || CANONICAL_HISTORICAL_ROUND_IDS.has(data.id))) {
-          list.push(data);
-        }
-      });
-      const merged = mergeRoundLists(roundsRef.current || [], list, deletedRoundIds, activeRoundRef.current?.id);
+      const cleanList = (Array.isArray(list) ? list : []).filter((data: DailyRound) => data && data.id && !deletedRoundIds.has(data.id));
+      const merged = mergeRoundLists(roundsRef.current || [], cleanList, deletedRoundIds, activeRoundRef.current?.id);
       
-      if (JSON.stringify(roundsRef.current) === JSON.stringify(merged)) {
+      if (areRoundsEqual(roundsRef.current || [], merged)) {
         return;
       }
       
       roundsRef.current = merged;
       setRounds(merged);
       safeSetItem(STORAGE_KEYS.ROUNDS, JSON.stringify(merged));
-      persistToServer();
+      idbSet(STORAGE_KEYS.ROUNDS, merged).catch(() => {});
       setIsCloudSynced(true);
-      notify('🔄 Historial de rondas sincronizado desde la nube.');
+      notify('🔄 Historial de rondas sincronizado desde el servidor.');
     } catch (e) {
       console.error('Error refreshing rounds:', e);
       notify('Error al sincronizar rondas.');
@@ -3102,70 +3087,30 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
 
   const syncRoundsSilently = useCallback(async () => {
     try {
-      // 1. Fetch from server API first to reconcile deleted round IDs before flushing offline queue
-      const res = await fetch(`/api/data?_t=${Date.now()}`, { cache: 'no-store' });
-      const data = await res.json();
-      if (data && Array.isArray(data.deletedIds)) {
-        data.deletedIds.forEach((id: string) => {
-          markDeletedAnyId(id);
-          if (typeof id === 'string' && id.startsWith('rnd-')) {
-            removePendingOfflineRound(id);
-            if (activeRoundRef.current?.id === id) {
-              activeRoundRef.current = null;
-              setActiveRound(null);
-              localStorage.removeItem(STORAGE_KEYS.ACTIVE_ROUND);
-              idbRemove(STORAGE_KEYS.ACTIVE_ROUND).catch(() => {});
-            }
+      // 1. Fetch specifically from /api/rounds for ultra-fast, lightweight rounds synchronization
+      const res = await fetch(`/api/rounds?_t=${Date.now()}`, { cache: 'no-store' });
+      if (res.ok) {
+        const serverRounds = await res.json();
+        if (Array.isArray(serverRounds)) {
+          const deletedIds = getDeletedRoundIds();
+          const cleanRounds = serverRounds.filter((r: any) => r && r.id && !deletedIds.has(r.id));
+          const currentActiveId = activeRoundRef.current?.id;
+          const unsyncedIds = getUnsyncedRoundIds();
+          const pendingLocalRounds = (roundsRef.current || []).filter(r =>
+            r && r.id && !deletedIds.has(r.id) && (r.id === currentActiveId || localActionIds.current.has(r.id) || unsyncedIds.has(r.id))
+          );
+          const merged = mergeRoundLists(pendingLocalRounds, cleanRounds, deletedIds, currentActiveId, localActionIds.current);
+          if (!areRoundsEqual(merged, roundsRef.current || [])) {
+            roundsRef.current = merged;
+            setRounds(merged);
+            safeSetItem(STORAGE_KEYS.ROUNDS, JSON.stringify(merged));
+            idbSet(STORAGE_KEYS.ROUNDS, merged).catch(() => {});
           }
-        });
-      }
-      if (data && Array.isArray(data.rounds)) {
-        const deletedIds = reconcileServerDeletedRoundIds(data.deletedIds, data.rounds, localActionIds.current);
-        const cleanRounds = data.rounds.filter((r: any) => r && !deletedIds.has(r.id));
-        const currentActiveId = activeRoundRef.current?.id;
-        const unsyncedIds = getUnsyncedRoundIds();
-        const pendingLocalRounds = (roundsRef.current || []).filter(r =>
-          r && r.id && !deletedIds.has(r.id) && (r.status === 'completada' || Boolean(r.completedAt && r.technicianSignature) || r.id === currentActiveId || localActionIds.current.has(r.id) || unsyncedIds.has(r.id))
-        );
-        const merged = mergeRoundLists(pendingLocalRounds, cleanRounds, deletedIds, currentActiveId, localActionIds.current);
-        if (!areRoundsEqual(merged, roundsRef.current || [])) {
-          roundsRef.current = merged;
-          setRounds(merged);
-          safeSetItem(STORAGE_KEYS.ROUNDS, JSON.stringify(merged));
-          idbSet(STORAGE_KEYS.ROUNDS, merged).catch(() => {});
         }
       }
 
       // 2. Flush any remaining valid pending offline rounds
       await flushPendingOfflineRounds();
-
-      // 2. Fetch from Cloud Firestore (solo si proviene del servidor en vivo, nunca de caché local obsoleto)
-      if (!isFirestoreQuotaExceeded()) {
-        try {
-          const snap = await getDocs(collection(db, 'rounds'));
-          if (!snap.metadata.fromCache) {
-            const list: DailyRound[] = [];
-            const delIds = getDeletedRoundIds();
-            snap.forEach(docSnap => {
-              const d = docSnap.data() as DailyRound;
-              if (d && d.id && !delIds.has(d.id)) {
-                list.push(d);
-              }
-            });
-            if (list.length > 0) {
-              const mergedFs = mergeRoundLists(roundsRef.current || [], list, delIds, activeRoundRef.current?.id, localActionIds.current);
-              if (!areRoundsEqual(mergedFs, roundsRef.current || [])) {
-                roundsRef.current = mergedFs;
-                setRounds(mergedFs);
-                safeSetItem(STORAGE_KEYS.ROUNDS, JSON.stringify(mergedFs));
-                persistToServer();
-              }
-            }
-          }
-        } catch (fsErr) {
-          // Silent fallback to server API
-        }
-      }
 
       // 3. Si la ronda activa exacta (por ID) fue eliminada o ya fue completada con firma, desvincularla. NUNCA cerrar una ronda en progreso por fecha o por otras rondas del mismo turno.
       if (activeRoundRef.current) {
@@ -5289,7 +5234,7 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
           if (Array.isArray(data.requests)) {
             const deletedIds = getDeletedRequestIds();
             const cleanRequests = data.requests.filter(r => r && !deletedIds.has(r.id));
-            const mergedRequests = mergeRequestLists(requestsRef.current || [], cleanRequests, deletedIds);
+            const mergedRequests = mergeRequestLists(requestsRef.current || [], cleanRequests, deletedIds, localActionIds.current);
             if (JSON.stringify(mergedRequests) !== JSON.stringify(requestsRef.current)) {
               if (!isInitialLoad.current) {
                 checkAndNotifyNewRequests(mergedRequests, requestsRef.current || []);
@@ -5303,7 +5248,7 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
           if (Array.isArray(data.tasks)) {
             const deletedIds = getDeletedTaskIds();
             const cleanTasks = data.tasks.filter(t => t && !deletedIds.has(t.id));
-            const mergedTasks = mergeTaskLists(tasksRef.current || [], cleanTasks, deletedIds);
+            const mergedTasks = mergeTaskLists(tasksRef.current || [], cleanTasks, deletedIds, localActionIds.current, true);
             if (JSON.stringify(mergedTasks) !== JSON.stringify(tasksRef.current)) {
               tasksRef.current = mergedTasks;
               setTasks(mergedTasks);
@@ -5478,7 +5423,7 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
           if (Array.isArray(data.requests)) {
             const deletedIds = getDeletedRequestIds();
             const cleanServer = data.requests.filter(r => r && !deletedIds.has(r.id));
-            const merged = mergeRequestLists(requestsRef.current || [], cleanServer, deletedIds);
+            const merged = mergeRequestLists(requestsRef.current || [], cleanServer, deletedIds, localActionIds.current);
             if (JSON.stringify(merged) !== JSON.stringify(requestsRef.current)) {
               checkAndNotifyNewRequests(merged, requestsRef.current || []);
               requestsRef.current = merged;
@@ -5489,7 +5434,7 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
           if (Array.isArray(data.tasks)) {
             const deletedIds = getDeletedTaskIds();
             const cleanServer = data.tasks.filter(t => t && !deletedIds.has(t.id));
-            const merged = mergeTaskLists(tasksRef.current || [], cleanServer, deletedIds);
+            const merged = mergeTaskLists(tasksRef.current || [], cleanServer, deletedIds, localActionIds.current, true);
             if (JSON.stringify(merged) !== JSON.stringify(tasksRef.current)) {
               checkAndNotifyNewTasks(merged, tasksRef.current || []);
               tasksRef.current = merged;
@@ -5927,7 +5872,7 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
                   const cleanFresh = fresh.tasks.filter(t => t && t.id);
                   // PostgreSQL es la única fuente de verdad: desmarcar eliminaciones locales obsoletas
                   cleanFresh.forEach(t => unmarkDeletedTaskId(t.id));
-                  const merged = mergeTaskLists(tasksRef.current || [], cleanFresh, new Set());
+                  const merged = mergeTaskLists(tasksRef.current || [], cleanFresh, new Set(), localActionIds.current, true);
                   if (JSON.stringify(merged) !== JSON.stringify(tasksRef.current)) {
                     checkAndNotifyNewTasks(merged, tasksRef.current || []);
                     tasksRef.current = merged;
@@ -6438,7 +6383,7 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
               list.push(data);
             }
           });
-          const mergedList = mergeTaskLists(tasksRef.current || [], list, deletedIds, localActionIds.current);
+          const mergedList = mergeTaskLists(tasksRef.current || [], list, deletedIds, localActionIds.current, true);
 
           if (JSON.stringify(mergedList) !== JSON.stringify(tasksRef.current)) {
             if (!isInitialLoad.current) {

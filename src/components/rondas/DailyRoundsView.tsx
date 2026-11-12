@@ -1051,49 +1051,66 @@ export const DailyRoundsView: React.FC = () => {
         )}
       </div>
 
-      {/* BANNER DE RONDA EN CURSO POR COMPAÑERO (Visible para todos los usuarios en tiempo real) */}
-      {!canShowActiveRound && inProgressRounds && inProgressRounds.length > 0 && (
-        <div className="bg-gradient-to-r from-blue-900 via-indigo-900 to-slate-900 rounded-2xl p-4 sm:p-5 text-white border-2 border-blue-500/40 shadow-lg">
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-            <div className="flex items-center space-x-3">
-              <div className="w-10 h-10 rounded-xl bg-blue-500/20 border border-blue-400/30 flex items-center justify-center text-blue-300 shrink-0">
-                <span className="w-3 h-3 rounded-full bg-emerald-400 animate-ping" />
-              </div>
-              <div>
-                <div className="flex items-center space-x-2">
-                  <span className="text-xs font-black uppercase tracking-wider text-blue-300">Ronda Técnica en Curso</span>
-                  <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 text-[10px] font-black border border-emerald-500/30">
-                    En Vivo
-                  </span>
+      {/* BANNERS DE RONDAS EN CURSO (Visibles para todos los usuarios en tiempo real, ej. condensadoras de Carlos) */}
+      {inProgressRounds && inProgressRounds.filter(r => r && r.id && r.id !== activeRound?.id).length > 0 && (
+        <div className="space-y-3">
+          {inProgressRounds.filter(r => r && r.id && r.id !== activeRound?.id).map((ipRound) => (
+            <div key={ipRound.id} className="bg-gradient-to-r from-blue-900 via-indigo-900 to-slate-900 rounded-2xl p-4 sm:p-5 text-white border-2 border-blue-500/40 shadow-lg">
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                <div className="flex items-center space-x-3">
+                  <div className="w-10 h-10 rounded-xl bg-blue-500/20 border border-blue-400/30 flex items-center justify-center text-blue-300 shrink-0">
+                    <span className="w-3 h-3 rounded-full bg-emerald-400 animate-ping" />
+                  </div>
+                  <div>
+                    <div className="flex items-center space-x-2">
+                      <span className="text-xs font-black uppercase tracking-wider text-blue-300">Ronda Técnica en Curso</span>
+                      <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 text-[10px] font-black border border-emerald-500/30">
+                        En Vivo
+                      </span>
+                    </div>
+                    <h4 className="text-sm font-black text-white mt-0.5">
+                      {ipRound.technicianName} • Turno {formatShiftName(ipRound.shift)}
+                    </h4>
+                    <p className="text-xs text-slate-300 mt-0.5">
+                      Fecha: <strong>{ipRound.date}</strong> • Avance: <strong className="text-emerald-400">{ipRound.compliancePercentage || 0}% de 100%</strong> ({ipRound.checkpoints ? ipRound.checkpoints.filter(c => isCheckpointComplete(c, roundTemplate)).length : 0} puntos registrados)
+                    </p>
+                  </div>
                 </div>
-                <h4 className="text-sm font-black text-white mt-0.5">
-                  {inProgressRounds[0].technicianName} • Turno {formatShiftName(inProgressRounds[0].shift)}
-                </h4>
-                <p className="text-xs text-slate-300 mt-0.5">
-                  Avance actual: <strong className="text-emerald-400">{inProgressRounds[0].compliancePercentage || 0}% de 100%</strong> ({inProgressRounds[0].checkpoints ? inProgressRounds[0].checkpoints.filter(c => isCheckpointComplete(c, roundTemplate)).length : 0} puntos registrados)
-                </p>
+                <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedRoundDetail(ipRound)}
+                    className="flex-1 sm:flex-none px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs rounded-xl transition-all shadow-sm flex items-center justify-center space-x-1.5 cursor-pointer"
+                  >
+                    <Eye className="w-3.5 h-3.5" />
+                    <span>Ver Avance</span>
+                  </button>
+                  {(isAdmin || isUserOwnRound(ipRound, currentUser)) && (
+                    <button
+                      type="button"
+                      onClick={() => resumeRound(ipRound)}
+                      className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl transition-all shadow-sm flex items-center justify-center space-x-1.5 cursor-pointer"
+                      title="Reanudar ronda en este dispositivo"
+                    >
+                      <Play className="w-3.5 h-3.5" />
+                      <span>Reanudar</span>
+                    </button>
+                  )}
+                  {canDeleteRecords && (
+                    <button
+                      type="button"
+                      onClick={() => setRoundToDelete(ipRound)}
+                      className="px-3 py-2 bg-rose-600/90 hover:bg-rose-600 text-white font-bold text-xs rounded-xl transition-all shadow-sm flex items-center justify-center space-x-1.5 cursor-pointer border border-rose-400/30"
+                      title="Descartar esta ronda en curso"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span>Descartar</span>
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
-            <div className="flex items-center space-x-2 w-full sm:w-auto">
-              <button
-                type="button"
-                onClick={() => setSelectedRoundDetail(inProgressRounds[0])}
-                className="flex-1 sm:flex-none px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs rounded-xl transition-all shadow-sm flex items-center justify-center space-x-1.5 cursor-pointer"
-              >
-                <Eye className="w-3.5 h-3.5" />
-                <span>Ver Avance en Tiempo Real</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setRoundToDelete(inProgressRounds[0])}
-                className="px-3.5 py-2 bg-rose-600/90 hover:bg-rose-600 text-white font-bold text-xs rounded-xl transition-all shadow-sm flex items-center justify-center space-x-1.5 cursor-pointer border border-rose-400/30"
-                title="Descartar esta ronda en curso"
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-                <span>Descartar Ronda</span>
-              </button>
-            </div>
-          </div>
+          ))}
         </div>
       )}
 
