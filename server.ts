@@ -413,16 +413,21 @@ async function loadPostgresIntoMemory(client: any) {
 
     const delQ = await client.query('SELECT id FROM deleted_ids');
     const deletedSet = new Set<string>((delQ.rows || []).map((r: any) => r.id));
-    memoryCache.deletedIds = Array.from(deletedSet);
 
     for (const t of tables) {
-      const q = await client.query(`SELECT data FROM ${t.name}`);
+      const q = await client.query(`SELECT id, data FROM ${t.name}`);
       if (q.rows && q.rows.length > 0) {
-        memoryCache[t.key] = q.rows.map((r: any) => r.data).filter((d: any) => d && d.id && !deletedSet.has(d.id));
+        memoryCache[t.key] = q.rows
+          .map((r: any) => (r && r.data && typeof r.data === 'object') ? { ...r.data, id: r.data.id || r.id } : null)
+          .filter((d: any) => d && d.id);
+        for (const item of memoryCache[t.key]) {
+          deletedSet.delete(item.id);
+        }
       } else {
         memoryCache[t.key] = [];
       }
     }
+    memoryCache.deletedIds = Array.from(deletedSet);
 
     const setQ = await client.query('SELECT data FROM settings WHERE id = $1', ['app_settings']);
     if (setQ.rows.length > 0) {
@@ -514,25 +519,10 @@ async function persistMemoryToPostgres(incoming: any) {
       { key: 'users', table: 'users' }
     ];
 
-    const deletedIdsSet = new Set<string>();
-    if (Array.isArray(incoming.deletedIds)) {
-      for (const id of incoming.deletedIds) {
-        if (typeof id === 'string' && id) {
-          deletedIdsSet.add(id);
-          try {
-            await pgPool.query(
-              `INSERT INTO deleted_ids (id, deleted_at) VALUES ($1, CURRENT_TIMESTAMP) ON CONFLICT (id) DO NOTHING`,
-              [id]
-            );
-          } catch {}
-        }
-      }
-    }
-
     for (const m of mappings) {
       if (Array.isArray(incoming[m.key])) {
         for (const item of incoming[m.key]) {
-          if (item && item.id && !deletedIdsSet.has(item.id)) {
+          if (item && item.id) {
             await pgUpsert(m.table, item.id, item);
           }
         }
@@ -1340,17 +1330,7 @@ function mergeAppData(incoming: any) {
     current.deletedIds = [];
   }
 
-  // Merge incoming deletedIds
-  if (Array.isArray(incoming.deletedIds)) {
-    const delSet = new Set(current.deletedIds);
-    for (const id of incoming.deletedIds) {
-      if (typeof id === 'string' && id) {
-        delSet.add(id);
-      }
-    }
-    current.deletedIds = Array.from(delSet);
-  }
-
+  // Only server-registered deletions (via explicit DELETE endpoints) are authoritative
   const deletedIdsSet = new Set(current.deletedIds);
 
   // 1. Incidents (Strict ID-based merge with canonical mapping)
@@ -1850,46 +1830,87 @@ app.get("/api/data", async (req, res) => {
         qUploadedDocuments,
         qDocumentFolders
       ] = await Promise.all([
-        pgPool.query('SELECT id FROM deleted_ids').catch(() => ({ rows: [] })),
-        pgPool.query('SELECT data FROM rounds ORDER BY updated_at DESC').catch(() => ({ rows: [] })),
-        pgPool.query('SELECT data FROM incidents ORDER BY updated_at DESC').catch(() => ({ rows: [] })),
-        pgPool.query('SELECT data FROM requests ORDER BY updated_at DESC').catch(() => ({ rows: [] })),
-        pgPool.query('SELECT data FROM tasks ORDER BY updated_at DESC').catch(() => ({ rows: [] })),
-        pgPool.query('SELECT data FROM meters ORDER BY updated_at DESC').catch(() => ({ rows: [] })),
-        pgPool.query('SELECT data FROM meter_readings_log ORDER BY updated_at DESC').catch(() => ({ rows: [] })),
-        pgPool.query('SELECT data FROM users ORDER BY updated_at DESC').catch(() => ({ rows: [] })),
-        pgPool.query('SELECT data FROM equipments ORDER BY updated_at DESC').catch(() => ({ rows: [] })),
-        pgPool.query('SELECT data FROM schedules ORDER BY updated_at DESC').catch(() => ({ rows: [] })),
-        pgPool.query('SELECT data FROM cronogramas ORDER BY updated_at DESC').catch(() => ({ rows: [] })),
-        pgPool.query('SELECT data FROM shift_swaps ORDER BY updated_at DESC').catch(() => ({ rows: [] })),
-        pgPool.query('SELECT data FROM preventive_plans ORDER BY updated_at DESC').catch(() => ({ rows: [] })),
-        pgPool.query('SELECT data FROM work_orders ORDER BY updated_at DESC').catch(() => ({ rows: [] })),
-        pgPool.query('SELECT data FROM pump_inspections ORDER BY updated_at DESC').catch(() => ({ rows: [] })),
-        pgPool.query('SELECT data FROM uploaded_documents ORDER BY updated_at DESC').catch(() => ({ rows: [] })),
-        pgPool.query('SELECT data FROM document_folders ORDER BY updated_at DESC').catch(() => ({ rows: [] }))
+        pgPool.query('SELECT id FROM deleted_ids').catch(() => null),
+        pgPool.query('SELECT id, data FROM rounds ORDER BY updated_at DESC').catch(() => null),
+        pgPool.query('SELECT id, data FROM incidents ORDER BY updated_at DESC').catch(() => null),
+        pgPool.query('SELECT id, data FROM requests ORDER BY updated_at DESC').catch(() => null),
+        pgPool.query('SELECT id, data FROM tasks ORDER BY updated_at DESC').catch(() => null),
+        pgPool.query('SELECT id, data FROM meters ORDER BY updated_at DESC').catch(() => null),
+        pgPool.query('SELECT id, data FROM meter_readings_log ORDER BY updated_at DESC').catch(() => null),
+        pgPool.query('SELECT id, data FROM users ORDER BY updated_at DESC').catch(() => null),
+        pgPool.query('SELECT id, data FROM equipments ORDER BY updated_at DESC').catch(() => null),
+        pgPool.query('SELECT id, data FROM schedules ORDER BY updated_at DESC').catch(() => null),
+        pgPool.query('SELECT id, data FROM cronogramas ORDER BY updated_at DESC').catch(() => null),
+        pgPool.query('SELECT id, data FROM shift_swaps ORDER BY updated_at DESC').catch(() => null),
+        pgPool.query('SELECT id, data FROM preventive_plans ORDER BY updated_at DESC').catch(() => null),
+        pgPool.query('SELECT id, data FROM work_orders ORDER BY updated_at DESC').catch(() => null),
+        pgPool.query('SELECT id, data FROM pump_inspections ORDER BY updated_at DESC').catch(() => null),
+        pgPool.query('SELECT id, data FROM uploaded_documents ORDER BY updated_at DESC').catch(() => null),
+        pgPool.query('SELECT id, data FROM document_folders ORDER BY updated_at DESC').catch(() => null)
       ]);
 
-      const pgDeletedSet = new Set((qDeleted.rows || []).map((r: any) => r.id));
+      const mapPgRows = (qRes: any) =>
+        (qRes && Array.isArray(qRes.rows))
+          ? qRes.rows
+              .map((r: any) => (r && r.data && typeof r.data === 'object') ? { ...r.data, id: r.data.id || r.id } : null)
+              .filter((r: any) => r && r.id)
+          : null;
+
+      const pgRounds = mapPgRows(qRounds);
+      const pgIncidents = mapPgRows(qIncidents);
+      const pgRequests = mapPgRows(qRequests);
+      const pgTasks = mapPgRows(qTasks);
+      const pgMeters = mapPgRows(qMeters);
+      const pgReadings = mapPgRows(qReadings);
+      const pgUsers = mapPgRows(qUsers);
+      const pgEquipments = mapPgRows(qEquipments);
+      const pgSchedules = mapPgRows(qSchedules);
+      const pgCronogramas = mapPgRows(qCronogramas);
+      const pgShiftSwaps = mapPgRows(qShiftSwaps);
+      const pgPreventivePlans = mapPgRows(qPreventivePlans);
+      const pgWorkOrders = mapPgRows(qWorkOrders);
+      const pgPumpInspections = mapPgRows(qPumpInspections);
+      const pgUploadedDocuments = mapPgRows(qUploadedDocuments);
+      const pgDocumentFolders = mapPgRows(qDocumentFolders);
+
+      if (pgRounds) data.rounds = pgRounds;
+      if (pgIncidents) data.incidents = pgIncidents;
+      if (pgRequests) data.requests = pgRequests;
+      if (pgTasks) data.tasks = pgTasks;
+      if (pgMeters) data.meters = pgMeters;
+      if (pgReadings) data.meterReadingsLog = pgReadings;
+      if (pgUsers) data.users = pgUsers;
+      if (pgEquipments) data.equipments = pgEquipments;
+      if (pgSchedules) data.schedules = pgSchedules;
+      if (pgCronogramas) data.cronogramas = pgCronogramas;
+      if (pgShiftSwaps) data.shiftSwaps = pgShiftSwaps;
+      if (pgPreventivePlans) data.preventivePlans = pgPreventivePlans;
+      if (pgWorkOrders) data.workOrders = pgWorkOrders;
+      if (pgPumpInspections) data.pumpInspections = pgPumpInspections;
+      if (pgUploadedDocuments) data.uploadedDocuments = pgUploadedDocuments;
+      if (pgDocumentFolders) data.documentFolders = pgDocumentFolders;
+
+      const activePgIds = new Set<string>();
+      for (const col of [
+        data.rounds, data.incidents, data.requests, data.tasks, data.meters,
+        data.meterReadingsLog, data.users, data.equipments, data.schedules,
+        data.cronogramas, data.shiftSwaps, data.preventivePlans, data.workOrders,
+        data.pumpInspections, data.uploadedDocuments, data.documentFolders
+      ]) {
+        if (Array.isArray(col)) {
+          for (const item of col) {
+            if (item && item.id) activePgIds.add(item.id);
+          }
+        }
+      }
+
+      const pgDeletedSet = new Set((qDeleted?.rows || []).map((r: any) => r.id));
       const memoryDeleted = new Set(data.deletedIds || []);
       const allDeleted = new Set([...pgDeletedSet, ...memoryDeleted]);
+      for (const activeId of activePgIds) {
+        allDeleted.delete(activeId);
+      }
       data.deletedIds = Array.from(allDeleted);
-
-      if (qRounds.rows) data.rounds = qRounds.rows.map((r: any) => r.data).filter((r: any) => r && r.id && !allDeleted.has(r.id));
-      if (qIncidents.rows) data.incidents = qIncidents.rows.map((r: any) => r.data).filter((r: any) => r && r.id && !allDeleted.has(r.id));
-      if (qRequests.rows) data.requests = qRequests.rows.map((r: any) => r.data).filter((r: any) => r && r.id && !allDeleted.has(r.id));
-      if (qTasks.rows) data.tasks = qTasks.rows.map((r: any) => r.data).filter((r: any) => r && r.id && !allDeleted.has(r.id));
-      if (qMeters.rows) data.meters = qMeters.rows.map((r: any) => r.data).filter((r: any) => r && r.id && !allDeleted.has(r.id));
-      if (qReadings.rows) data.meterReadingsLog = qReadings.rows.map((r: any) => r.data).filter((r: any) => r && r.id && !allDeleted.has(r.id));
-      if (qUsers.rows) data.users = qUsers.rows.map((r: any) => r.data).filter((r: any) => r && r.id && !allDeleted.has(r.id));
-      if (qEquipments.rows) data.equipments = qEquipments.rows.map((r: any) => r.data).filter((r: any) => r && r.id && !allDeleted.has(r.id));
-      if (qSchedules.rows) data.schedules = qSchedules.rows.map((r: any) => r.data).filter((r: any) => r && r.id && !allDeleted.has(r.id));
-      if (qCronogramas.rows) data.cronogramas = qCronogramas.rows.map((r: any) => r.data).filter((r: any) => r && r.id && !allDeleted.has(r.id));
-      if (qShiftSwaps.rows) data.shiftSwaps = qShiftSwaps.rows.map((r: any) => r.data).filter((r: any) => r && r.id && !allDeleted.has(r.id));
-      if (qPreventivePlans.rows) data.preventivePlans = qPreventivePlans.rows.map((r: any) => r.data).filter((r: any) => r && r.id && !allDeleted.has(r.id));
-      if (qWorkOrders.rows) data.workOrders = qWorkOrders.rows.map((r: any) => r.data).filter((r: any) => r && r.id && !allDeleted.has(r.id));
-      if (qPumpInspections.rows) data.pumpInspections = qPumpInspections.rows.map((r: any) => r.data).filter((r: any) => r && r.id && !allDeleted.has(r.id));
-      if (qUploadedDocuments.rows) data.uploadedDocuments = qUploadedDocuments.rows.map((r: any) => r.data).filter((r: any) => r && r.id && !allDeleted.has(r.id));
-      if (qDocumentFolders.rows) data.documentFolders = qDocumentFolders.rows.map((r: any) => r.data).filter((r: any) => r && r.id && !allDeleted.has(r.id));
     } catch (e) {
       console.warn("[PostgreSQL] Notice syncing /api/data with DB:", (e as any)?.message || e);
     }
@@ -2568,14 +2589,11 @@ app.post("/api/tasks", async (req, res) => {
 
   const current = getCachedData();
   if (!Array.isArray(current.tasks)) current.tasks = [];
-  const deletedSet = new Set(current.deletedIds || []);
   const clientId = req.headers['x-client-id'] || null;
 
   const savedTasks: any[] = [];
   for (const task of validTasks) {
-    if (deletedSet.has(task.id) && !task.forceRestore) {
-      continue;
-    }
+    unregisterDeletion(task.id);
     const idx = current.tasks.findIndex((t: any) => t && t.id === task.id);
     let savedTask: any;
     if (idx >= 0) {
@@ -2961,8 +2979,18 @@ app.delete("/api/users/:id", async (req, res) => {
 });
 
 // Preventive Plans
-app.get("/api/preventive-plans", (_req, res) => {
+app.get("/api/preventive-plans", async (_req, res) => {
   const store = getCachedData();
+  if (pgPool) {
+    try {
+      const q = await pgPool.query('SELECT id, data FROM preventive_plans ORDER BY updated_at DESC');
+      const pgPlans = (q.rows || []).map((r: any) => (r && r.data && typeof r.data === 'object') ? { ...r.data, id: r.data.id || r.id } : null).filter(Boolean);
+      store.preventivePlans = pgPlans;
+      return res.json(pgPlans);
+    } catch (e) {
+      console.warn("[PostgreSQL] Notice loading preventive plans from DB:", (e as any)?.message || e);
+    }
+  }
   res.json(store.preventivePlans || []);
 });
 app.post("/api/preventive-plans", async (req, res) => {
@@ -3004,8 +3032,18 @@ app.delete("/api/preventive-plans/:id", async (req, res) => {
 });
 
 // Work Orders
-app.get("/api/work-orders", (_req, res) => {
+app.get("/api/work-orders", async (_req, res) => {
   const store = getCachedData();
+  if (pgPool) {
+    try {
+      const q = await pgPool.query('SELECT id, data FROM work_orders ORDER BY updated_at DESC');
+      const pgOrders = (q.rows || []).map((r: any) => (r && r.data && typeof r.data === 'object') ? { ...r.data, id: r.data.id || r.id } : null).filter(Boolean);
+      store.workOrders = pgOrders;
+      return res.json(pgOrders);
+    } catch (e) {
+      console.warn("[PostgreSQL] Notice loading work orders from DB:", (e as any)?.message || e);
+    }
+  }
   res.json(store.workOrders || []);
 });
 app.post("/api/work-orders", async (req, res) => {
@@ -3047,8 +3085,18 @@ app.delete("/api/work-orders/:id", async (req, res) => {
 });
 
 // Pump Inspections
-app.get("/api/pump-inspections", (_req, res) => {
+app.get("/api/pump-inspections", async (_req, res) => {
   const store = getCachedData();
+  if (pgPool) {
+    try {
+      const q = await pgPool.query('SELECT id, data FROM pump_inspections ORDER BY updated_at DESC');
+      const pgInsp = (q.rows || []).map((r: any) => (r && r.data && typeof r.data === 'object') ? { ...r.data, id: r.data.id || r.id } : null).filter(Boolean);
+      store.pumpInspections = pgInsp;
+      return res.json(pgInsp);
+    } catch (e) {
+      console.warn("[PostgreSQL] Notice loading pump inspections from DB:", (e as any)?.message || e);
+    }
+  }
   res.json(store.pumpInspections || []);
 });
 app.post("/api/pump-inspections", async (req, res) => {
@@ -3090,8 +3138,18 @@ app.delete("/api/pump-inspections/:id", async (req, res) => {
 });
 
 // Shift Swaps
-app.get("/api/shift-swaps", (_req, res) => {
+app.get("/api/shift-swaps", async (_req, res) => {
   const store = getCachedData();
+  if (pgPool) {
+    try {
+      const q = await pgPool.query('SELECT id, data FROM shift_swaps ORDER BY updated_at DESC');
+      const pgSwaps = (q.rows || []).map((r: any) => (r && r.data && typeof r.data === 'object') ? { ...r.data, id: r.data.id || r.id } : null).filter(Boolean);
+      store.shiftSwaps = pgSwaps;
+      return res.json(pgSwaps);
+    } catch (e) {
+      console.warn("[PostgreSQL] Notice loading shift swaps from DB:", (e as any)?.message || e);
+    }
+  }
   res.json(store.shiftSwaps || []);
 });
 app.post("/api/shift-swaps", async (req, res) => {
@@ -3124,8 +3182,18 @@ app.put("/api/shift-swaps/:id", async (req, res) => {
 });
 
 // Uploaded Documents
-app.get("/api/uploaded-documents", (_req, res) => {
+app.get("/api/uploaded-documents", async (_req, res) => {
   const store = getCachedData();
+  if (pgPool) {
+    try {
+      const q = await pgPool.query('SELECT id, data FROM uploaded_documents ORDER BY updated_at DESC');
+      const pgDocs = (q.rows || []).map((r: any) => (r && r.data && typeof r.data === 'object') ? { ...r.data, id: r.data.id || r.id } : null).filter(Boolean);
+      store.uploadedDocuments = pgDocs;
+      return res.json(pgDocs);
+    } catch (e) {
+      console.warn("[PostgreSQL] Notice loading uploaded documents from DB:", (e as any)?.message || e);
+    }
+  }
   res.json(store.uploadedDocuments || []);
 });
 app.post("/api/uploaded-documents", async (req, res) => {
@@ -3153,8 +3221,18 @@ app.delete("/api/uploaded-documents/:id", async (req, res) => {
 });
 
 // Document Folders
-app.get("/api/document-folders", (_req, res) => {
+app.get("/api/document-folders", async (_req, res) => {
   const store = getCachedData();
+  if (pgPool) {
+    try {
+      const q = await pgPool.query('SELECT id, data FROM document_folders ORDER BY updated_at DESC');
+      const pgFolders = (q.rows || []).map((r: any) => (r && r.data && typeof r.data === 'object') ? { ...r.data, id: r.data.id || r.id } : null).filter(Boolean);
+      store.documentFolders = pgFolders;
+      return res.json(pgFolders);
+    } catch (e) {
+      console.warn("[PostgreSQL] Notice loading document folders from DB:", (e as any)?.message || e);
+    }
+  }
   res.json(store.documentFolders || []);
 });
 app.post("/api/document-folders", async (req, res) => {
@@ -3186,8 +3264,8 @@ app.get("/api/meters", async (_req, res) => {
   const store = getCachedData();
   if (pgPool) {
     try {
-      const q = await pgPool.query('SELECT data FROM meters WHERE id NOT IN (SELECT id FROM deleted_ids) ORDER BY updated_at DESC');
-      const pgMeters = (q.rows || []).map((r: any) => r.data).filter(Boolean);
+      const q = await pgPool.query('SELECT id, data FROM meters ORDER BY updated_at DESC');
+      const pgMeters = (q.rows || []).map((r: any) => (r && r.data && typeof r.data === 'object') ? { ...r.data, id: r.data.id || r.id } : null).filter(Boolean);
       store.meters = pgMeters;
       return res.json(pgMeters);
     } catch (e) {
@@ -3260,8 +3338,8 @@ app.get("/api/meter-readings", async (_req, res) => {
   const store = getCachedData();
   if (pgPool) {
     try {
-      const q = await pgPool.query('SELECT data FROM meter_readings_log WHERE id NOT IN (SELECT id FROM deleted_ids) ORDER BY updated_at DESC');
-      const pgReadings = (q.rows || []).map((r: any) => r.data).filter(Boolean);
+      const q = await pgPool.query('SELECT id, data FROM meter_readings_log ORDER BY updated_at DESC');
+      const pgReadings = (q.rows || []).map((r: any) => (r && r.data && typeof r.data === 'object') ? { ...r.data, id: r.data.id || r.id } : null).filter(Boolean);
       store.meterReadingsLog = pgReadings;
       return res.json(pgReadings);
     } catch (e) {
@@ -3325,8 +3403,8 @@ app.get("/api/rounds", async (_req, res) => {
   const store = getCachedData();
   if (pgPool) {
     try {
-      const q = await pgPool.query('SELECT data FROM rounds WHERE id NOT IN (SELECT id FROM deleted_ids) ORDER BY updated_at DESC');
-      const pgRounds = (q.rows || []).map((r: any) => r.data).filter(Boolean);
+      const q = await pgPool.query('SELECT id, data FROM rounds ORDER BY updated_at DESC');
+      const pgRounds = (q.rows || []).map((r: any) => (r && r.data && typeof r.data === 'object') ? { ...r.data, id: r.data.id || r.id } : null).filter(Boolean);
       store.rounds = pgRounds;
       return res.json(pgRounds);
     } catch (e) {
@@ -3342,8 +3420,8 @@ app.get("/api/incidents", async (_req, res) => {
   const store = getCachedData();
   if (pgPool) {
     try {
-      const q = await pgPool.query('SELECT data FROM incidents WHERE id NOT IN (SELECT id FROM deleted_ids) ORDER BY updated_at DESC');
-      const pgInc = (q.rows || []).map((r: any) => r.data).filter(Boolean);
+      const q = await pgPool.query('SELECT id, data FROM incidents ORDER BY updated_at DESC');
+      const pgInc = (q.rows || []).map((r: any) => (r && r.data && typeof r.data === 'object') ? { ...r.data, id: r.data.id || r.id } : null).filter(Boolean);
       store.incidents = pgInc;
       return res.json(pgInc);
     } catch (e) {
@@ -3387,8 +3465,8 @@ app.get("/api/requests", async (_req, res) => {
   const store = getCachedData();
   if (pgPool) {
     try {
-      const q = await pgPool.query('SELECT data FROM requests WHERE id NOT IN (SELECT id FROM deleted_ids) ORDER BY updated_at DESC');
-      const pgReq = (q.rows || []).map((r: any) => r.data).filter(Boolean);
+      const q = await pgPool.query('SELECT id, data FROM requests ORDER BY updated_at DESC');
+      const pgReq = (q.rows || []).map((r: any) => (r && r.data && typeof r.data === 'object') ? { ...r.data, id: r.data.id || r.id } : null).filter(Boolean);
       store.requests = pgReq;
       return res.json(pgReq);
     } catch (e) {
@@ -3432,8 +3510,8 @@ app.get("/api/tasks", async (_req, res) => {
   const store = getCachedData();
   if (pgPool) {
     try {
-      const q = await pgPool.query('SELECT data FROM tasks WHERE id NOT IN (SELECT id FROM deleted_ids) ORDER BY updated_at DESC');
-      const pgTasks = (q.rows || []).map((r: any) => r.data).filter(Boolean);
+      const q = await pgPool.query('SELECT id, data FROM tasks ORDER BY updated_at DESC');
+      const pgTasks = (q.rows || []).map((r: any) => (r && r.data && typeof r.data === 'object') ? { ...r.data, id: r.data.id || r.id } : null).filter(Boolean);
       store.tasks = pgTasks;
       return res.json(pgTasks);
     } catch (e) {
@@ -3463,8 +3541,8 @@ app.get("/api/schedules", async (_req, res) => {
   const store = getCachedData();
   if (pgPool) {
     try {
-      const q = await pgPool.query('SELECT data FROM schedules WHERE id NOT IN (SELECT id FROM deleted_ids) ORDER BY updated_at DESC');
-      const pgSched = (q.rows || []).map((r: any) => r.data).filter(Boolean);
+      const q = await pgPool.query('SELECT id, data FROM schedules ORDER BY updated_at DESC');
+      const pgSched = (q.rows || []).map((r: any) => (r && r.data && typeof r.data === 'object') ? { ...r.data, id: r.data.id || r.id } : null).filter(Boolean);
       store.schedules = pgSched;
       return res.json(pgSched);
     } catch (e) {
@@ -3509,8 +3587,8 @@ app.get("/api/equipments", async (_req, res) => {
   const store = getCachedData();
   if (pgPool) {
     try {
-      const q = await pgPool.query('SELECT data FROM equipments WHERE id NOT IN (SELECT id FROM deleted_ids) ORDER BY updated_at DESC');
-      const pgEq = (q.rows || []).map((r: any) => r.data).filter(Boolean);
+      const q = await pgPool.query('SELECT id, data FROM equipments ORDER BY updated_at DESC');
+      const pgEq = (q.rows || []).map((r: any) => (r && r.data && typeof r.data === 'object') ? { ...r.data, id: r.data.id || r.id } : null).filter(Boolean);
       store.equipments = pgEq;
       return res.json(pgEq);
     } catch (e) {
@@ -3540,8 +3618,8 @@ app.get("/api/users", async (_req, res) => {
   const store = getCachedData();
   if (pgPool) {
     try {
-      const q = await pgPool.query('SELECT data FROM users WHERE id NOT IN (SELECT id FROM deleted_ids) ORDER BY updated_at DESC');
-      const pgUsers = (q.rows || []).map((r: any) => r.data).filter(Boolean);
+      const q = await pgPool.query('SELECT id, data FROM users ORDER BY updated_at DESC');
+      const pgUsers = (q.rows || []).map((r: any) => (r && r.data && typeof r.data === 'object') ? { ...r.data, id: r.data.id || r.id } : null).filter(Boolean);
       store.users = pgUsers;
       return res.json(pgUsers);
     } catch (e) {
@@ -3721,8 +3799,18 @@ app.put("/api/users/:id", handleUpdateUserRoute);
 app.patch("/api/users/:id", handleUpdateUserRoute);
 
 // 8. Cronogramas
-app.get("/api/cronogramas", (_req, res) => {
+app.get("/api/cronogramas", async (_req, res) => {
   const store = getCachedData();
+  if (pgPool) {
+    try {
+      const q = await pgPool.query('SELECT id, data FROM cronogramas ORDER BY updated_at DESC');
+      const pgCron = (q.rows || []).map((r: any) => (r && r.data && typeof r.data === 'object') ? { ...r.data, id: r.data.id || r.id } : null).filter(Boolean);
+      store.cronogramas = pgCron;
+      return res.json(pgCron);
+    } catch (e) {
+      console.warn("[PostgreSQL] Notice loading cronogramas from DB:", (e as any)?.message || e);
+    }
+  }
   res.json(store.cronogramas || []);
 });
 app.post("/api/cronogramas", async (req, res) => {

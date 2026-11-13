@@ -1184,7 +1184,7 @@ const mergeTaskLists = (
   incomingList: MaintenanceTask[],
   deletedIds: Set<string>,
   localCreatedIds?: Set<string>,
-  isServerAuthoritative: boolean = true
+  isServerAuthoritative: boolean = false
 ): MaintenanceTask[] => {
   const map = new Map<string, MaintenanceTask>();
   const incomingMap = new Map<string, MaintenanceTask>();
@@ -4928,16 +4928,10 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
   // Hydrate persistent state from IndexedDB and authoritative server API if available
   useEffect(() => {
     idbGet<DailyRound[]>(STORAGE_KEYS.ROUNDS).then(idbRounds => {
+      if (isInitialFetchDone.current) return;
       if (idbRounds && Array.isArray(idbRounds) && idbRounds.length > 0) {
         const deletedIds = getDeletedRoundIds();
         const cleanIdbRounds = idbRounds.filter(r => r && r.id && !deletedIds.has(r.id));
-        const currentCount = roundsRef.current?.length || 0;
-        const currentHasPhotos = (roundsRef.current || []).some(r => 
-          (r.checkpoints || []).some(c => c.photoUrl && !c.photoUrl.includes('cached_in_db'))
-        );
-        const idbHasPhotos = cleanIdbRounds.some(r => 
-          (r.checkpoints || []).some(c => c.photoUrl && !c.photoUrl.includes('cached_in_db'))
-        );
 
         const merged = mergeRoundLists(roundsRef.current || [], cleanIdbRounds, deletedIds, activeRoundRef.current?.id);
         if (!areRoundsEqual(merged, roundsRef.current || [])) {
@@ -5012,6 +5006,7 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
     }).catch(() => {});
 
     idbGet<HotelRequest[]>(STORAGE_KEYS.REQUESTS).then(idbReqs => {
+      if (isInitialFetchDone.current) return;
       if (idbReqs && Array.isArray(idbReqs) && idbReqs.length > 0) {
         const deletedIds = getDeletedRequestIds();
         const cleanIdbReqs = idbReqs.filter(r => r && r.id && !deletedIds.has(r.id));
@@ -5024,10 +5019,11 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
     }).catch(() => {});
 
     idbGet<MaintenanceTask[]>(STORAGE_KEYS.TASKS).then(idbTasks => {
+      if (isInitialFetchDone.current) return;
       const deletedIds = getDeletedTaskIds();
       const cleanIdbTasks = (idbTasks && Array.isArray(idbTasks)) ? idbTasks.filter(t => t && t.id && !deletedIds.has(t.id)) : [];
       if (cleanIdbTasks.length > 0) {
-        const merged = mergeTaskLists(tasksRef.current || [], cleanIdbTasks, deletedIds);
+        const merged = mergeTaskLists(tasksRef.current || [], cleanIdbTasks, deletedIds, undefined, false);
         tasksRef.current = merged;
         setTasks(merged);
         safeSetItem(STORAGE_KEYS.TASKS, JSON.stringify(merged));
@@ -5143,29 +5139,13 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
       .then(res => res.json())
       .then(data => {
         if (data && typeof data === 'object' && Object.keys(data).length > 0) {
-          if (Array.isArray(data.deletedIds) && data.deletedIds.length > 0) {
-            const currentDeleted = getDeletedIncidentIds();
-            const currentDeletedMeters = getDeletedMeterIds();
-            const currentDeletedReadings = getDeletedMeterReadingIds();
-            let hasNewDeleted = false;
-            for (const id of data.deletedIds) {
-              if (typeof id === 'string' && id) {
-                if (!currentDeleted.has(id)) {
-                  currentDeleted.add(id);
-                  hasNewDeleted = true;
-                }
-                currentDeletedMeters.add(id);
-                currentDeletedReadings.add(id);
-              }
-            }
-            if (hasNewDeleted) {
-              localStorage.setItem(DELETED_INCIDENTS_STORAGE_KEY, JSON.stringify(Array.from(currentDeleted)));
-            }
-          }
           if (Array.isArray(data.meters)) {
-            const delMeters = getDeletedMeterIds();
-            const cleanMeters = data.meters.filter((m: any) => m && m.id && !delMeters.has(m.id) && (!m.code || !delMeters.has(m.code)));
-            const mergedMeters = mergeMeterLists(metersRef.current || [], cleanMeters, delMeters, localActionIds.current);
+            const cleanMeters = data.meters.filter((m: any) => m && m.id && !localActionIds.current.has(m.id));
+            cleanMeters.forEach((m: any) => {
+              unmarkDeletedMeterId(m.id);
+              if (m.code) unmarkDeletedMeterId(m.code);
+            });
+            const mergedMeters = mergeMeterLists(metersRef.current || [], cleanMeters, new Set(), localActionIds.current);
             if (!areMetersEqual(mergedMeters, metersRef.current || [])) {
               metersRef.current = mergedMeters;
               setMeters(mergedMeters);
@@ -5173,10 +5153,9 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
             }
           }
           if (Array.isArray(data.meterReadingsLog)) {
-            const delReadings = getDeletedMeterReadingIds();
-            const delMeters = getDeletedMeterIds();
-            const cleanReadings = data.meterReadingsLog.filter((r: any) => r && r.id && !delReadings.has(r.id) && !delMeters.has(r.meterId));
-            const mergedReadings = mergeMeterReadingLists(meterReadingsLogRef.current || [], cleanReadings, delReadings, delMeters, localActionIds.current);
+            const cleanReadings = data.meterReadingsLog.filter((r: any) => r && r.id && !localActionIds.current.has(r.id));
+            cleanReadings.forEach((r: any) => unmarkDeletedMeterReadingId(r.id));
+            const mergedReadings = mergeMeterReadingLists(meterReadingsLogRef.current || [], cleanReadings, new Set(), new Set(), localActionIds.current);
             if (!areReadingsEqual(mergedReadings, meterReadingsLogRef.current || [])) {
               meterReadingsLogRef.current = mergedReadings;
               setMeterReadingsLog(mergedReadings);
@@ -5208,9 +5187,9 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
             }
           }
           if (Array.isArray(data.equipments)) {
-            const deletedIds = getDeletedEquipmentIds();
-            const cleanEquipments = data.equipments.filter(e => e && !deletedIds.has(e.id));
-            const mergedEquipments = mergeEquipmentLists(equipmentsRef.current || [], cleanEquipments, deletedIds);
+            const cleanEquipments = data.equipments.filter((e: any) => e && e.id && !localActionIds.current.has(e.id));
+            cleanEquipments.forEach((e: any) => unmarkDeletedEquipmentId(e.id));
+            const mergedEquipments = mergeEquipmentLists(equipmentsRef.current || [], cleanEquipments, new Set());
             if (JSON.stringify(mergedEquipments) !== JSON.stringify(equipmentsRef.current)) {
               equipmentsRef.current = mergedEquipments;
               setEquipments(mergedEquipments);
@@ -5218,9 +5197,10 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
             }
           }
           if (Array.isArray(data.incidents) || Array.isArray(data.rounds)) {
-            const deletedIds = getDeletedIncidentIds();
             const incomingInc = Array.isArray(data.incidents) ? data.incidents : [];
-            const cleanIncidents = incomingInc.filter(i => i && !deletedIds.has(i.id));
+            const cleanIncidents = incomingInc.filter((i: any) => i && i.id && !localActionIds.current.has(i.id));
+            cleanIncidents.forEach((i: any) => unmarkDeletedIncidentId(i.id));
+            const deletedIds = getDeletedIncidentIds();
             const pendingLocal = (incidentsRef.current || []).filter(i => localActionIds.current.has(i.id) && !deletedIds.has(i.id));
             const currentRounds = roundsRef.current || [];
             const withRoundAnomalies = extractAnomaliesAsIncidents(currentRounds, [...pendingLocal, ...cleanIncidents], deletedIds);
@@ -5232,9 +5212,9 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
             }
           }
           if (Array.isArray(data.requests)) {
-            const deletedIds = getDeletedRequestIds();
-            const cleanRequests = data.requests.filter(r => r && !deletedIds.has(r.id));
-            const mergedRequests = mergeRequestLists(requestsRef.current || [], cleanRequests, deletedIds, localActionIds.current);
+            const cleanRequests = data.requests.filter((r: any) => r && r.id && !localActionIds.current.has(r.id));
+            cleanRequests.forEach((r: any) => unmarkDeletedRequestId(r.id));
+            const mergedRequests = mergeRequestLists(requestsRef.current || [], cleanRequests, new Set(), localActionIds.current);
             if (JSON.stringify(mergedRequests) !== JSON.stringify(requestsRef.current)) {
               if (!isInitialLoad.current) {
                 checkAndNotifyNewRequests(mergedRequests, requestsRef.current || []);
@@ -5246,9 +5226,9 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
             }
           }
           if (Array.isArray(data.tasks)) {
-            const deletedIds = getDeletedTaskIds();
-            const cleanTasks = data.tasks.filter(t => t && !deletedIds.has(t.id));
-            const mergedTasks = mergeTaskLists(tasksRef.current || [], cleanTasks, deletedIds, localActionIds.current, true);
+            const cleanTasks = data.tasks.filter((t: any) => t && t.id && !localActionIds.current.has(t.id));
+            cleanTasks.forEach((t: any) => unmarkDeletedTaskId(t.id));
+            const mergedTasks = mergeTaskLists(tasksRef.current || [], cleanTasks, new Set(), localActionIds.current, true);
             if (JSON.stringify(mergedTasks) !== JSON.stringify(tasksRef.current)) {
               tasksRef.current = mergedTasks;
               setTasks(mergedTasks);
@@ -5297,9 +5277,9 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
             }
           }
           if (Array.isArray(data.users)) {
-            const deletedIds = getDeletedUserIds();
-            const cleanUsers = data.users.filter(u => u && !deletedIds.has(u.id));
-            const mergedUsers = mergeUserLists(usersRef.current || [], cleanUsers, deletedIds);
+            const cleanUsers = data.users.filter((u: any) => u && u.id && !localActionIds.current.has(u.id));
+            cleanUsers.forEach((u: any) => unmarkDeletedUserId(u.id));
+            const mergedUsers = mergeUserLists(usersRef.current || [], cleanUsers, new Set());
             const guaranteed = ensureAdminUserList(mergedUsers);
             if (JSON.stringify(guaranteed) !== JSON.stringify(usersRef.current)) {
               usersRef.current = guaranteed;
@@ -5308,9 +5288,9 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
             }
           }
           if (Array.isArray(data.schedules)) {
-            const deletedIds = getDeletedScheduleIds();
-            const cleanSchedules = data.schedules.filter(s => s && !deletedIds.has(s.id));
-            const mergedSchedules = mergeScheduleLists(schedulesRef.current || [], cleanSchedules, deletedIds);
+            const cleanSchedules = data.schedules.filter((s: any) => s && s.id && !localActionIds.current.has(s.id));
+            cleanSchedules.forEach((s: any) => unmarkDeletedScheduleId(s.id));
+            const mergedSchedules = mergeScheduleLists(schedulesRef.current || [], cleanSchedules, new Set());
             if (JSON.stringify(mergedSchedules) !== JSON.stringify(schedulesRef.current)) {
               schedulesRef.current = mergedSchedules;
               setSchedules(mergedSchedules);
@@ -5326,9 +5306,9 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
             }
           }
           if (Array.isArray(data.cronogramas)) {
-            const deletedIds = getDeletedCronogramaIds();
-            const cleanCronogramas = data.cronogramas.filter((c: any) => c && !deletedIds.has(c.id));
-            const mergedCronogramas = mergeCronogramaLists(cronogramasRef.current || [], cleanCronogramas, deletedIds);
+            const cleanCronogramas = data.cronogramas.filter((c: any) => c && c.id && !localActionIds.current.has(c.id));
+            cleanCronogramas.forEach((c: any) => unmarkDeletedCronogramaId(c.id));
+            const mergedCronogramas = mergeCronogramaLists(cronogramasRef.current || [], cleanCronogramas, new Set());
             if (JSON.stringify(mergedCronogramas) !== JSON.stringify(cronogramasRef.current)) {
               cronogramasRef.current = mergedCronogramas;
               setCronogramas(mergedCronogramas);
@@ -5396,9 +5376,9 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
             }
           }
           if (Array.isArray(data.equipments)) {
-            const deletedIds = getDeletedEquipmentIds();
-            const cleanEquipments = data.equipments.filter(e => e && !deletedIds.has(e.id));
-            const mergedEquipments = mergeEquipmentLists(equipmentsRef.current || [], cleanEquipments, deletedIds);
+            const cleanEquipments = data.equipments.filter((e: any) => e && e.id && !localActionIds.current.has(e.id));
+            cleanEquipments.forEach((e: any) => unmarkDeletedEquipmentId(e.id));
+            const mergedEquipments = mergeEquipmentLists(equipmentsRef.current || [], cleanEquipments, new Set());
             if (JSON.stringify(mergedEquipments) !== JSON.stringify(equipmentsRef.current)) {
               equipmentsRef.current = mergedEquipments;
               setEquipments(mergedEquipments);
@@ -5406,9 +5386,10 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
             }
           }
           if (Array.isArray(data.incidents) || Array.isArray(data.rounds)) {
-            const deletedIds = getDeletedIncidentIds();
             const incomingInc = Array.isArray(data.incidents) ? data.incidents : (incidentsRef.current || []);
-            const cleanIncidents = incomingInc.filter(i => i && !deletedIds.has(i.id));
+            const cleanIncidents = incomingInc.filter((i: any) => i && i.id && !localActionIds.current.has(i.id));
+            cleanIncidents.forEach((i: any) => unmarkDeletedIncidentId(i.id));
+            const deletedIds = getDeletedIncidentIds();
             const pendingLocal = (incidentsRef.current || []).filter(i => localActionIds.current.has(i.id) && !deletedIds.has(i.id));
             const currentRounds = roundsRef.current || [];
             const withRoundAnomalies = extractAnomaliesAsIncidents(currentRounds, [...pendingLocal, ...cleanIncidents], deletedIds);
@@ -5421,9 +5402,9 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
             }
           }
           if (Array.isArray(data.requests)) {
-            const deletedIds = getDeletedRequestIds();
-            const cleanServer = data.requests.filter(r => r && !deletedIds.has(r.id));
-            const merged = mergeRequestLists(requestsRef.current || [], cleanServer, deletedIds, localActionIds.current);
+            const cleanServer = data.requests.filter((r: any) => r && r.id && !localActionIds.current.has(r.id));
+            cleanServer.forEach((r: any) => unmarkDeletedRequestId(r.id));
+            const merged = mergeRequestLists(requestsRef.current || [], cleanServer, new Set(), localActionIds.current);
             if (JSON.stringify(merged) !== JSON.stringify(requestsRef.current)) {
               checkAndNotifyNewRequests(merged, requestsRef.current || []);
               requestsRef.current = merged;
@@ -5432,9 +5413,9 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
             }
           }
           if (Array.isArray(data.tasks)) {
-            const deletedIds = getDeletedTaskIds();
-            const cleanServer = data.tasks.filter(t => t && !deletedIds.has(t.id));
-            const merged = mergeTaskLists(tasksRef.current || [], cleanServer, deletedIds, localActionIds.current, true);
+            const cleanServer = data.tasks.filter((t: any) => t && t.id && !localActionIds.current.has(t.id));
+            cleanServer.forEach((t: any) => unmarkDeletedTaskId(t.id));
+            const merged = mergeTaskLists(tasksRef.current || [], cleanServer, new Set(), localActionIds.current, true);
             if (JSON.stringify(merged) !== JSON.stringify(tasksRef.current)) {
               checkAndNotifyNewTasks(merged, tasksRef.current || []);
               tasksRef.current = merged;
@@ -5483,9 +5464,9 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
             }
           }
           if (Array.isArray(data.users)) {
-            const deletedIds = getDeletedUserIds();
-            const cleanFresh = data.users.filter(u => u && !deletedIds.has(u.id));
-            const mergedUsers = mergeUserLists(usersRef.current || [], cleanFresh, deletedIds);
+            const cleanFresh = data.users.filter((u: any) => u && u.id && !localActionIds.current.has(u.id));
+            cleanFresh.forEach((u: any) => unmarkDeletedUserId(u.id));
+            const mergedUsers = mergeUserLists(usersRef.current || [], cleanFresh, new Set());
             const guaranteed = ensureAdminUserList(mergedUsers);
             if (JSON.stringify(guaranteed) !== JSON.stringify(usersRef.current)) {
               usersRef.current = guaranteed;
@@ -5494,9 +5475,9 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
             }
           }
           if (Array.isArray(data.schedules)) {
-            const deletedIds = getDeletedScheduleIds();
-            const cleanFresh = data.schedules.filter(s => s && !deletedIds.has(s.id));
-            const mergedSchedules = mergeScheduleLists(schedulesRef.current || [], cleanFresh, deletedIds);
+            const cleanFresh = data.schedules.filter((s: any) => s && s.id && !localActionIds.current.has(s.id));
+            cleanFresh.forEach((s: any) => unmarkDeletedScheduleId(s.id));
+            const mergedSchedules = mergeScheduleLists(schedulesRef.current || [], cleanFresh, new Set());
             if (JSON.stringify(mergedSchedules) !== JSON.stringify(schedulesRef.current)) {
               schedulesRef.current = mergedSchedules;
               setSchedules(mergedSchedules);
@@ -5512,9 +5493,9 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
             }
           }
           if (Array.isArray(data.cronogramas)) {
-            const deletedIds = getDeletedCronogramaIds();
-            const cleanCronogramas = data.cronogramas.filter((c: any) => c && !deletedIds.has(c.id));
-            const mergedCronogramas = mergeCronogramaLists(cronogramasRef.current || [], cleanCronogramas, deletedIds);
+            const cleanCronogramas = data.cronogramas.filter((c: any) => c && c.id && !localActionIds.current.has(c.id));
+            cleanCronogramas.forEach((c: any) => unmarkDeletedCronogramaId(c.id));
+            const mergedCronogramas = mergeCronogramaLists(cronogramasRef.current || [], cleanCronogramas, new Set());
             if (JSON.stringify(mergedCronogramas) !== JSON.stringify(cronogramasRef.current)) {
               cronogramasRef.current = mergedCronogramas;
               setCronogramas(mergedCronogramas);
@@ -5522,9 +5503,12 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
             }
           }
           if (Array.isArray(data.meters)) {
-            const delM = getDeletedMeterIds();
-            const cleanM = data.meters.filter((m: any) => m && m.id && !delM.has(m.id) && (!m.code || !delM.has(m.code)));
-            const mergedM = mergeMeterLists(metersRef.current || [], cleanM, delM, localActionIds.current);
+            const cleanM = data.meters.filter((m: any) => m && m.id && !localActionIds.current.has(m.id));
+            cleanM.forEach((m: any) => {
+              unmarkDeletedMeterId(m.id);
+              if (m.code) unmarkDeletedMeterId(m.code);
+            });
+            const mergedM = mergeMeterLists(metersRef.current || [], cleanM, new Set(), localActionIds.current);
             if (!areMetersEqual(mergedM, metersRef.current || [])) {
               metersRef.current = mergedM;
               setMeters(mergedM);
@@ -5532,10 +5516,9 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
             }
           }
           if (Array.isArray(data.meterReadingsLog)) {
-            const delR = getDeletedMeterReadingIds();
-            const delM = getDeletedMeterIds();
-            const cleanR = data.meterReadingsLog.filter((r: any) => r && r.id && !delR.has(r.id) && !delM.has(r.meterId));
-            const mergedR = mergeMeterReadingLists(meterReadingsLogRef.current || [], cleanR, delR, delM, localActionIds.current);
+            const cleanR = data.meterReadingsLog.filter((r: any) => r && r.id && !localActionIds.current.has(r.id));
+            cleanR.forEach((r: any) => unmarkDeletedMeterReadingId(r.id));
+            const mergedR = mergeMeterReadingLists(meterReadingsLogRef.current || [], cleanR, new Set(), new Set(), localActionIds.current);
             if (!areReadingsEqual(mergedR, meterReadingsLogRef.current || [])) {
               meterReadingsLogRef.current = mergedR;
               setMeterReadingsLog(mergedR);
@@ -5671,7 +5654,7 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
             unmarkDeletedTaskId(incomingTask.id);
             const prevTasks = tasksRef.current || [];
             const deletedIds = getDeletedTaskIds();
-            const merged = mergeTaskLists(prevTasks, [incomingTask], deletedIds);
+            const merged = mergeTaskLists(prevTasks, [incomingTask], deletedIds, undefined, false);
             checkAndNotifyNewTasks([incomingTask], prevTasks);
             tasksRef.current = merged;
             setTasks(merged);
@@ -5821,9 +5804,12 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
               .then(fresh => {
                 if (!fresh || typeof fresh !== 'object') return;
                 if (Array.isArray(fresh.meters)) {
-                  const delMeters = getDeletedMeterIds();
-                  const cleanFresh = fresh.meters.filter((m: any) => m && m.id && !delMeters.has(m.id) && (!m.code || !delMeters.has(m.code)));
-                  const mergedMeters = mergeMeterLists(metersRef.current || [], cleanFresh, delMeters);
+                  const cleanFresh = fresh.meters.filter((m: any) => m && m.id && !localActionIds.current.has(m.id));
+                  cleanFresh.forEach((m: any) => {
+                    unmarkDeletedMeterId(m.id);
+                    if (m.code) unmarkDeletedMeterId(m.code);
+                  });
+                  const mergedMeters = mergeMeterLists(metersRef.current || [], cleanFresh, new Set(), localActionIds.current);
                   if (!areMetersEqual(mergedMeters, metersRef.current || [])) {
                     metersRef.current = mergedMeters;
                     setMeters(mergedMeters);
@@ -5831,10 +5817,9 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
                   }
                 }
                 if (Array.isArray(fresh.meterReadingsLog)) {
-                  const delReadings = getDeletedMeterReadingIds();
-                  const delMeters = getDeletedMeterIds();
-                  const cleanFresh = fresh.meterReadingsLog.filter((r: any) => r && r.id && !delReadings.has(r.id) && !delMeters.has(r.meterId));
-                  const mergedReadings = mergeMeterReadingLists(meterReadingsLogRef.current || [], cleanFresh, delReadings, delMeters);
+                  const cleanFresh = fresh.meterReadingsLog.filter((r: any) => r && r.id && !localActionIds.current.has(r.id));
+                  cleanFresh.forEach((r: any) => unmarkDeletedMeterReadingId(r.id));
+                  const mergedReadings = mergeMeterReadingLists(meterReadingsLogRef.current || [], cleanFresh, new Set(), new Set(), localActionIds.current);
                   if (!areReadingsEqual(mergedReadings, meterReadingsLogRef.current || [])) {
                     meterReadingsLogRef.current = mergedReadings;
                     setMeterReadingsLog(mergedReadings);
@@ -5858,9 +5843,9 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
                   }
                 }
                 if (Array.isArray(fresh.requests)) {
-                  const deletedIds = getDeletedRequestIds();
-                  const cleanFresh = fresh.requests.filter(r => r && !deletedIds.has(r.id));
-                  const merged = mergeRequestLists(requestsRef.current || [], cleanFresh, deletedIds);
+                  const cleanFresh = fresh.requests.filter((r: any) => r && r.id && !localActionIds.current.has(r.id));
+                  cleanFresh.forEach((r: any) => unmarkDeletedRequestId(r.id));
+                  const merged = mergeRequestLists(requestsRef.current || [], cleanFresh, new Set(), localActionIds.current);
                   if (JSON.stringify(merged) !== JSON.stringify(requestsRef.current)) {
                     checkAndNotifyNewRequests(merged, requestsRef.current || []);
                     requestsRef.current = merged;
@@ -5869,9 +5854,9 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
                   }
                 }
                 if (Array.isArray(fresh.tasks)) {
-                  const cleanFresh = fresh.tasks.filter(t => t && t.id);
+                  const cleanFresh = fresh.tasks.filter((t: any) => t && t.id && !localActionIds.current.has(t.id));
                   // PostgreSQL es la única fuente de verdad: desmarcar eliminaciones locales obsoletas
-                  cleanFresh.forEach(t => unmarkDeletedTaskId(t.id));
+                  cleanFresh.forEach((t: any) => unmarkDeletedTaskId(t.id));
                   const merged = mergeTaskLists(tasksRef.current || [], cleanFresh, new Set(), localActionIds.current, true);
                   if (JSON.stringify(merged) !== JSON.stringify(tasksRef.current)) {
                     checkAndNotifyNewTasks(merged, tasksRef.current || []);
@@ -5881,9 +5866,10 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
                   }
                 }
                 if (Array.isArray(fresh.incidents) || Array.isArray(fresh.rounds)) {
-                  const deletedIds = getDeletedIncidentIds();
                   const incomingInc = Array.isArray(fresh.incidents) ? fresh.incidents : (incidentsRef.current || []);
-                  const cleanFresh = incomingInc.filter(i => i && !deletedIds.has(i.id));
+                  const cleanFresh = incomingInc.filter((i: any) => i && i.id && !localActionIds.current.has(i.id));
+                  cleanFresh.forEach((i: any) => unmarkDeletedIncidentId(i.id));
+                  const deletedIds = getDeletedIncidentIds();
                   const pendingLocal = (incidentsRef.current || []).filter(i => localActionIds.current.has(i.id) && !deletedIds.has(i.id));
                   const currentRounds = roundsRef.current || [];
                   const withRoundAnomalies = extractAnomaliesAsIncidents(currentRounds, [...pendingLocal, ...cleanFresh], deletedIds);
@@ -5896,9 +5882,9 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
                   }
                 }
                 if (Array.isArray(fresh.equipments)) {
-                  const deletedIds = getDeletedEquipmentIds();
-                  const cleanFresh = fresh.equipments.filter(e => e && !deletedIds.has(e.id));
-                  const mergedEquipments = mergeEquipmentLists(equipmentsRef.current || [], cleanFresh, deletedIds);
+                  const cleanFresh = fresh.equipments.filter((e: any) => e && e.id && !localActionIds.current.has(e.id));
+                  cleanFresh.forEach((e: any) => unmarkDeletedEquipmentId(e.id));
+                  const mergedEquipments = mergeEquipmentLists(equipmentsRef.current || [], cleanFresh, new Set());
                   if (JSON.stringify(mergedEquipments) !== JSON.stringify(equipmentsRef.current)) {
                     equipmentsRef.current = mergedEquipments;
                     setEquipments(mergedEquipments);
@@ -5924,9 +5910,9 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
                   }
                 }
                 if (Array.isArray(fresh.users)) {
-                  const deletedIds = getDeletedUserIds();
-                  const cleanFresh = fresh.users.filter(u => u && !deletedIds.has(u.id));
-                  const mergedUsers = mergeUserLists(usersRef.current || [], cleanFresh, deletedIds);
+                  const cleanFresh = fresh.users.filter((u: any) => u && u.id && !localActionIds.current.has(u.id));
+                  cleanFresh.forEach((u: any) => unmarkDeletedUserId(u.id));
+                  const mergedUsers = mergeUserLists(usersRef.current || [], cleanFresh, new Set());
                   const guaranteed = ensureAdminUserList(mergedUsers);
                   if (JSON.stringify(guaranteed) !== JSON.stringify(usersRef.current)) {
                     usersRef.current = guaranteed;
@@ -5974,9 +5960,9 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
                   }
                 }
                 if (Array.isArray(fresh.schedules)) {
-                  const deletedIds = getDeletedScheduleIds();
-                  const cleanFresh = fresh.schedules.filter(s => s && !deletedIds.has(s.id));
-                  const mergedSchedules = mergeScheduleLists(schedulesRef.current || [], cleanFresh, deletedIds);
+                  const cleanFresh = fresh.schedules.filter((s: any) => s && s.id && !localActionIds.current.has(s.id));
+                  cleanFresh.forEach((s: any) => unmarkDeletedScheduleId(s.id));
+                  const mergedSchedules = mergeScheduleLists(schedulesRef.current || [], cleanFresh, new Set());
                   if (JSON.stringify(mergedSchedules) !== JSON.stringify(schedulesRef.current)) {
                     schedulesRef.current = mergedSchedules;
                     setSchedules(mergedSchedules);
@@ -6077,7 +6063,7 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
         const newTask = e.data.task as MaintenanceTask;
         checkAndNotifyNewTasks([newTask], tasksRef.current || []);
         const currentList = tasksRef.current || [];
-        const merged = mergeTaskLists(currentList, [newTask], getDeletedTaskIds());
+        const merged = mergeTaskLists(currentList, [newTask], getDeletedTaskIds(), undefined, false);
         tasksRef.current = merged;
         setTasks(merged);
         localStorage.setItem(STORAGE_KEYS.TASKS, JSON.stringify(merged));
@@ -6261,8 +6247,7 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
         cronogramas: cronogramasRef.current || [],
         meters: metersRef.current || [],
         meterReadingsLog: meterReadingsLogRef.current || [],
-        roundTemplate: roundTemplateRef.current,
-        deletedIds: Array.from(getAllDeletedIds())
+        roundTemplate: roundTemplateRef.current
       };
 
       const res = await fetch('/api/data', {
@@ -7815,7 +7800,7 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
     unmarkDeletedTaskId(newTask.id);
     trackLocalCreation(newTask.id);
 
-    const updated = mergeTaskLists(tasksRef.current || [], [newTask], getDeletedTaskIds());
+    const updated = mergeTaskLists(tasksRef.current || [], [newTask], getDeletedTaskIds(), undefined, false);
     tasksRef.current = updated;
     setTasks(updated);
     localStorage.setItem(STORAGE_KEYS.TASKS, JSON.stringify(updated));
@@ -7826,14 +7811,18 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
     notify(`✅ Tarea "${newTask.title}" asignada correctamente`);
 
     // Sincronización instantánea (<20ms) con el servidor local y difusión SSE a todos los usuarios conectados
-    fetch('/api/tasks', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Client-Id': clientSessionId.current
-      },
-      body: JSON.stringify(newTask)
-    }).catch(() => {});
+    let taskSavedOnServer = false;
+    try {
+      const res = await fetch('/api/tasks', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Client-Id': clientSessionId.current
+        },
+        body: JSON.stringify(newTask)
+      });
+      taskSavedOnServer = res.ok;
+    } catch {}
     
     // Determinar si la tarea tiene una persona asignada en específico
     const assignName = (newTask.assignedToName || '').toLowerCase().trim();
@@ -7864,10 +7853,10 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
       }
     });
 
-    hasPendingLocalChanges.current = true;
-    persistToServer();
-
-    await safeCloudWrite(() => setDoc(doc(db, 'tasks', newTask.id), cleanForFirestore(newTask), { merge: true }));
+    if (!taskSavedOnServer) {
+      hasPendingLocalChanges.current = true;
+      persistToServer();
+    }
   };
 
   const updateTask = async (id: string, data: Partial<MaintenanceTask>) => {
@@ -7885,16 +7874,20 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
       notify('Tarea actualizada');
     }
 
+    let taskSavedOnServer = false;
     if (updatedTask) {
       roundsChannel.current?.postMessage({ type: 'task_updated', task: updatedTask });
-      fetch('/api/tasks', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Client-Id': clientSessionId.current
-        },
-        body: JSON.stringify(updatedTask)
-      }).catch(() => {});
+      try {
+        const res = await fetch('/api/tasks', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Client-Id': clientSessionId.current
+          },
+          body: JSON.stringify(updatedTask)
+        });
+        taskSavedOnServer = res.ok;
+      } catch {}
     }
 
     // Notificaciones Push al sistema operativo aunque la aplicación esté cerrada o minimizada
@@ -7928,10 +7921,10 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
       });
     }
 
-    hasPendingLocalChanges.current = true;
-    persistToServer();
-
-    await safeCloudWrite(() => updateDoc(doc(db, 'tasks', id), cleanForFirestore(payload as any)));
+    if (!taskSavedOnServer) {
+      hasPendingLocalChanges.current = true;
+      persistToServer();
+    }
   };
 
   const deleteTask = async (id: string) => {
@@ -8386,7 +8379,6 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
     }
 
     notify(`Usuario ${newUser.displayName} creado correctamente`);
-    persistToServer();
   };
 
   const updateUser = async (id: string, data: Partial<User>) => {
@@ -8467,7 +8459,6 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
     }
 
     notify('Usuario actualizado correctamente en PostgreSQL');
-    persistToServer();
   };
 
   const deleteUser = async (id: string) => {
@@ -8502,8 +8493,6 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
       method: 'DELETE',
       headers: { 'X-Client-Id': clientSessionId.current }
     }).catch(() => {});
-    recordCloudDeletion(id);
-    persistToServer();
   };
 
   // -------------------------------------------------------------
@@ -9971,6 +9960,7 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
   // Ejecutar auditoría automática silenciosa de fondo sin congelar la interfaz inicial
   useEffect(() => {
     const timer = setTimeout(() => {
+      if (!isInitialFetchDone.current) return;
       if (typeof window !== 'undefined' && 'requestIdleCallback' in window) {
         (window as any).requestIdleCallback(() => {
           runStateAudit(true);

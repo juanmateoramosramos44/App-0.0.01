@@ -270,11 +270,14 @@ export const TasksView: React.FC = () => {
 
   const normalizeTechName = useCallback((str?: string): string => {
     if (!str) return '';
-    return str
+    return String(str)
       .toLowerCase()
       .normalize('NFD')
       .replace(/[\u0300-\u036f]/g, '')
-      .replace(/\/(técnico|tecnico|admin|supervisor|mantenimiento)/gi, '')
+      .replace(/\/.*$/, '')
+      .replace(/\(.*?\)/g, '')
+      .replace(/[^a-z0-9\s]/g, ' ')
+      .replace(/\s+/g, ' ')
       .trim();
   }, []);
 
@@ -295,25 +298,37 @@ export const TasksView: React.FC = () => {
   const isTaskAssignedToUser = useCallback((task: MaintenanceTask): boolean => {
     if (!currentUser || !task) return false;
 
+    const rawTask: any = task;
+    const assignedId = String(task.assignedToId || rawTask.assigned_to_id || rawTask.assignedTo || rawTask.assigned_to || '').trim();
+    const assignedNameRaw = String(task.assignedToName || rawTask.assigned_to_name || rawTask.assignedTo || rawTask.assigned_to || '').trim();
+    const assignedEmail = String(rawTask.assignedToEmail || '').toLowerCase().trim();
+
     // 1. Direct ID match
-    if (task.assignedToId && task.assignedToId === currentUser.id) return true;
+    if (assignedId && currentUser.id && assignedId === currentUser.id) return true;
 
     // 2. Direct Email match
     const userEmail = (currentUser.email || '').toLowerCase().trim();
-    if (userEmail && task.assignedToId && task.assignedToId.toLowerCase().trim() === userEmail) return true;
+    if (userEmail && ((assignedId && assignedId.toLowerCase() === userEmail) || (assignedEmail && assignedEmail === userEmail))) {
+      return true;
+    }
 
-    // 3. Name match (normalized without accents and role suffixes)
+    // 3. Name match (normalized without accents, spaces, and role suffixes)
     const myNameNorm = normalizeTechName(currentUser.displayName || currentUser.name);
-    const assignedNorm = normalizeTechName(task.assignedToName);
-    if (myNameNorm && assignedNorm) {
+    const assignedNorm = normalizeTechName(assignedNameRaw);
+    if (myNameNorm && assignedNorm && assignedNorm !== 'sin asignar') {
       if (myNameNorm === assignedNorm || myNameNorm.includes(assignedNorm) || assignedNorm.includes(myNameNorm)) {
+        return true;
+      }
+      const myTokens = myNameNorm.split(' ').filter(t => t.length >= 4);
+      const assignedTokens = assignedNorm.split(' ').filter(t => t.length >= 4);
+      if (assignedTokens.length > 0 && myTokens.some(t => assignedTokens.includes(t))) {
         return true;
       }
     }
 
     // 4. "Todo el equipo" / "General" / "Todos"
-    const rawAssigned = (task.assignedToName || '').toLowerCase().trim();
-    if (rawAssigned.includes('todo el equipo') || rawAssigned.includes('general') || rawAssigned.includes('todos')) {
+    const rawAssignedLower = assignedNameRaw.toLowerCase();
+    if (rawAssignedLower.includes('todo el equipo') || rawAssignedLower.includes('general') || rawAssignedLower.includes('todos')) {
       return true;
     }
 
@@ -322,9 +337,11 @@ export const TasksView: React.FC = () => {
 
   const isTaskCreatedByUser = useCallback((task: MaintenanceTask): boolean => {
     if (!currentUser || !task) return false;
-    if (task.createdById && task.createdById === currentUser.id) return true;
+    const rawTask: any = task;
+    const createdById = String(task.createdById || rawTask.created_by_id || '').trim();
+    if (createdById && currentUser.id && createdById === currentUser.id) return true;
     const myNameNorm = normalizeTechName(currentUser.displayName || currentUser.name);
-    const creatorNorm = normalizeTechName(task.createdByName);
+    const creatorNorm = normalizeTechName(task.createdByName || rawTask.created_by_name);
     if (myNameNorm && creatorNorm && (myNameNorm === creatorNorm || myNameNorm.includes(creatorNorm) || creatorNorm.includes(myNameNorm))) {
       return true;
     }
@@ -756,8 +773,8 @@ export const TasksView: React.FC = () => {
   const taskOrderMap = useMemo(() => {
     const list = [...(userAllowedTasks || [])];
     list.sort((a, b) => {
-      const timeA = new Date(a.createdAt || 0).getTime();
-      const timeB = new Date(b.createdAt || 0).getTime();
+      const timeA = new Date(String(a.createdAt || 0).replace(' ', 'T')).getTime();
+      const timeB = new Date(String(b.createdAt || 0).replace(' ', 'T')).getTime();
       if (!isNaN(timeA) && !isNaN(timeB) && timeA !== timeB) {
         return timeA - timeB;
       }
@@ -1202,11 +1219,12 @@ export const TasksView: React.FC = () => {
             const categoryStyle = CATEGORY_CONFIG[task.category] || CATEGORY_CONFIG.mantenimiento;
             const CategoryIcon = categoryStyle.icon;
 
-            const checklistItems = task.checklist || [];
-            const completedCount = checklistItems.filter(c => c.completed).length;
+            const checklistItems = Array.isArray(task.checklist) ? task.checklist : [];
+            const completedCount = checklistItems.filter(c => c && c.completed).length;
             const progressPercent = checklistItems.length > 0 ? Math.round((completedCount / checklistItems.length) * 100) : 0;
-            const commentsCount = (task.comments || []).length;
-            const photosCount = (task.photos || []).length + (task.completionPhotos || []).length;
+            const commentsCount = Array.isArray(task.comments) ? task.comments.length : 0;
+            const taskPhotos = Array.isArray(task.photos) ? task.photos : [];
+            const taskCompletionPhotos = Array.isArray(task.completionPhotos) ? task.completionPhotos : [];
 
             const isAssignedToMe = isTaskAssignedToUser(task);
 
@@ -1214,7 +1232,7 @@ export const TasksView: React.FC = () => {
               <div
                 key={task.id}
                 id={`task-card-${task.id}`}
-                className={`bg-white rounded-2xl border transition-all duration-200 flex flex-col justify-between hover:shadow-md ${
+                className={`bg-white rounded-2xl border transition-all duration-200 flex flex-col justify-between hover:shadow-md overflow-hidden min-w-0 ${
                   task.status === 'completada'
                     ? 'border-emerald-200 bg-emerald-50/10'
                     : task.priority === 'urgente'
@@ -1222,9 +1240,9 @@ export const TasksView: React.FC = () => {
                     : 'border-slate-200 hover:border-slate-300'
                 }`}
               >
-                <div className="p-5 space-y-4">
+                <div className="p-4 sm:p-5 space-y-3.5 sm:space-y-4 min-w-0">
                   {/* Card Top: Badges */}
-                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <div className="flex items-center justify-between gap-2 flex-wrap min-w-0">
                     <div className="flex items-center gap-1.5 flex-wrap">
                       {/* Enumeración de Tarea por orden de creación */}
                       <span className="inline-flex items-center gap-1 px-2.5 py-0.5 text-xs font-black rounded-full bg-slate-900 text-white shadow-2xs border border-slate-700">
@@ -1283,24 +1301,24 @@ export const TasksView: React.FC = () => {
                   {/* Title and Description (Click to open details & progress) */}
                   <div 
                     onClick={() => setActiveTaskId(task.id)}
-                    className="cursor-pointer group/title"
+                    className="cursor-pointer group/title min-w-0"
                     title="Toca para ver detalles y registrar avances"
                   >
-                    <h3 className="text-base font-bold text-slate-900 leading-snug group-hover/title:text-blue-600 transition-colors flex items-baseline gap-1.5">
+                    <h3 className="text-base font-bold text-slate-900 leading-snug group-hover/title:text-blue-600 transition-colors flex items-baseline gap-1.5 min-w-0 break-words">
                       <span className="text-slate-400 font-mono font-bold text-sm shrink-0">#{taskOrderMap.get(task.id) || 1}</span>
-                      <span>{task.title}</span>
+                      <span className="min-w-0 break-words">{task.title}</span>
                     </h3>
                     {task.description && (
-                      <p className="text-xs text-slate-600 mt-1.5 line-clamp-3 leading-relaxed whitespace-pre-line group-hover/title:text-slate-800">
+                      <p className="text-xs text-slate-600 mt-1.5 line-clamp-3 leading-relaxed whitespace-pre-line group-hover/title:text-slate-800 break-words">
                         {task.description}
                       </p>
                     )}
                   </div>
 
                   {/* Area, Equipment and Assigned Teammate Info */}
-                  <div className="space-y-1.5 text-xs text-slate-600 bg-slate-50 p-3 rounded-xl border border-slate-100">
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="flex items-center gap-1.5 font-medium text-slate-800">
+                  <div className="space-y-1.5 text-xs text-slate-600 bg-slate-50 p-3 rounded-xl border border-slate-100 min-w-0">
+                    <div className="flex items-center justify-between gap-2 flex-wrap min-w-0">
+                      <div className="flex items-center gap-1.5 font-medium text-slate-800 min-w-0">
                         <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0" />
                         <span className="truncate">{task.area}</span>
                       </div>
@@ -1311,16 +1329,16 @@ export const TasksView: React.FC = () => {
                       )}
                     </div>
 
-                    <div className="flex items-center justify-between gap-2 pt-1.5 border-t border-slate-200/60">
-                      <div className="flex items-center gap-1.5">
-                        <div className="w-5 h-5 rounded-full bg-emerald-600 text-white flex items-center justify-center text-[10px] font-bold">
+                    <div className="flex items-center justify-between gap-2 pt-1.5 border-t border-slate-200/60 flex-wrap min-w-0">
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <div className="w-5 h-5 rounded-full bg-emerald-600 text-white flex items-center justify-center text-[10px] font-bold shrink-0">
                           {task.assignedToName?.charAt(0).toUpperCase() || 'E'}
                         </div>
                         <span className="font-semibold text-slate-800 truncate">
-                          {task.assignedToName}
+                          {task.assignedToName || 'Sin asignar'}
                         </span>
                         {isAssignedToMe && (
-                          <span className="px-1.5 py-0.2 bg-emerald-100 text-emerald-800 text-[10px] font-bold rounded">
+                          <span className="px-1.5 py-0.2 bg-emerald-100 text-emerald-800 text-[10px] font-bold rounded shrink-0">
                             Tú
                           </span>
                         )}
@@ -1381,9 +1399,9 @@ export const TasksView: React.FC = () => {
                   )}
 
                   {/* Attached Photos Previews */}
-                  {((task.photos && task.photos.length > 0) || (task.completionPhotos && task.completionPhotos.length > 0)) && (
+                  {(taskPhotos.length > 0 || taskCompletionPhotos.length > 0) && (
                     <div className="flex items-center gap-2 overflow-x-auto py-1">
-                      {(task.photos || []).map((photo, pIdx) => (
+                      {taskPhotos.map((photo, pIdx) => (
                         <button
                           key={`photo-${pIdx}`}
                           type="button"
@@ -1400,7 +1418,7 @@ export const TasksView: React.FC = () => {
                           </div>
                         </button>
                       ))}
-                      {(task.completionPhotos || []).map((photo, pIdx) => (
+                      {taskCompletionPhotos.map((photo, pIdx) => (
                         <button
                           key={`cphoto-${pIdx}`}
                           type="button"
@@ -1435,20 +1453,20 @@ export const TasksView: React.FC = () => {
                 </div>
 
                 {/* Card Footer: Action Buttons */}
-                <div className="p-4 bg-slate-50/80 border-t border-slate-100 rounded-b-2xl flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-1.5">
+                <div className="p-3.5 sm:p-4 bg-slate-50/80 border-t border-slate-100 rounded-b-2xl flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5 flex-wrap min-w-0">
+                  <div className="flex items-center gap-1.5 flex-wrap min-w-0">
                     {/* Botón para abrir avances y bitácora */}
                     <button
                       type="button"
                       onClick={() => setActiveTaskId(task.id)}
-                      className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+                      className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer whitespace-nowrap shrink-0 ${
                         commentsCount > 0
                           ? 'bg-blue-100 text-blue-800 hover:bg-blue-200 border border-blue-200'
                           : 'bg-white hover:bg-slate-200 text-slate-700 border border-slate-200'
                       }`}
                       title="Abrir resumen de avances y fotos"
                     >
-                      <MessageSquare className="w-3.5 h-3.5" />
+                      <MessageSquare className="w-3.5 h-3.5 shrink-0" />
                       <span>{commentsCount > 0 ? `${commentsCount} avances` : 'Avance'}</span>
                     </button>
 
@@ -1460,17 +1478,17 @@ export const TasksView: React.FC = () => {
                         handleDownloadTaskPdf(task);
                       }}
                       disabled={downloadingTaskId === task.id}
-                      className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-xl text-xs font-bold transition-all shadow-2xs hover:shadow-xs active:scale-95 cursor-pointer disabled:opacity-50"
+                      className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-xl text-xs font-bold transition-all shadow-2xs hover:shadow-xs active:scale-95 cursor-pointer disabled:opacity-50 whitespace-nowrap shrink-0"
                       title="Descargar tarea completa en PDF con procedimiento y fotos"
                     >
                       {downloadingTaskId === task.id ? (
                         <>
-                          <Loader2 className="w-3.5 h-3.5 animate-spin text-rose-600" />
+                          <Loader2 className="w-3.5 h-3.5 animate-spin text-rose-600 shrink-0" />
                           <span>PDF...</span>
                         </>
                       ) : (
                         <>
-                          <FileDown className="w-3.5 h-3.5 text-rose-600" />
+                          <FileDown className="w-3.5 h-3.5 text-rose-600 shrink-0" />
                           <span>PDF</span>
                         </>
                       )}
@@ -1480,7 +1498,7 @@ export const TasksView: React.FC = () => {
                     <button
                       type="button"
                       onClick={() => openEditModal(task)}
-                      className="p-1.5 bg-white hover:bg-slate-200 text-slate-700 rounded-xl border border-slate-200 transition-colors cursor-pointer"
+                      className="p-1.5 bg-white hover:bg-slate-200 text-slate-700 rounded-xl border border-slate-200 transition-colors cursor-pointer shrink-0"
                       title="Editar detalles de la tarea"
                     >
                       <Edit2 className="w-3.5 h-3.5" />
@@ -1490,7 +1508,7 @@ export const TasksView: React.FC = () => {
                     <button
                       type="button"
                       onClick={() => setTaskToDelete(task)}
-                      className="p-1.5 bg-white hover:bg-rose-50 text-slate-400 hover:text-rose-600 rounded-xl border border-slate-200 hover:border-rose-200 transition-colors cursor-pointer"
+                      className="p-1.5 bg-white hover:bg-rose-50 text-slate-400 hover:text-rose-600 rounded-xl border border-slate-200 hover:border-rose-200 transition-colors cursor-pointer shrink-0"
                       title="Eliminar tarea"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
@@ -1498,25 +1516,25 @@ export const TasksView: React.FC = () => {
                   </div>
 
                   {/* Main Action buttons based on status */}
-                  <div className="flex items-center gap-1.5">
+                  <div className="flex items-center gap-1.5 flex-wrap w-full sm:w-auto sm:justify-end min-w-0">
                     {task.status === 'pendiente' && (
                       <>
                         <button
                           type="button"
                           onClick={() => handleStartTask(task)}
-                          className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold shadow-sm transition-all active:scale-95 cursor-pointer"
+                          className="inline-flex items-center justify-center gap-1 px-2.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold shadow-sm transition-all active:scale-95 cursor-pointer whitespace-nowrap shrink-0"
                           title="Iniciar tarea"
                         >
-                          <Play className="w-3 h-3 fill-current" />
+                          <Play className="w-3 h-3 fill-current shrink-0" />
                           <span>Iniciar</span>
                         </button>
                         <button
                           type="button"
                           onClick={() => handleOpenCompleteModal(task)}
-                          className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold shadow-sm transition-all active:scale-95 cursor-pointer"
+                          className="inline-flex items-center justify-center gap-1 px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold shadow-sm transition-all active:scale-95 cursor-pointer whitespace-nowrap shrink-0"
                           title="Cerrar tarea directamente al 100%"
                         >
-                          <Check className="w-3.5 h-3.5 stroke-[3]" />
+                          <Check className="w-3.5 h-3.5 stroke-[3] shrink-0" />
                           <span>Cerrar</span>
                         </button>
                       </>
@@ -1526,27 +1544,27 @@ export const TasksView: React.FC = () => {
                       <button
                         type="button"
                         onClick={() => handleOpenCompleteModal(task)}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-sm transition-all active:scale-95 cursor-pointer"
+                        className="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-sm transition-all active:scale-95 cursor-pointer whitespace-nowrap shrink-0"
                         title="Terminar y cerrar tarea al 100%"
                       >
-                        <Check className="w-3.5 h-3.5 stroke-[3]" />
+                        <Check className="w-3.5 h-3.5 stroke-[3] shrink-0" />
                         <span>Cerrar Tarea</span>
                       </button>
                     )}
 
                     {task.status === 'completada' && (
-                      <div className="flex items-center gap-1.5">
-                        <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-800 bg-emerald-100/90 border border-emerald-300 px-2 py-1 rounded-xl">
-                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-800 bg-emerald-100/90 border border-emerald-300 px-2 py-1 rounded-xl whitespace-nowrap shrink-0">
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
                           <span>100% OK</span>
                         </span>
                         <button
                           type="button"
                           onClick={() => handleReopenTask(task)}
-                          className="inline-flex items-center gap-1 px-2 py-1 bg-slate-200 hover:bg-slate-300 text-slate-800 rounded-xl text-xs font-semibold transition-all cursor-pointer"
+                          className="inline-flex items-center gap-1 px-2 py-1 bg-slate-200 hover:bg-slate-300 text-slate-800 rounded-xl text-xs font-semibold transition-all cursor-pointer whitespace-nowrap shrink-0"
                           title="Reabrir tarea"
                         >
-                          <RotateCcw className="w-3 h-3" />
+                          <RotateCcw className="w-3 h-3 shrink-0" />
                           <span>Reabrir</span>
                         </button>
                       </div>
@@ -2038,7 +2056,7 @@ export const TasksView: React.FC = () => {
               </div>
 
               {/* Form Buttons */}
-              <div className="pt-4 border-t border-slate-100 flex items-center justify-end gap-3 shrink-0">
+              <div className="pt-4 border-t border-slate-100 flex items-center justify-end gap-2.5 flex-wrap shrink-0">
                 <button
                   type="button"
                   onClick={() => setIsModalOpen(false)}
@@ -2146,7 +2164,7 @@ export const TasksView: React.FC = () => {
                 )}
               </div>
 
-              <div className="pt-4 border-t border-slate-100 flex items-center justify-end gap-3">
+              <div className="pt-4 border-t border-slate-100 flex items-center justify-end gap-2.5 flex-wrap">
                 <button
                   type="button"
                   onClick={() => setCompletingTask(null)}
@@ -2174,8 +2192,8 @@ export const TasksView: React.FC = () => {
         <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 overflow-y-auto animate-fade-in">
           <div className="bg-white rounded-3xl shadow-2xl max-w-2xl w-full max-h-[92vh] flex flex-col overflow-hidden border border-slate-200">
             {/* Header */}
-            <div className="px-5 py-4 bg-slate-900 text-white flex items-center justify-between shrink-0">
-              <div className="flex items-center space-x-3 min-w-0 pr-2">
+            <div className="px-4 sm:px-5 py-3.5 sm:py-4 bg-slate-900 text-white flex items-center justify-between gap-2 flex-wrap shrink-0">
+              <div className="flex items-center space-x-3 min-w-0 pr-2 flex-1">
                 <div className="p-2.5 bg-blue-500/20 text-blue-400 rounded-2xl shrink-0">
                   <ListTodo className="w-5 h-5" />
                 </div>
@@ -2196,7 +2214,7 @@ export const TasksView: React.FC = () => {
                   </h2>
                 </div>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 shrink-0 flex-wrap">
                 <button
                   type="button"
                   onClick={() => handleDownloadTaskPdf(activeTask)}
@@ -2234,15 +2252,15 @@ export const TasksView: React.FC = () => {
             {/* Scrollable Content Body */}
             <div className="p-5 overflow-y-auto flex-1 space-y-4 bg-slate-50/50">
               {/* Banner Oficial Descargar Reporte en PDF */}
-              <div className="bg-gradient-to-r from-slate-900 via-blue-950 to-slate-900 text-white p-3.5 rounded-2xl border border-blue-500/30 flex items-center justify-between gap-3 shadow-md">
+              <div className="bg-gradient-to-r from-slate-900 via-blue-950 to-slate-900 text-white p-3.5 rounded-2xl border border-blue-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-md">
                 <div className="flex items-center gap-3 min-w-0">
                   <div className="p-2.5 bg-rose-500/20 text-rose-400 rounded-xl shrink-0 border border-rose-500/30">
                     <FileDown className="w-5 h-5" />
                   </div>
                   <div className="min-w-0">
-                    <p className="text-xs font-bold text-white flex items-center gap-1.5">
+                    <p className="text-xs font-bold text-white flex items-center gap-1.5 flex-wrap">
                       <span>Reporte Oficial en PDF de la Tarea</span>
-                      {activeTask.checklist && activeTask.checklist.length > 0 && (
+                      {Array.isArray(activeTask.checklist) && activeTask.checklist.length > 0 && (
                         <span className="text-[10px] bg-emerald-500/25 text-emerald-300 border border-emerald-500/30 px-1.5 py-0.2 rounded font-semibold">
                           Procedimiento Incluido
                         </span>
@@ -2257,7 +2275,7 @@ export const TasksView: React.FC = () => {
                   type="button"
                   onClick={() => handleDownloadTaskPdf(activeTask)}
                   disabled={downloadingTaskId === activeTask.id}
-                  className="px-3.5 py-2 bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs rounded-xl shadow-md transition-all active:scale-95 cursor-pointer flex items-center gap-1.5 shrink-0 disabled:opacity-50"
+                  className="w-full sm:w-auto justify-center px-3.5 py-2 bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs rounded-xl shadow-md transition-all active:scale-95 cursor-pointer flex items-center gap-1.5 shrink-0 disabled:opacity-50"
                 >
                   {downloadingTaskId === activeTask.id ? (
                     <>
@@ -2380,15 +2398,15 @@ export const TasksView: React.FC = () => {
                 </div>
               ) : (
                 <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 space-y-3">
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
                     <div className="flex items-center gap-2 text-emerald-900 font-bold text-xs">
-                      <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+                      <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
                       <span>Tarea Finalizada y Cerrada con Éxito (100% OK)</span>
                     </div>
                     <button
                       type="button"
                       onClick={() => handleReopenTask(activeTask)}
-                      className="px-2.5 py-1 bg-white hover:bg-slate-100 border border-emerald-300 text-emerald-800 text-[11px] font-semibold rounded-lg flex items-center gap-1 cursor-pointer transition-colors"
+                      className="px-2.5 py-1 bg-white hover:bg-slate-100 border border-emerald-300 text-emerald-800 text-[11px] font-semibold rounded-lg flex items-center gap-1 cursor-pointer transition-colors shrink-0"
                     >
                       <RotateCcw className="w-3 h-3" />
                       <span>Reabrir</span>
@@ -2462,7 +2480,7 @@ export const TasksView: React.FC = () => {
                   </div>
                 )}
 
-                <div className="flex items-center justify-between gap-2 pt-1 border-t border-slate-100">
+                <div className="flex items-center justify-between gap-2 pt-1 border-t border-slate-100 flex-wrap">
                   <button
                     type="button"
                     onClick={() => progressFileInputRef.current?.click()}
@@ -2558,7 +2576,7 @@ export const TasksView: React.FC = () => {
             </div>
 
             {/* Modal Footer */}
-            <div className="px-5 py-3 bg-white border-t border-slate-200 flex items-center justify-between gap-2 shrink-0">
+            <div className="px-4 sm:px-5 py-3 bg-white border-t border-slate-200 flex items-center justify-between gap-2 flex-wrap shrink-0">
               <span className="text-xs text-slate-500 truncate">
                 Creado por {activeTask.createdByName || 'Compañero'}
               </span>
