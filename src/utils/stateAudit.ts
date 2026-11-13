@@ -495,13 +495,6 @@ export function auditRounds(
     result.push(round);
   }
 
-  for (const hr of HISTORICAL_ROUNDS) {
-    if (!seenIds.has(hr.id) && !deletedIdsSet.has(hr.id)) {
-      seenIds.add(hr.id);
-      result.push({ ...hr, status: 'completada', compliancePercentage: 100 });
-    }
-  }
-
   return result;
 }
 

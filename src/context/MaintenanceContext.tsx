@@ -150,14 +150,10 @@ export const DEFAULT_ADMIN_USER: User = INITIAL_USERS[0];
 
 export function ensureAdminUserList(list: User[]): User[] {
   const deletedIds = getDeletedUserIds();
-  const canonicalIds = new Set(INITIAL_USERS.map(u => u.id));
-  const cleanList = (Array.isArray(list) ? list : []).filter(u => u && u.id && !FAKE_USER_IDS.has(u.id) && (!deletedIds.has(u.id) || canonicalIds.has(u.id)));
+  const cleanList = (Array.isArray(list) ? list : []).filter(
+    u => u && u.id && !FAKE_USER_IDS.has(u.id) && !deletedIds.has(u.id) && !isRecentlyLocallyDeleted(u.id)
+  );
   const map = new Map<string, User>();
-  INITIAL_USERS.forEach(u => {
-    if (!FAKE_USER_IDS.has(u.id)) {
-      map.set(u.id, u);
-    }
-  });
   cleanList.forEach(u => map.set(u.id, u));
 
   // Strict deduplication by normalized email (or unique id if no email)
@@ -479,6 +475,12 @@ const DELETED_SCHEDULES_STORAGE_KEY = 'hotel_maint_deleted_schedules_v1';
 const DELETED_CRONOGRAMAS_STORAGE_KEY = 'hotel_maint_deleted_cronogramas_v1';
 const DELETED_METERS_STORAGE_KEY = 'hotel_maint_deleted_meters_v1';
 const DELETED_METER_READINGS_STORAGE_KEY = 'hotel_maint_deleted_meter_readings_v1';
+const DELETED_PUMP_INSPECTIONS_STORAGE_KEY = 'hotel_maint_deleted_insp_ids';
+const DELETED_PREVENTIVE_PLANS_STORAGE_KEY = 'hotel_maint_deleted_plan_ids';
+const DELETED_WORK_ORDERS_STORAGE_KEY = 'hotel_maint_deleted_ot_ids';
+const DELETED_UPLOADED_DOCS_STORAGE_KEY = 'hotel_maint_deleted_doc_ids';
+const DELETED_DOC_FOLDERS_STORAGE_KEY = 'hotel_maint_deleted_folder_ids';
+const DELETED_SHIFT_SWAPS_STORAGE_KEY = 'hotel_maint_deleted_swap_ids';
 
 const DEMO_METER_IDS: string[] = [];
 const DEMO_READING_IDS: string[] = [];
@@ -634,10 +636,28 @@ const unmarkDeletedMeterReadingId = (id: string) => {
   } catch {}
 };
 
-// In-flight locally created IDs to prevent transient race conditions during initial upload
+// In-flight locally created IDs and locally deleted IDs to prevent transient race conditions
 const pendingLocalCreations = new Map<string, number>();
+const recentLocalDeletions = new Map<string, number>();
+
+const trackLocalDeletion = (id: string) => {
+  if (!id) return;
+  pendingLocalCreations.delete(id);
+  recentLocalDeletions.set(id, Date.now());
+  setTimeout(() => {
+    recentLocalDeletions.delete(id);
+  }, 30000);
+};
+
+const isRecentlyLocallyDeleted = (id: string): boolean => {
+  if (!id) return false;
+  const ts = recentLocalDeletions.get(id);
+  return Boolean(ts && Date.now() - ts < 30000);
+};
 
 const trackLocalCreation = (id: string) => {
+  if (!id) return;
+  recentLocalDeletions.delete(id);
   pendingLocalCreations.set(id, Date.now());
   setTimeout(() => {
     pendingLocalCreations.delete(id);
@@ -785,14 +805,13 @@ const getDeletedUserIds = (): Set<string> => {
     'usr-1789230683229',
     'usr-admin-master'
   ]);
-  const canonicalIds = new Set(INITIAL_USERS.map(u => u.id));
   try {
     const raw = localStorage.getItem(DELETED_USERS_STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed)) {
         parsed.forEach(id => {
-          if (!canonicalIds.has(id)) {
+          if (typeof id === 'string' && id) {
             set.add(id);
           }
         });
@@ -812,6 +831,7 @@ const markDeletedUserId = (id: string) => {
 };
 
 const unmarkDeletedUserId = (id: string) => {
+  recentLocalDeletions.delete(id);
   const set = getDeletedUserIds();
   if (set.has(id)) {
     set.delete(id);
@@ -844,6 +864,7 @@ const markDeletedTaskId = (id: string) => {
 };
 
 const unmarkDeletedTaskId = (id: string) => {
+  recentLocalDeletions.delete(id);
   const set = getDeletedTaskIds();
   if (set.has(id)) {
     set.delete(id);
@@ -872,6 +893,7 @@ const markDeletedScheduleId = (id: string) => {
 };
 
 const unmarkDeletedScheduleId = (id: string) => {
+  recentLocalDeletions.delete(id);
   const set = getDeletedScheduleIds();
   if (set.has(id)) {
     set.delete(id);
@@ -900,12 +922,66 @@ const markDeletedCronogramaId = (id: string) => {
 };
 
 const unmarkDeletedCronogramaId = (id: string) => {
+  recentLocalDeletions.delete(id);
   const set = getDeletedCronogramaIds();
   if (set.has(id)) {
     set.delete(id);
     localStorage.setItem(DELETED_CRONOGRAMAS_STORAGE_KEY, JSON.stringify(Array.from(set)));
   }
 };
+
+const readDeletedSetByKey = (storageKey: string): Set<string> => {
+  try {
+    const raw = localStorage.getItem(storageKey);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) return new Set(parsed.filter(id => typeof id === 'string' && id));
+    }
+  } catch {}
+  return new Set();
+};
+
+const markDeletedByKey = (storageKey: string, id: string) => {
+  if (!id) return;
+  unmarkLocalCreation(id);
+  const set = readDeletedSetByKey(storageKey);
+  set.add(id);
+  localStorage.setItem(storageKey, JSON.stringify(Array.from(set)));
+};
+
+const unmarkDeletedByKey = (storageKey: string, id: string) => {
+  if (!id) return;
+  recentLocalDeletions.delete(id);
+  const set = readDeletedSetByKey(storageKey);
+  if (set.has(id)) {
+    set.delete(id);
+    localStorage.setItem(storageKey, JSON.stringify(Array.from(set)));
+  }
+};
+
+const getDeletedPumpInspectionIds = (): Set<string> => readDeletedSetByKey(DELETED_PUMP_INSPECTIONS_STORAGE_KEY);
+const markDeletedPumpInspectionId = (id: string) => markDeletedByKey(DELETED_PUMP_INSPECTIONS_STORAGE_KEY, id);
+const unmarkDeletedPumpInspectionId = (id: string) => unmarkDeletedByKey(DELETED_PUMP_INSPECTIONS_STORAGE_KEY, id);
+
+const getDeletedPreventivePlanIds = (): Set<string> => readDeletedSetByKey(DELETED_PREVENTIVE_PLANS_STORAGE_KEY);
+const markDeletedPreventivePlanId = (id: string) => markDeletedByKey(DELETED_PREVENTIVE_PLANS_STORAGE_KEY, id);
+const unmarkDeletedPreventivePlanId = (id: string) => unmarkDeletedByKey(DELETED_PREVENTIVE_PLANS_STORAGE_KEY, id);
+
+const getDeletedWorkOrderIds = (): Set<string> => readDeletedSetByKey(DELETED_WORK_ORDERS_STORAGE_KEY);
+const markDeletedWorkOrderId = (id: string) => markDeletedByKey(DELETED_WORK_ORDERS_STORAGE_KEY, id);
+const unmarkDeletedWorkOrderId = (id: string) => unmarkDeletedByKey(DELETED_WORK_ORDERS_STORAGE_KEY, id);
+
+const getDeletedUploadedDocumentIds = (): Set<string> => readDeletedSetByKey(DELETED_UPLOADED_DOCS_STORAGE_KEY);
+const markDeletedUploadedDocumentId = (id: string) => markDeletedByKey(DELETED_UPLOADED_DOCS_STORAGE_KEY, id);
+const unmarkDeletedUploadedDocumentId = (id: string) => unmarkDeletedByKey(DELETED_UPLOADED_DOCS_STORAGE_KEY, id);
+
+const getDeletedDocumentFolderIds = (): Set<string> => readDeletedSetByKey(DELETED_DOC_FOLDERS_STORAGE_KEY);
+const markDeletedDocumentFolderId = (id: string) => markDeletedByKey(DELETED_DOC_FOLDERS_STORAGE_KEY, id);
+const unmarkDeletedDocumentFolderId = (id: string) => unmarkDeletedByKey(DELETED_DOC_FOLDERS_STORAGE_KEY, id);
+
+const getDeletedShiftSwapIds = (): Set<string> => readDeletedSetByKey(DELETED_SHIFT_SWAPS_STORAGE_KEY);
+const markDeletedShiftSwapId = (id: string) => markDeletedByKey(DELETED_SHIFT_SWAPS_STORAGE_KEY, id);
+const unmarkDeletedShiftSwapId = (id: string) => unmarkDeletedByKey(DELETED_SHIFT_SWAPS_STORAGE_KEY, id);
 
 const getAllDeletedIds = (): Set<string> => {
   const set = new Set<string>();
@@ -919,8 +995,15 @@ const getAllDeletedIds = (): Set<string> => {
     getDeletedScheduleIds(),
     getDeletedCronogramaIds(),
     getDeletedMeterIds(),
-    getDeletedMeterReadingIds()
+    getDeletedMeterReadingIds(),
+    getDeletedPumpInspectionIds(),
+    getDeletedPreventivePlanIds(),
+    getDeletedWorkOrderIds(),
+    getDeletedUploadedDocumentIds(),
+    getDeletedDocumentFolderIds(),
+    getDeletedShiftSwapIds()
   ].forEach(s => s.forEach(id => set.add(id)));
+  recentLocalDeletions.forEach((_, id) => set.add(id));
   return set;
 };
 
@@ -929,15 +1012,19 @@ const markDeletedAnyId = (id: string) => {
   if (id.startsWith('req-')) markDeletedRequestId(id);
   else if (id.startsWith('inc-') || id.startsWith('inc_')) markDeletedIncidentId(id);
   else if (id.startsWith('eq-')) markDeletedEquipmentId(id);
-  else if (id.startsWith('rnd-')) {
-    markDeletedRoundId(id);
-  }
+  else if (id.startsWith('rnd-')) markDeletedRoundId(id);
   else if (id.startsWith('usr-')) markDeletedUserId(id);
   else if (id.startsWith('task-')) markDeletedTaskId(id);
   else if (id.startsWith('sched-')) markDeletedScheduleId(id);
   else if (id.startsWith('cron-')) markDeletedCronogramaId(id);
   else if (id.startsWith('med-') || id.startsWith('meter-') || id.startsWith('MED-') || id.startsWith('meter_')) markDeletedMeterId(id);
   else if (id.startsWith('rd-') || id.startsWith('reading-') || id.startsWith('log-')) markDeletedMeterReadingId(id);
+  else if (id.startsWith('insp-')) markDeletedPumpInspectionId(id);
+  else if (id.startsWith('plan-')) markDeletedPreventivePlanId(id);
+  else if (id.startsWith('ot-')) markDeletedWorkOrderId(id);
+  else if (id.startsWith('doc-')) markDeletedUploadedDocumentId(id);
+  else if (id.startsWith('folder-')) markDeletedDocumentFolderId(id);
+  else if (id.startsWith('swap-')) markDeletedShiftSwapId(id);
   else {
     markDeletedIncidentId(id);
     markDeletedRequestId(id);
@@ -1066,15 +1153,70 @@ const reconcileServerDeletedRoundIds = (
   return authoritative;
 };
 
+const getPendingLocalCreationIds = (): Set<string> => {
+  const now = Date.now();
+  const active = new Set<string>();
+  pendingLocalCreations.forEach((ts, id) => {
+    if (now - ts < 20000) active.add(id);
+    else pendingLocalCreations.delete(id);
+  });
+  return active;
+};
+
+const reconcileServerDeletedCollectionIds = (
+  storageKey: string,
+  serverDeletedIds?: string[],
+  serverItems?: any[],
+  idExtractor: (item: any) => string[] = (item) => (item && item.id ? [item.id] : [])
+): Set<string> => {
+  const now = Date.now();
+  const serverDelSet = new Set<string>(
+    Array.isArray(serverDeletedIds)
+      ? serverDeletedIds.filter((id): id is string => typeof id === 'string' && id.length > 0)
+      : []
+  );
+
+  const serverItemIds = new Set<string>();
+  if (Array.isArray(serverItems)) {
+    for (const item of serverItems) {
+      for (const id of idExtractor(item)) {
+        if (id) serverItemIds.add(id);
+      }
+    }
+  }
+
+  const currentLocal = readDeletedSetByKey(storageKey);
+  const retainedLocal = new Set<string>();
+
+  for (const id of currentLocal) {
+    if (isRecentlyLocallyDeleted(id) || serverDelSet.has(id) || !serverItemIds.has(id)) {
+      retainedLocal.add(id);
+    }
+  }
+
+  try {
+    localStorage.setItem(storageKey, JSON.stringify(Array.from(retainedLocal)));
+  } catch {}
+
+  const combined = new Set<string>(retainedLocal);
+  serverDelSet.forEach(id => combined.add(id));
+  recentLocalDeletions.forEach((ts, id) => {
+    if (now - ts < 30000) combined.add(id);
+  });
+  return combined;
+};
+
 const mergeScheduleLists = (
   baseList: TechnicianSchedule[],
   incomingList: TechnicianSchedule[],
-  deletedIds: Set<string>
+  deletedIds: Set<string>,
+  isServerAuthoritative: boolean = false,
+  localPendingIds?: Set<string>
 ): TechnicianSchedule[] => {
   const map = new Map<string, TechnicianSchedule>();
 
   const processItem = (item: TechnicianSchedule) => {
-    if (!item || !item.id || deletedIds.has(item.id)) return;
+    if (!item || !item.id || deletedIds.has(item.id) || isRecentlyLocallyDeleted(item.id)) return;
     if (isLegacyMockSchedule(item)) return;
     const existing = map.get(item.id);
     if (!existing) {
@@ -1086,8 +1228,19 @@ const mergeScheduleLists = (
     }
   };
 
-  (baseList || []).forEach(processItem);
-  (incomingList || []).forEach(processItem);
+  if (isServerAuthoritative && Array.isArray(incomingList)) {
+    incomingList.forEach(processItem);
+    if (localPendingIds && localPendingIds.size > 0) {
+      (baseList || []).forEach(item => {
+        if (item && item.id && localPendingIds.has(item.id) && !deletedIds.has(item.id) && !isRecentlyLocallyDeleted(item.id) && !map.has(item.id)) {
+          processItem(item);
+        }
+      });
+    }
+  } else {
+    (baseList || []).forEach(processItem);
+    (incomingList || []).forEach(processItem);
+  }
 
   // Secondary authoritative deduplication by (date + canonical technician key)
   const dateTechMap = new Map<string, TechnicianSchedule>();
@@ -1121,12 +1274,14 @@ const mergeScheduleLists = (
 const mergeCronogramaLists = (
   baseList: Cronograma[],
   incomingList: Cronograma[],
-  deletedIds: Set<string>
+  deletedIds: Set<string>,
+  isServerAuthoritative: boolean = false,
+  localPendingIds?: Set<string>
 ): Cronograma[] => {
   const map = new Map<string, Cronograma>();
 
   const processItem = (item: Cronograma) => {
-    if (!item || !item.id || deletedIds.has(item.id)) return;
+    if (!item || !item.id || deletedIds.has(item.id) || isRecentlyLocallyDeleted(item.id)) return;
     const existing = map.get(item.id);
     if (!existing) {
       map.set(item.id, { ...item });
@@ -1137,8 +1292,19 @@ const mergeCronogramaLists = (
     }
   };
 
-  (baseList || []).forEach(processItem);
-  (incomingList || []).forEach(processItem);
+  if (isServerAuthoritative && Array.isArray(incomingList)) {
+    incomingList.forEach(processItem);
+    if (localPendingIds && localPendingIds.size > 0) {
+      (baseList || []).forEach(item => {
+        if (item && item.id && localPendingIds.has(item.id) && !deletedIds.has(item.id) && !isRecentlyLocallyDeleted(item.id) && !map.has(item.id)) {
+          processItem(item);
+        }
+      });
+    }
+  } else {
+    (baseList || []).forEach(processItem);
+    (incomingList || []).forEach(processItem);
+  }
 
   const res = Array.from(map.values());
   res.sort((a, b) => {
@@ -1147,6 +1313,42 @@ const mergeCronogramaLists = (
     return timeA - timeB;
   });
   return res;
+};
+
+const mergeGenericAuthoritative = <T extends { id: string }>(
+  baseList: T[],
+  incomingList: T[],
+  deletedIds: Set<string>,
+  localPendingIds?: Set<string>,
+  isServerAuthoritative: boolean = false
+): T[] => {
+  const map = new Map<string, T>();
+  if (isServerAuthoritative && Array.isArray(incomingList)) {
+    incomingList.forEach(item => {
+      if (item && item.id && !deletedIds.has(item.id) && !isRecentlyLocallyDeleted(item.id)) {
+        map.set(item.id, item);
+      }
+    });
+    if (localPendingIds && localPendingIds.size > 0) {
+      (baseList || []).forEach(item => {
+        if (item && item.id && localPendingIds.has(item.id) && !deletedIds.has(item.id) && !isRecentlyLocallyDeleted(item.id) && !map.has(item.id)) {
+          map.set(item.id, item);
+        }
+      });
+    }
+  } else {
+    (incomingList || []).forEach(item => {
+      if (item && item.id && !deletedIds.has(item.id) && !isRecentlyLocallyDeleted(item.id)) {
+        map.set(item.id, item);
+      }
+    });
+    (baseList || []).forEach(item => {
+      if (item && item.id && !deletedIds.has(item.id) && !isRecentlyLocallyDeleted(item.id) && !map.has(item.id)) {
+        map.set(item.id, item);
+      }
+    });
+  }
+  return Array.from(map.values());
 };
 
 const TASK_STATUS_PRIORITY: Record<string, number> = {
@@ -1190,7 +1392,7 @@ const mergeTaskLists = (
   const incomingMap = new Map<string, MaintenanceTask>();
 
   (incomingList || []).forEach(item => {
-    if (item && item.id && !deletedIds.has(item.id)) {
+    if (item && item.id && !deletedIds.has(item.id) && !isRecentlyLocallyDeleted(item.id)) {
       incomingMap.set(item.id, { ...item });
     }
   });
@@ -1218,7 +1420,7 @@ const mergeTaskLists = (
     // Preservar únicamente elementos recién creados en este dispositivo local pendientes de enviar a la API
     if (localCreatedIds && localCreatedIds.size > 0) {
       (baseList || []).forEach(item => {
-        if (item && item.id && localCreatedIds.has(item.id) && !deletedIds.has(item.id) && !map.has(item.id)) {
+        if (item && item.id && localCreatedIds.has(item.id) && !deletedIds.has(item.id) && !isRecentlyLocallyDeleted(item.id) && !map.has(item.id)) {
           map.set(item.id, { ...item });
         }
       });
@@ -1226,7 +1428,7 @@ const mergeTaskLists = (
   } else {
     // Modo fusión local
     (baseList || []).forEach(item => {
-      if (item && item.id && !deletedIds.has(item.id)) {
+      if (item && item.id && !deletedIds.has(item.id) && !isRecentlyLocallyDeleted(item.id)) {
         map.set(item.id, { ...item });
       }
     });
@@ -1266,50 +1468,60 @@ export const safeCloudWrite = async (_operation?: () => Promise<any>): Promise<a
   return null;
 };
 
-const recordCloudDeletion = async (id: string) => {
-  if (!id) return;
-  try {
-    await fetch('/api/app-data/deleted_records', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id, deletedAt: new Date().toISOString() })
-    });
-  } catch (e) {
-    console.warn('Error recording cloud deletion:', e);
-  }
-};
-
 const mergeUserLists = (
   baseList: User[],
   incomingList: User[],
   deletedIds: Set<string>,
-  localCreatedIds?: Set<string>
+  localCreatedIds?: Set<string>,
+  isServerAuthoritative: boolean = false
 ): User[] => {
   const isGhost = (u: User) =>
     !u || !u.id || u.id === 'usr-admin-master' || u.displayName === 'Administrador Principal';
 
   const map = new Map<string, User>();
-  
-  // 1. Populate with baseList (current local state) to ensure locally added users are NEVER dropped
-  for (const u of (baseList || [])) {
-    if (u && u.id && !deletedIds.has(u.id) && !isGhost(u)) {
-      map.set(u.id, u);
-    }
-  }
 
-  // 2. Merge incomingList (server/cloud state) as updates or additions
-  for (const u of (incomingList || [])) {
-    if (u && u.id && !deletedIds.has(u.id) && !isGhost(u)) {
-      const existing = map.get(u.id);
-      if (!existing) {
-        map.set(u.id, u);
-      } else {
-        const existingTime = existing.updatedAt ? new Date(existing.updatedAt).getTime() : (existing.createdAt ? new Date(existing.createdAt).getTime() : 0);
-        const incomingTime = u.updatedAt ? new Date(u.updatedAt).getTime() : (u.createdAt ? new Date(u.createdAt).getTime() : 0);
-        if (incomingTime >= existingTime) {
-          map.set(u.id, { ...existing, ...u });
+  if (isServerAuthoritative && Array.isArray(incomingList)) {
+    for (const u of incomingList) {
+      if (u && u.id && !deletedIds.has(u.id) && !isRecentlyLocallyDeleted(u.id) && !isGhost(u)) {
+        const existing = (baseList || []).find(b => b && b.id === u.id);
+        if (existing) {
+          const existingTime = existing.updatedAt ? new Date(existing.updatedAt).getTime() : (existing.createdAt ? new Date(existing.createdAt).getTime() : 0);
+          const incomingTime = u.updatedAt ? new Date(u.updatedAt).getTime() : (u.createdAt ? new Date(u.createdAt).getTime() : 0);
+          map.set(u.id, incomingTime >= existingTime ? { ...existing, ...u } : { ...u, ...existing });
         } else {
-          map.set(u.id, { ...u, ...existing });
+          map.set(u.id, u);
+        }
+      }
+    }
+    if (localCreatedIds && localCreatedIds.size > 0) {
+      for (const u of (baseList || [])) {
+        if (u && u.id && localCreatedIds.has(u.id) && !deletedIds.has(u.id) && !isRecentlyLocallyDeleted(u.id) && !isGhost(u) && !map.has(u.id)) {
+          map.set(u.id, u);
+        }
+      }
+    }
+  } else {
+    // 1. Populate with baseList (current local state)
+    for (const u of (baseList || [])) {
+      if (u && u.id && !deletedIds.has(u.id) && !isRecentlyLocallyDeleted(u.id) && !isGhost(u)) {
+        map.set(u.id, u);
+      }
+    }
+
+    // 2. Merge incomingList (server/cloud state) as updates or additions
+    for (const u of (incomingList || [])) {
+      if (u && u.id && !deletedIds.has(u.id) && !isRecentlyLocallyDeleted(u.id) && !isGhost(u)) {
+        const existing = map.get(u.id);
+        if (!existing) {
+          map.set(u.id, u);
+        } else {
+          const existingTime = existing.updatedAt ? new Date(existing.updatedAt).getTime() : (existing.createdAt ? new Date(existing.createdAt).getTime() : 0);
+          const incomingTime = u.updatedAt ? new Date(u.updatedAt).getTime() : (u.createdAt ? new Date(u.createdAt).getTime() : 0);
+          if (incomingTime >= existingTime) {
+            map.set(u.id, { ...existing, ...u });
+          } else {
+            map.set(u.id, { ...u, ...existing });
+          }
         }
       }
     }
@@ -1862,28 +2074,39 @@ const areRoundsEqual = (a: DailyRound[], b: DailyRound[]): boolean => {
 const mergeEquipmentLists = (
   baseList: Equipment[],
   incomingList: Equipment[],
-  deletedIds: Set<string>
+  deletedIds: Set<string>,
+  isServerAuthoritative: boolean = false,
+  localPendingIds?: Set<string>
 ): Equipment[] => {
   const map = new Map<string, Equipment>();
-  (baseList || []).forEach(e => {
-    if (e && e.id && !deletedIds.has(e.id)) {
+
+  const upsert = (e: Equipment) => {
+    if (!e || !e.id || deletedIds.has(e.id) || isRecentlyLocallyDeleted(e.id)) return;
+    const existing = map.get(e.id);
+    if (!existing) {
       map.set(e.id, e);
-    }
-  });
-  (incomingList || []).forEach(e => {
-    if (e && e.id && !deletedIds.has(e.id)) {
-      const existing = map.get(e.id);
-      if (!existing) {
-        map.set(e.id, e);
-      } else {
-        const timeExisting = new Date((existing as any).lastUpdated || (existing as any).createdAt || existing.lastInspectionDate || existing.installationDate || 0).getTime();
-        const timeIncoming = new Date((e as any).lastUpdated || (e as any).createdAt || e.lastInspectionDate || e.installationDate || 0).getTime();
-        if (timeIncoming >= timeExisting) {
-          map.set(e.id, { ...existing, ...e });
-        }
+    } else {
+      const timeExisting = new Date((existing as any).lastUpdated || (existing as any).createdAt || existing.lastInspectionDate || existing.installationDate || 0).getTime();
+      const timeIncoming = new Date((e as any).lastUpdated || (e as any).createdAt || e.lastInspectionDate || e.installationDate || 0).getTime();
+      if (timeIncoming >= timeExisting) {
+        map.set(e.id, { ...existing, ...e });
       }
     }
-  });
+  };
+
+  if (isServerAuthoritative && Array.isArray(incomingList)) {
+    incomingList.forEach(upsert);
+    if (localPendingIds && localPendingIds.size > 0) {
+      (baseList || []).forEach(e => {
+        if (e && e.id && localPendingIds.has(e.id) && !deletedIds.has(e.id) && !isRecentlyLocallyDeleted(e.id) && !map.has(e.id)) {
+          upsert(e);
+        }
+      });
+    }
+  } else {
+    (baseList || []).forEach(upsert);
+    (incomingList || []).forEach(upsert);
+  }
   return Array.from(map.values());
 };
 
@@ -1960,16 +2183,15 @@ const mergeMeterLists = (
   baseList: MeterDefinition[],
   incomingList: MeterDefinition[],
   deletedIds: Set<string>,
-  _inFlightLocalIds?: Set<string>
+  inFlightLocalIds?: Set<string>,
+  isServerAuthoritative: boolean = false
 ): MeterDefinition[] => {
   const map = new Map<string, MeterDefinition>();
 
-  const combined = [...(incomingList || []), ...(baseList || [])];
-
-  combined.forEach(m => {
-    if (!m || !m.id || deletedIds.has(m.id)) return;
+  const processMeter = (m: MeterDefinition) => {
+    if (!m || !m.id || deletedIds.has(m.id) || isRecentlyLocallyDeleted(m.id)) return;
     const normCode = m.code ? m.code.trim().toUpperCase() : '';
-    if (normCode && (deletedIds.has(normCode) || deletedIds.has(m.code))) return;
+    if (normCode && (deletedIds.has(normCode) || deletedIds.has(m.code) || isRecentlyLocallyDeleted(normCode) || isRecentlyLocallyDeleted(m.code))) return;
 
     if (!map.has(m.id)) {
       map.set(m.id, m);
@@ -1981,7 +2203,20 @@ const mergeMeterLists = (
         map.set(m.id, m);
       }
     }
-  });
+  };
+
+  if (isServerAuthoritative && Array.isArray(incomingList)) {
+    incomingList.forEach(processMeter);
+    if (inFlightLocalIds && inFlightLocalIds.size > 0) {
+      (baseList || []).forEach(m => {
+        if (m && m.id && inFlightLocalIds.has(m.id) && !map.has(m.id)) {
+          processMeter(m);
+        }
+      });
+    }
+  } else {
+    [...(incomingList || []), ...(baseList || [])].forEach(processMeter);
+  }
 
   return Array.from(map.values()).sort((a, b) => {
     if (a.isMainMeter && !b.isMainMeter) return -1;
@@ -1995,28 +2230,34 @@ const mergeMeterReadingLists = (
   incomingList: MeterReadingRecord[],
   deletedIds: Set<string>,
   deletedMeterIds: Set<string>,
-  inFlightLocalIds?: Set<string>
+  inFlightLocalIds?: Set<string>,
+  isServerAuthoritative: boolean = false
 ): MeterReadingRecord[] => {
   const map = new Map<string, MeterReadingRecord>();
   const seenKeys = new Set<string>();
 
-  (incomingList || []).forEach(r => {
-    if (!r || !r.id || deletedIds.has(r.id) || deletedMeterIds.has(r.meterId)) return;
-    if (DEMO_METER_IDS.includes(r.meterId) || DEMO_READING_IDS.includes(r.id)) return;
-    const key = `${r.meterId}_${r.date}_${r.time || '00:00'}_${r.currentValue}`;
-    if (seenKeys.has(key)) return;
-    seenKeys.add(key);
-    map.set(r.id, r);
-  });
-
-  (baseList || []).forEach(r => {
-    if (!r || !r.id || deletedIds.has(r.id) || deletedMeterIds.has(r.meterId)) return;
+  const processReading = (r: MeterReadingRecord) => {
+    if (!r || !r.id || deletedIds.has(r.id) || deletedMeterIds.has(r.meterId) || isRecentlyLocallyDeleted(r.id) || isRecentlyLocallyDeleted(r.meterId)) return;
     if (DEMO_METER_IDS.includes(r.meterId) || DEMO_READING_IDS.includes(r.id)) return;
     const key = `${r.meterId}_${r.date}_${r.time || '00:00'}_${r.currentValue}`;
     if (seenKeys.has(key) || map.has(r.id)) return;
     seenKeys.add(key);
     map.set(r.id, r);
-  });
+  };
+
+  if (isServerAuthoritative && Array.isArray(incomingList)) {
+    incomingList.forEach(processReading);
+    if (inFlightLocalIds && inFlightLocalIds.size > 0) {
+      (baseList || []).forEach(r => {
+        if (r && r.id && inFlightLocalIds.has(r.id)) {
+          processReading(r);
+        }
+      });
+    }
+  } else {
+    (incomingList || []).forEach(processReading);
+    (baseList || []).forEach(processReading);
+  }
 
   const result = Array.from(map.values());
   result.sort((a, b) => {
@@ -2163,22 +2404,23 @@ const mergeRequestLists = (
   baseList: HotelRequest[],
   incomingList: HotelRequest[],
   deletedIds: Set<string>,
-  localPendingIds?: Set<string>
+  localPendingIds?: Set<string>,
+  isServerAuthoritative: boolean = false
 ): HotelRequest[] => {
   const map = new Map<string, HotelRequest>();
   const incomingMap = new Map<string, HotelRequest>();
 
   (incomingList || []).forEach(item => {
-    if (item && item.id && !deletedIds.has(item.id)) {
+    if (item && item.id && !deletedIds.has(item.id) && !isRecentlyLocallyDeleted(item.id)) {
       incomingMap.set(item.id, { ...item });
     }
   });
 
-  const isServerSync = Array.isArray(incomingList) && incomingList.length > 0;
+  const isServerSync = isServerAuthoritative && Array.isArray(incomingList);
 
   // Process items in baseList
   (baseList || []).forEach(item => {
-    if (!item || !item.id || deletedIds.has(item.id)) return;
+    if (!item || !item.id || deletedIds.has(item.id) || isRecentlyLocallyDeleted(item.id)) return;
 
     if (incomingMap.has(item.id)) {
       const incomingItem = incomingMap.get(item.id)!;
@@ -2525,11 +2767,12 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
   });
 
   const [shiftSwapRequests, setShiftSwapRequests] = useState<ShiftSwapRequest[]>(() => {
+    const deletedIds = getDeletedShiftSwapIds();
     const saved = localStorage.getItem(STORAGE_KEYS.SHIFT_SWAPS);
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) return parsed;
+        if (Array.isArray(parsed)) return parsed.filter((s: ShiftSwapRequest) => s && s.id && !deletedIds.has(s.id));
       } catch (e) { console.error(e); }
     }
     return [];
@@ -2623,10 +2866,6 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
         }
       } catch (e) { console.error(e); }
     }
-    // Carga instantánea (0 ms): Si localStorage está vacío, precargar inmediatamente las 98 rondas canónicas
-    if (baseList.length === 0 && Array.isArray(HISTORICAL_ROUNDS) && HISTORICAL_ROUNDS.length > 0) {
-      baseList = (HISTORICAL_ROUNDS as DailyRound[]).filter(r => r && r.id && !deletedIds.has(r.id));
-    }
     safeSetItem(STORAGE_KEYS.ROUNDS, JSON.stringify(baseList));
     idbSet(STORAGE_KEYS.ROUNDS, baseList).catch(() => {});
     return baseList;
@@ -2685,61 +2924,63 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
   }, [rounds, activeRound?.id]);
 
   const [pumpInspections, setPumpInspections] = useState<PumpInspection[]>(() => {
+    const deletedIds = getDeletedPumpInspectionIds();
     const saved = localStorage.getItem(STORAGE_KEYS.INSPECTIONS);
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) return parsed;
+        if (Array.isArray(parsed)) return parsed.filter((p: PumpInspection) => p && p.id && !deletedIds.has(p.id));
       } catch (e) { console.error(e); }
     }
     return [];
   });
 
   const [preventivePlans, setPreventivePlans] = useState<PreventivePlan[]>(() => {
+    const deletedIds = getDeletedPreventivePlanIds();
     const saved = localStorage.getItem(STORAGE_KEYS.PLANS);
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) return parsed;
+        if (Array.isArray(parsed)) return parsed.filter((p: PreventivePlan) => p && p.id && !deletedIds.has(p.id));
       } catch (e) { console.error(e); }
     }
     return [];
   });
 
   const [workOrders, setWorkOrders] = useState<PreventiveWorkOrder[]>(() => {
+    const deletedIds = getDeletedWorkOrderIds();
     const saved = localStorage.getItem(STORAGE_KEYS.WORK_ORDERS);
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) return parsed;
+        if (Array.isArray(parsed)) return parsed.filter((w: PreventiveWorkOrder) => w && w.id && !deletedIds.has(w.id));
       } catch (e) { console.error(e); }
     }
     return [];
   });
 
   const [uploadedDocuments, setUploadedDocuments] = useState<UploadedDocument[]>(() => {
+    const deletedIds = getDeletedUploadedDocumentIds();
     const saved = localStorage.getItem(STORAGE_KEYS.DOCUMENTS);
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) return parsed;
+        if (Array.isArray(parsed)) return parsed.filter((d: UploadedDocument) => d && d.id && !deletedIds.has(d.id));
       } catch (e) { console.error(e); }
     }
     return [];
   });
 
   const [documentFolders, setDocumentFolders] = useState<DocumentFolder[]>(() => {
+    const deletedIds = getDeletedDocumentFolderIds();
     const saved = localStorage.getItem('hotel_doc_folders');
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) return parsed;
+        if (Array.isArray(parsed)) return parsed.filter((f: DocumentFolder) => f && f.id && !deletedIds.has(f.id));
       } catch (e) { console.error(e); }
     }
-    return [
-      { id: 'f-1', name: 'Manuales y Planos', createdAt: new Date().toISOString() },
-      { id: 'f-2', name: 'Garantías y Proveedores', createdAt: new Date().toISOString() }
-    ];
+    return [];
   });
 
   const [users, setUsers] = useState<User[]>(() => {
@@ -2747,10 +2988,20 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) return ensureAdminUserList(parsed);
+        if (Array.isArray(parsed)) {
+          const deletedIds = getDeletedUserIds();
+          return parsed.filter(
+            (u: User) =>
+              u &&
+              u.id &&
+              !FAKE_USER_IDS.has(u.id) &&
+              u.displayName !== 'Administrador Principal' &&
+              !deletedIds.has(u.id)
+          );
+        }
       } catch (e) {}
     }
-    return INITIAL_USERS;
+    return [];
   });
   const [currentUser, setCurrentUserState] = useState<User | null>(() => {
     try {
@@ -2882,24 +3133,6 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
     }
   }, [currentUser, selectedTab, isSectionAllowed]);
 
-  // Guarantee all 6 initial created users exist in localStorage and state on mount
-  useEffect(() => {
-    try {
-      const saved = localStorage.getItem('hotel_maint_users');
-      let currentList: User[] = INITIAL_USERS;
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          currentList = parsed;
-        }
-      }
-      const guaranteed = ensureAdminUserList(currentList);
-      localStorage.setItem('hotel_maint_users', JSON.stringify(guaranteed));
-      setUsers(guaranteed);
-      usersRef.current = guaranteed;
-    } catch {}
-  }, []);
-
   const [settings, setSettings] = useState<SystemSettings>(() => {
     const saved = localStorage.getItem(STORAGE_KEYS.SETTINGS);
     if (saved) {
@@ -2960,9 +3193,16 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
       const sanitized = items.map(sanitizeCheckpointTemplate);
       roundTemplateRef.current = sanitized;
       localStorage.setItem('hotel_round_template', JSON.stringify(sanitized));
-      hasPendingLocalChanges.current = true;
-      persistToServer();
-      await safeCloudWrite(() => setDoc(doc(db, 'hotel_round_template', 'main'), cleanForFirestore({ items: sanitized, updatedAt: new Date().toISOString() })));
+      localActionIds.current.add('round_template');
+      setTimeout(() => { localActionIds.current.delete('round_template'); }, 15000);
+      await fetch('/api/app-data/round_template', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Client-Id': clientSessionId.current
+        },
+        body: JSON.stringify({ items: sanitized, updatedAt: new Date().toISOString() })
+      }).catch(() => {});
     } catch (e) {
       console.error('Error saving round template to cloud:', e);
     }
@@ -2970,22 +3210,21 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
 
   const refreshRoundTemplateFromCloud = async () => {
     try {
-      const docSnap = await getDoc(doc(db, 'hotel_round_template', 'main'));
-      if (docSnap.exists()) {
-        const data = docSnap.data() as { items?: RoundCheckpoint[] };
-        if (data && Array.isArray(data.items)) {
-          const sanitized = data.items.map(sanitizeCheckpointTemplate);
-          roundTemplateRef.current = sanitized;
-          setRoundTemplate(sanitized);
-          localStorage.setItem('hotel_round_template', JSON.stringify(sanitized));
-          notify('🔄 Plantilla sincronizada correctamente desde la nube.');
-        }
+      const res = await fetch(`/api/app-data/round_template?_t=${Date.now()}`, { cache: 'no-store' });
+      if (!res.ok) throw new Error('Error consultando plantilla');
+      const data = await res.json();
+      if (data && Array.isArray(data.items) && data.items.length > 0) {
+        const sanitized = data.items.map(sanitizeCheckpointTemplate);
+        roundTemplateRef.current = sanitized;
+        setRoundTemplate(sanitized);
+        localStorage.setItem('hotel_round_template', JSON.stringify(sanitized));
+        notify('🔄 Plantilla sincronizada correctamente desde PostgreSQL.');
       } else {
-        notify('No se encontró plantilla en la nube.');
+        notify('No se encontró plantilla personalizada en el servidor.');
       }
     } catch (e) {
       console.error('Error refreshing round template:', e);
-      notify('Error al sincronizar desde la nube.');
+      notify('Error al sincronizar plantilla desde el servidor.');
     }
   };
 
@@ -3054,12 +3293,10 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
       if (list.length === 0) return;
 
       for (const round of list) {
-        if (!round || !round.id || getDeletedRoundIds().has(round.id)) {
+        if (!round || !round.id || getDeletedRoundIds().has(round.id) || isRecentlyLocallyDeleted(round.id)) {
           if (round?.id) removePendingOfflineRound(round.id);
           continue;
         }
-        let syncedToServer = false;
-        let syncedToCloud = false;
 
         try {
           const res = await fetch('/api/rounds', {
@@ -3070,17 +3307,14 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
             },
             body: JSON.stringify(round)
           });
-          if (res.ok) syncedToServer = true;
+          if (res.ok) {
+            removePendingOfflineRound(round.id);
+            markRoundSynced(round.id);
+          } else if (res.status === 410) {
+            markDeletedRoundId(round.id);
+            removePendingOfflineRound(round.id);
+          }
         } catch (e) {}
-
-        try {
-          await safeCloudWrite(() => setDoc(doc(db, 'rounds', round.id), cleanForFirestore(round)));
-          syncedToCloud = true;
-        } catch (e) {}
-
-        if (syncedToServer || syncedToCloud) {
-          removePendingOfflineRound(round.id);
-        }
       }
     } catch (e) {}
   }, [removePendingOfflineRound]);
@@ -3488,9 +3722,10 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
     return () => clearTimeout(handle);
   }, [equipments]);
   useEffect(() => {
-    if (!rounds || rounds.length === 0) return;
+    if (!isInitialFetchDone.current && (!rounds || rounds.length === 0)) return;
     const handle = setTimeout(() => {
-      safeSetItem(STORAGE_KEYS.ROUNDS, JSON.stringify(rounds));
+      safeSetItem(STORAGE_KEYS.ROUNDS, JSON.stringify(rounds || []));
+      idbSet(STORAGE_KEYS.ROUNDS, rounds || []).catch(() => {});
     }, 350);
     return () => clearTimeout(handle);
   }, [rounds]);
@@ -4827,50 +5062,6 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
   useEffect(() => {
     if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
       roundsChannel.current = new BroadcastChannel('hotel_maintenance_rounds_sync');
-      roundsChannel.current.onmessage = (event) => {
-        try {
-          const data = event.data;
-          if (!data || typeof data !== 'object') return;
-          if (data.type === 'active_round_updated' && data.round) {
-            const incomingRound = data.round as DailyRound;
-            const currentActiveId = activeRoundRef.current?.id;
-            const deletedIds = getDeletedRoundIds();
-            const merged = mergeRoundLists(roundsRef.current || [], [incomingRound], deletedIds, currentActiveId);
-            roundsRef.current = merged;
-            setRounds(merged);
-            safeSetItem(STORAGE_KEYS.ROUNDS, JSON.stringify(merged));
-          } else if (data.type === 'round_deleted' && data.roundId) {
-            const delId = data.roundId;
-            const updated = (roundsRef.current || []).filter(r => r.id !== delId);
-            roundsRef.current = updated;
-            setRounds(updated);
-            safeSetItem(STORAGE_KEYS.ROUNDS, JSON.stringify(updated));
-            if (activeRoundRef.current?.id === delId) {
-              const alternative = updated.find(r => r && r.status === 'en_progreso' && isRoundActivelyBeingPerformed(r));
-              if (alternative) {
-                activeRoundRef.current = alternative;
-                setActiveRound(alternative);
-                safeSetItem(STORAGE_KEYS.ACTIVE_ROUND, JSON.stringify(alternative));
-              } else {
-                activeRoundRef.current = null;
-                setActiveRound(null);
-                localStorage.removeItem(STORAGE_KEYS.ACTIVE_ROUND);
-              }
-            }
-          } else if (data.type === 'round_completed' && data.round) {
-            const completedRound = data.round as DailyRound;
-            const merged = mergeRoundLists(roundsRef.current || [], [completedRound], getDeletedRoundIds(), activeRoundRef.current?.id);
-            roundsRef.current = merged;
-            setRounds(merged);
-            safeSetItem(STORAGE_KEYS.ROUNDS, JSON.stringify(merged));
-            if (activeRoundRef.current?.id === completedRound.id) {
-              activeRoundRef.current = null;
-              setActiveRound(null);
-              localStorage.removeItem(STORAGE_KEYS.ACTIVE_ROUND);
-            }
-          }
-        } catch (e) {}
-      };
     }
     return () => {
       roundsChannel.current?.close();
@@ -4891,12 +5082,6 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
         copy[idx] = { ...copy[idx], lastSeenAt: nowIso, isOnline: true };
         return copy;
       });
-
-      // Sincronizar en la nube Firestore
-      safeCloudWrite(() => setDoc(doc(db, 'users', currentUser.id), {
-        lastSeenAt: nowIso,
-        isOnline: true
-      }, { merge: true })).catch(() => {});
     };
 
     sendHeartbeat();
@@ -4909,19 +5094,9 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
     };
     document.addEventListener('visibilitychange', handleVisibility);
 
-    const handleUnload = () => {
-      const nowIso = new Date().toISOString();
-      safeCloudWrite(() => setDoc(doc(db, 'users', currentUser.id), {
-        lastSeenAt: nowIso,
-        isOnline: false
-      }, { merge: true })).catch(() => {});
-    };
-    window.addEventListener('beforeunload', handleUnload);
-
     return () => {
       clearInterval(interval);
       document.removeEventListener('visibilitychange', handleVisibility);
-      window.removeEventListener('beforeunload', handleUnload);
     };
   }, [currentUser?.id]);
 
@@ -5134,198 +5309,505 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
   // LIGHTNING-FAST SERVER API SYNCHRONIZATION (/api/data 1s polling + instant persist)
   // -------------------------------------------------------------
   useEffect(() => {
-    // 1. Initial load from server API
+    const applyAuthoritativeServerData = (data: any, isInitial: boolean) => {
+      if (!data || typeof data !== 'object' || Object.keys(data).length === 0) return;
+
+      if (data.serverVersion) {
+        checkServerVersion(data.serverVersion);
+      }
+
+      const pendingCreations = getPendingLocalCreationIds();
+      const serverDeletedList: string[] = Array.isArray(data.deletedIds)
+        ? data.deletedIds.filter((id: any): id is string => typeof id === 'string' && id.length > 0)
+        : [];
+
+      if (Array.isArray(data.meters)) {
+        const deletedMeterIds = reconcileServerDeletedCollectionIds(
+          DELETED_METERS_STORAGE_KEY,
+          serverDeletedList,
+          data.meters,
+          (m: any) => [m?.id, m?.code, typeof m?.code === 'string' ? m.code.toUpperCase() : ''].filter(Boolean)
+        );
+        const cleanMeters = data.meters.filter((m: any) => {
+          if (!m || !m.id || deletedMeterIds.has(m.id) || isRecentlyLocallyDeleted(m.id)) return false;
+          const code = typeof m.code === 'string' ? m.code.trim() : '';
+          if (code && (deletedMeterIds.has(code) || deletedMeterIds.has(code.toUpperCase()))) return false;
+          return true;
+        });
+        const mergedMeters = mergeMeterLists(metersRef.current || [], cleanMeters, deletedMeterIds, pendingCreations, true);
+        if (!areMetersEqual(mergedMeters, metersRef.current || [])) {
+          metersRef.current = mergedMeters;
+          setMeters(mergedMeters);
+          safeSetItem(STORAGE_KEYS.METERS, JSON.stringify(mergedMeters));
+        }
+      }
+
+      if (Array.isArray(data.meterReadingsLog)) {
+        const deletedReadingIds = reconcileServerDeletedCollectionIds(
+          DELETED_METER_READINGS_STORAGE_KEY,
+          serverDeletedList,
+          data.meterReadingsLog
+        );
+        const deletedMeterIds = getDeletedMeterIds();
+        const cleanReadings = data.meterReadingsLog.filter(
+          (r: any) =>
+            r &&
+            r.id &&
+            !deletedReadingIds.has(r.id) &&
+            !isRecentlyLocallyDeleted(r.id) &&
+            !deletedMeterIds.has(r.meterId) &&
+            !isRecentlyLocallyDeleted(r.meterId)
+        );
+        const mergedReadings = mergeMeterReadingLists(
+          meterReadingsLogRef.current || [],
+          cleanReadings,
+          deletedReadingIds,
+          deletedMeterIds,
+          pendingCreations,
+          true
+        );
+        if (!areReadingsEqual(mergedReadings, meterReadingsLogRef.current || [])) {
+          meterReadingsLogRef.current = mergedReadings;
+          setMeterReadingsLog(mergedReadings);
+          localStorage.setItem(STORAGE_KEYS.METER_READINGS_LOG, JSON.stringify(mergedReadings));
+        }
+      }
+
+      if (Array.isArray(data.rounds)) {
+        const deletedRoundIds = reconcileServerDeletedRoundIds(serverDeletedList, data.rounds, pendingCreations);
+        serverDeletedList.forEach(id => deletedRoundIds.add(id));
+        const cleanRounds = data.rounds.filter(
+          (r: any) => r && r.id && !deletedRoundIds.has(r.id) && !isRecentlyLocallyDeleted(r.id)
+        );
+        const currentActiveId = activeRoundRef.current?.id;
+        const unsyncedIds = getUnsyncedRoundIds();
+        const pendingLocalRounds = (roundsRef.current || []).filter(
+          r =>
+            r &&
+            r.id &&
+            !deletedRoundIds.has(r.id) &&
+            !isRecentlyLocallyDeleted(r.id) &&
+            (r.id === currentActiveId || pendingCreations.has(r.id) || unsyncedIds.has(r.id))
+        );
+        const mergedRounds = mergeRoundLists(pendingLocalRounds, cleanRounds, deletedRoundIds, currentActiveId, pendingCreations);
+        if (!areRoundsEqual(mergedRounds, roundsRef.current || [])) {
+          if (!isInitial) {
+            checkAndNotifyNewRounds(mergedRounds, roundsRef.current || []);
+          }
+          roundsRef.current = mergedRounds;
+          setRounds(mergedRounds);
+          safeSetItem(STORAGE_KEYS.ROUNDS, JSON.stringify(mergedRounds));
+          idbSet(STORAGE_KEYS.ROUNDS, mergedRounds).catch(() => {});
+        }
+
+        const serverRoundIds = new Set((cleanRounds || []).map((r: any) => r.id));
+        if (activeRoundRef.current) {
+          const activeId = activeRoundRef.current.id;
+          const isLocked = localStorage.getItem('active_round_resume_lock') === activeId;
+          const isDeletedOnServer = deletedRoundIds.has(activeId) || isRecentlyLocallyDeleted(activeId);
+          const isGoneFromServer =
+            !serverRoundIds.has(activeId) &&
+            !unsyncedIds.has(activeId) &&
+            !pendingCreations.has(activeId) &&
+            !localActionIds.current.has(activeId) &&
+            !isLocked;
+          const serverMatch = cleanRounds.find((r: any) => r && r.id === activeId);
+          const isCompletedOnServer = Boolean(
+            serverMatch && (serverMatch.status === 'completada' || (serverMatch.completedAt && serverMatch.technicianSignature))
+          );
+
+          if (isDeletedOnServer || isGoneFromServer || isCompletedOnServer) {
+            activeRoundRef.current = null;
+            setActiveRound(null);
+            localStorage.removeItem(STORAGE_KEYS.ACTIVE_ROUND);
+            localStorage.removeItem('active_round_draft_backup');
+            idbRemove(STORAGE_KEYS.ACTIVE_ROUND).catch(() => {});
+          }
+        }
+
+        const unsyncedLocally = mergedRounds.filter(
+          r =>
+            r &&
+            r.id &&
+            !deletedRoundIds.has(r.id) &&
+            !isRecentlyLocallyDeleted(r.id) &&
+            !serverRoundIds.has(r.id) &&
+            (r.id === currentActiveId || unsyncedIds.has(r.id) || pendingCreations.has(r.id))
+        );
+        if (unsyncedLocally.length > 0) {
+          syncRoundsToServer(unsyncedLocally);
+        }
+      }
+
+      if (Array.isArray(data.equipments)) {
+        const deletedEquipmentIds = reconcileServerDeletedCollectionIds(
+          DELETED_EQUIPMENT_STORAGE_KEY,
+          serverDeletedList,
+          data.equipments
+        );
+        const cleanEquipments = data.equipments.filter(
+          (e: any) => e && e.id && !deletedEquipmentIds.has(e.id) && !isRecentlyLocallyDeleted(e.id)
+        );
+        const mergedEquipments = mergeEquipmentLists(
+          equipmentsRef.current || [],
+          cleanEquipments,
+          deletedEquipmentIds,
+          true,
+          pendingCreations
+        );
+        if (JSON.stringify(mergedEquipments) !== JSON.stringify(equipmentsRef.current)) {
+          equipmentsRef.current = mergedEquipments;
+          setEquipments(mergedEquipments);
+          localStorage.setItem(STORAGE_KEYS.EQUIPMENT, JSON.stringify(mergedEquipments));
+        }
+      }
+
+      if (Array.isArray(data.incidents) || Array.isArray(data.rounds)) {
+        const deletedIncidentIds = reconcileServerDeletedCollectionIds(
+          DELETED_INCIDENTS_STORAGE_KEY,
+          serverDeletedList,
+          data.incidents
+        );
+        const incomingInc = Array.isArray(data.incidents) ? data.incidents : (incidentsRef.current || []);
+        const cleanIncidents = incomingInc.filter(
+          (i: any) => i && i.id && !deletedIncidentIds.has(i.id) && !isRecentlyLocallyDeleted(i.id)
+        );
+        const pendingLocalInc = (incidentsRef.current || []).filter(
+          i => i && i.id && pendingCreations.has(i.id) && !deletedIncidentIds.has(i.id) && !isRecentlyLocallyDeleted(i.id)
+        );
+        const currentRounds = roundsRef.current || [];
+        const withRoundAnomalies = extractAnomaliesAsIncidents(
+          currentRounds,
+          [...pendingLocalInc, ...cleanIncidents],
+          deletedIncidentIds
+        );
+        const finalIncidents = deduplicateIncidents(withRoundAnomalies, deletedIncidentIds);
+        if (JSON.stringify(finalIncidents) !== JSON.stringify(incidentsRef.current)) {
+          if (!isInitial) {
+            checkAndNotifyNewIncidents(finalIncidents, incidentsRef.current || []);
+          }
+          incidentsRef.current = finalIncidents;
+          setIncidents(finalIncidents);
+          localStorage.setItem(STORAGE_KEYS.INCIDENTS, JSON.stringify(finalIncidents));
+        }
+      }
+
+      if (Array.isArray(data.requests)) {
+        const deletedRequestIds = reconcileServerDeletedCollectionIds(
+          DELETED_REQUESTS_STORAGE_KEY,
+          serverDeletedList,
+          data.requests
+        );
+        const cleanRequests = data.requests.filter(
+          (r: any) => r && r.id && !deletedRequestIds.has(r.id) && !isRecentlyLocallyDeleted(r.id)
+        );
+        const mergedRequests = mergeRequestLists(
+          requestsRef.current || [],
+          cleanRequests,
+          deletedRequestIds,
+          pendingCreations,
+          true
+        );
+        if (JSON.stringify(mergedRequests) !== JSON.stringify(requestsRef.current)) {
+          if (!isInitial && !isInitialLoad.current) {
+            checkAndNotifyNewRequests(mergedRequests, requestsRef.current || []);
+          }
+          requestsRef.current = mergedRequests;
+          setRequests(mergedRequests);
+          localStorage.setItem(STORAGE_KEYS.REQUESTS, JSON.stringify(mergedRequests));
+          idbSet(STORAGE_KEYS.REQUESTS, mergedRequests).catch(() => {});
+        }
+      }
+
+      if (Array.isArray(data.tasks)) {
+        const deletedTaskIds = reconcileServerDeletedCollectionIds(
+          DELETED_TASKS_STORAGE_KEY,
+          serverDeletedList,
+          data.tasks
+        );
+        const cleanTasks = data.tasks.filter(
+          (t: any) => t && t.id && !deletedTaskIds.has(t.id) && !isRecentlyLocallyDeleted(t.id)
+        );
+        const mergedTasks = mergeTaskLists(
+          tasksRef.current || [],
+          cleanTasks,
+          deletedTaskIds,
+          pendingCreations,
+          true
+        );
+        if (JSON.stringify(mergedTasks) !== JSON.stringify(tasksRef.current)) {
+          if (!isInitial) {
+            checkAndNotifyNewTasks(mergedTasks, tasksRef.current || []);
+          }
+          tasksRef.current = mergedTasks;
+          setTasks(mergedTasks);
+          localStorage.setItem(STORAGE_KEYS.TASKS, JSON.stringify(mergedTasks));
+          idbSet(STORAGE_KEYS.TASKS, mergedTasks).catch(() => {});
+        }
+      }
+
+      if (Array.isArray(data.pumpInspections)) {
+        const deletedInspIds = reconcileServerDeletedCollectionIds(
+          DELETED_PUMP_INSPECTIONS_STORAGE_KEY,
+          serverDeletedList,
+          data.pumpInspections
+        );
+        const mergedInsp = mergeGenericAuthoritative(
+          pumpInspectionsRef.current || [],
+          data.pumpInspections,
+          deletedInspIds,
+          pendingCreations,
+          true
+        );
+        if (JSON.stringify(mergedInsp) !== JSON.stringify(pumpInspectionsRef.current)) {
+          pumpInspectionsRef.current = mergedInsp;
+          setPumpInspections(mergedInsp);
+          localStorage.setItem(STORAGE_KEYS.INSPECTIONS, JSON.stringify(mergedInsp));
+        }
+      }
+
+      if (Array.isArray(data.preventivePlans)) {
+        const deletedPlanIds = reconcileServerDeletedCollectionIds(
+          DELETED_PREVENTIVE_PLANS_STORAGE_KEY,
+          serverDeletedList,
+          data.preventivePlans
+        );
+        const mergedPlans = mergeGenericAuthoritative(
+          preventivePlansRef.current || [],
+          data.preventivePlans,
+          deletedPlanIds,
+          pendingCreations,
+          true
+        );
+        if (JSON.stringify(mergedPlans) !== JSON.stringify(preventivePlansRef.current)) {
+          preventivePlansRef.current = mergedPlans;
+          setPreventivePlans(mergedPlans);
+          localStorage.setItem(STORAGE_KEYS.PLANS, JSON.stringify(mergedPlans));
+        }
+      }
+
+      if (Array.isArray(data.workOrders)) {
+        const deletedOrderIds = reconcileServerDeletedCollectionIds(
+          DELETED_WORK_ORDERS_STORAGE_KEY,
+          serverDeletedList,
+          data.workOrders
+        );
+        const mergedOrders = mergeGenericAuthoritative(
+          workOrdersRef.current || [],
+          data.workOrders,
+          deletedOrderIds,
+          pendingCreations,
+          true
+        );
+        if (JSON.stringify(mergedOrders) !== JSON.stringify(workOrdersRef.current)) {
+          workOrdersRef.current = mergedOrders;
+          setWorkOrders(mergedOrders);
+          localStorage.setItem(STORAGE_KEYS.WORK_ORDERS, JSON.stringify(mergedOrders));
+        }
+      }
+
+      if (data.settings) {
+        const cleanSettings = sanitizeSystemSettings(data.settings, settingsRef.current);
+        if (JSON.stringify(cleanSettings) !== JSON.stringify(settingsRef.current)) {
+          settingsRef.current = cleanSettings;
+          setSettings(cleanSettings);
+          safeSetItem(STORAGE_KEYS.SETTINGS, JSON.stringify(cleanSettings));
+        }
+      }
+
+      if (Array.isArray(data.uploadedDocuments)) {
+        const deletedDocIds = reconcileServerDeletedCollectionIds(
+          DELETED_UPLOADED_DOCS_STORAGE_KEY,
+          serverDeletedList,
+          data.uploadedDocuments
+        );
+        const mergedDocs = mergeGenericAuthoritative(
+          uploadedDocumentsRef.current || [],
+          data.uploadedDocuments,
+          deletedDocIds,
+          pendingCreations,
+          true
+        );
+        if (JSON.stringify(mergedDocs) !== JSON.stringify(uploadedDocumentsRef.current)) {
+          uploadedDocumentsRef.current = mergedDocs;
+          setUploadedDocuments(mergedDocs);
+          localStorage.setItem(STORAGE_KEYS.DOCUMENTS, JSON.stringify(mergedDocs));
+        }
+      }
+
+      if (Array.isArray(data.documentFolders)) {
+        const deletedFolderIds = reconcileServerDeletedCollectionIds(
+          DELETED_DOC_FOLDERS_STORAGE_KEY,
+          serverDeletedList,
+          data.documentFolders
+        );
+        const mergedFolders = mergeGenericAuthoritative(
+          documentFoldersRef.current || [],
+          data.documentFolders,
+          deletedFolderIds,
+          pendingCreations,
+          true
+        );
+        if (JSON.stringify(mergedFolders) !== JSON.stringify(documentFoldersRef.current)) {
+          documentFoldersRef.current = mergedFolders;
+          setDocumentFolders(mergedFolders);
+          localStorage.setItem('hotel_doc_folders', JSON.stringify(mergedFolders));
+        }
+      }
+
+      if (Array.isArray(data.users)) {
+        const deletedUserIds = reconcileServerDeletedCollectionIds(
+          DELETED_USERS_STORAGE_KEY,
+          serverDeletedList,
+          data.users
+        );
+        const cleanUsers = data.users.filter(
+          (u: any) =>
+            u &&
+            u.id &&
+            !deletedUserIds.has(u.id) &&
+            !isRecentlyLocallyDeleted(u.id) &&
+            !FAKE_USER_IDS.has(u.id) &&
+            u.displayName !== 'Administrador Principal'
+        );
+        const mergedUsers = mergeUserLists(
+          usersRef.current || [],
+          cleanUsers,
+          deletedUserIds,
+          pendingCreations,
+          true
+        );
+        if (JSON.stringify(mergedUsers) !== JSON.stringify(usersRef.current)) {
+          usersRef.current = mergedUsers;
+          setUsers(mergedUsers);
+          localStorage.setItem('hotel_maint_users', JSON.stringify(mergedUsers));
+        }
+
+        if (currentUserRef.current) {
+          const activeId = currentUserRef.current.id;
+          const activeEmail = String(currentUserRef.current.email ?? '').toLowerCase().trim();
+          if (deletedUserIds.has(activeId) || isRecentlyLocallyDeleted(activeId)) {
+            setCurrentUserState(null);
+            currentUserRef.current = null;
+            localStorage.removeItem('hotel_maint_current_user');
+            sessionStorage.removeItem('hotel_maint_current_user');
+            notify('Tu sesión finalizó porque tu cuenta fue eliminada por el administrador.');
+          } else {
+            const freshMe = mergedUsers.find(
+              u => u && (u.id === activeId || (activeEmail && String(u.email ?? '').toLowerCase().trim() === activeEmail))
+            );
+            if (freshMe) {
+              if (freshMe.status === 'inactive') {
+                setCurrentUserState(null);
+                currentUserRef.current = null;
+                localStorage.removeItem('hotel_maint_current_user');
+                sessionStorage.removeItem('hotel_maint_current_user');
+                notify('Tu sesión ha finalizado porque tu cuenta fue desactivada.');
+              } else {
+                const hasDiff =
+                  freshMe.role !== currentUserRef.current.role ||
+                  freshMe.displayName !== currentUserRef.current.displayName ||
+                  freshMe.password !== currentUserRef.current.password ||
+                  JSON.stringify(freshMe.permissions) !== JSON.stringify(currentUserRef.current.permissions) ||
+                  JSON.stringify(freshMe.visibleSections) !== JSON.stringify(currentUserRef.current.visibleSections) ||
+                  (freshMe as any).shift !== (currentUserRef.current as any).shift ||
+                  JSON.stringify((freshMe as any).assignedTasks) !== JSON.stringify((currentUserRef.current as any).assignedTasks);
+                if (hasDiff) {
+                  const updatedSession = { ...currentUserRef.current, ...freshMe };
+                  setCurrentUserState(updatedSession);
+                  currentUserRef.current = updatedSession;
+                  localStorage.setItem('hotel_maint_current_user', JSON.stringify(updatedSession));
+                  sessionStorage.setItem('hotel_maint_current_user', JSON.stringify(updatedSession));
+                }
+              }
+            }
+          }
+        }
+      }
+
+      if (Array.isArray(data.schedules)) {
+        const deletedScheduleIds = reconcileServerDeletedCollectionIds(
+          DELETED_SCHEDULES_STORAGE_KEY,
+          serverDeletedList,
+          data.schedules
+        );
+        const cleanSchedules = data.schedules.filter(
+          (s: any) => s && s.id && !deletedScheduleIds.has(s.id) && !isRecentlyLocallyDeleted(s.id)
+        );
+        const mergedSchedules = mergeScheduleLists(
+          schedulesRef.current || [],
+          cleanSchedules,
+          deletedScheduleIds,
+          true,
+          pendingCreations
+        );
+        if (JSON.stringify(mergedSchedules) !== JSON.stringify(schedulesRef.current)) {
+          schedulesRef.current = mergedSchedules;
+          setSchedules(mergedSchedules);
+          localStorage.setItem(STORAGE_KEYS.SCHEDULES, JSON.stringify(mergedSchedules));
+          idbSet(STORAGE_KEYS.SCHEDULES, mergedSchedules).catch(() => {});
+        }
+      }
+
+      if (Array.isArray(data.shiftSwaps)) {
+        const deletedSwapIds = reconcileServerDeletedCollectionIds(
+          DELETED_SHIFT_SWAPS_STORAGE_KEY,
+          serverDeletedList,
+          data.shiftSwaps
+        );
+        const mergedSwaps = mergeGenericAuthoritative(
+          shiftSwapRequestsRef.current || [],
+          data.shiftSwaps,
+          deletedSwapIds,
+          pendingCreations,
+          true
+        );
+        if (JSON.stringify(mergedSwaps) !== JSON.stringify(shiftSwapRequestsRef.current)) {
+          shiftSwapRequestsRef.current = mergedSwaps;
+          setShiftSwapRequests(mergedSwaps);
+          localStorage.setItem(STORAGE_KEYS.SHIFT_SWAPS, JSON.stringify(mergedSwaps));
+        }
+      }
+
+      if (Array.isArray(data.cronogramas)) {
+        const deletedCronogramaIds = reconcileServerDeletedCollectionIds(
+          DELETED_CRONOGRAMAS_STORAGE_KEY,
+          serverDeletedList,
+          data.cronogramas
+        );
+        const cleanCronogramas = data.cronogramas.filter(
+          (c: any) => c && c.id && !deletedCronogramaIds.has(c.id) && !isRecentlyLocallyDeleted(c.id)
+        );
+        const mergedCronogramas = mergeCronogramaLists(
+          cronogramasRef.current || [],
+          cleanCronogramas,
+          deletedCronogramaIds,
+          true,
+          pendingCreations
+        );
+        if (JSON.stringify(mergedCronogramas) !== JSON.stringify(cronogramasRef.current)) {
+          cronogramasRef.current = mergedCronogramas;
+          setCronogramas(mergedCronogramas);
+          localStorage.setItem(STORAGE_KEYS.CRONOGRAMAS, JSON.stringify(mergedCronogramas));
+        }
+      }
+
+      if (Array.isArray(data.roundTemplate) && data.roundTemplate.length > 0 && !localActionIds.current.has('round_template')) {
+        const sanitizedTpl = data.roundTemplate.map(sanitizeCheckpointTemplate);
+        if (JSON.stringify(sanitizedTpl) !== JSON.stringify(roundTemplateRef.current)) {
+          roundTemplateRef.current = sanitizedTpl;
+          setRoundTemplate(sanitizedTpl);
+          localStorage.setItem('hotel_round_template', JSON.stringify(sanitizedTpl));
+        }
+      }
+    };
+
+    // 1. Initial load from PostgreSQL server API
     fetch(`/api/data?_t=${Date.now()}`, { cache: 'no-store' })
       .then(res => res.json())
       .then(data => {
         if (data && typeof data === 'object' && Object.keys(data).length > 0) {
-          if (Array.isArray(data.meters)) {
-            const cleanMeters = data.meters.filter((m: any) => m && m.id && !localActionIds.current.has(m.id));
-            cleanMeters.forEach((m: any) => {
-              unmarkDeletedMeterId(m.id);
-              if (m.code) unmarkDeletedMeterId(m.code);
-            });
-            const mergedMeters = mergeMeterLists(metersRef.current || [], cleanMeters, new Set(), localActionIds.current);
-            if (!areMetersEqual(mergedMeters, metersRef.current || [])) {
-              metersRef.current = mergedMeters;
-              setMeters(mergedMeters);
-              safeSetItem(STORAGE_KEYS.METERS, JSON.stringify(mergedMeters));
-            }
-          }
-          if (Array.isArray(data.meterReadingsLog)) {
-            const cleanReadings = data.meterReadingsLog.filter((r: any) => r && r.id && !localActionIds.current.has(r.id));
-            cleanReadings.forEach((r: any) => unmarkDeletedMeterReadingId(r.id));
-            const mergedReadings = mergeMeterReadingLists(meterReadingsLogRef.current || [], cleanReadings, new Set(), new Set(), localActionIds.current);
-            if (!areReadingsEqual(mergedReadings, meterReadingsLogRef.current || [])) {
-              meterReadingsLogRef.current = mergedReadings;
-              setMeterReadingsLog(mergedReadings);
-              localStorage.setItem(STORAGE_KEYS.METER_READINGS_LOG, JSON.stringify(mergedReadings));
-            }
-          }
-          if (Array.isArray(data.rounds)) {
-            const deletedIds = reconcileServerDeletedRoundIds(data.deletedIds, data.rounds, localActionIds.current);
-            const cleanRounds = data.rounds.filter(r => r && !deletedIds.has(r.id));
-            const currentActiveId = activeRoundRef.current?.id;
-            const unsyncedIds = getUnsyncedRoundIds();
-            const pendingLocalRounds = (roundsRef.current || []).filter(r =>
-              r && r.id && !deletedIds.has(r.id) && (r.status === 'completada' || Boolean(r.completedAt && r.technicianSignature) || r.id === currentActiveId || localActionIds.current.has(r.id) || unsyncedIds.has(r.id))
-            );
-            const mergedRounds = mergeRoundLists(pendingLocalRounds, cleanRounds, deletedIds, currentActiveId, localActionIds.current);
-            if (!areRoundsEqual(mergedRounds, roundsRef.current || [])) {
-              roundsRef.current = mergedRounds;
-              setRounds(mergedRounds);
-              safeSetItem(STORAGE_KEYS.ROUNDS, JSON.stringify(mergedRounds));
-            }
-
-            // Automatic reconciliation: detect rounds in phone memory that the server does not have yet
-            const serverRoundIds = new Set((cleanRounds || []).map((r: any) => r.id));
-            const unsyncedLocally = mergedRounds.filter(r => 
-              r && r.id && !deletedIds.has(r.id) && !serverRoundIds.has(r.id) && (r.status === 'completada' || r.id === currentActiveId)
-            );
-            if (unsyncedLocally.length > 0) {
-              syncRoundsToServer(unsyncedLocally);
-            }
-          }
-          if (Array.isArray(data.equipments)) {
-            const cleanEquipments = data.equipments.filter((e: any) => e && e.id && !localActionIds.current.has(e.id));
-            cleanEquipments.forEach((e: any) => unmarkDeletedEquipmentId(e.id));
-            const mergedEquipments = mergeEquipmentLists(equipmentsRef.current || [], cleanEquipments, new Set());
-            if (JSON.stringify(mergedEquipments) !== JSON.stringify(equipmentsRef.current)) {
-              equipmentsRef.current = mergedEquipments;
-              setEquipments(mergedEquipments);
-              localStorage.setItem(STORAGE_KEYS.EQUIPMENT, JSON.stringify(mergedEquipments));
-            }
-          }
-          if (Array.isArray(data.incidents) || Array.isArray(data.rounds)) {
-            const incomingInc = Array.isArray(data.incidents) ? data.incidents : [];
-            const cleanIncidents = incomingInc.filter((i: any) => i && i.id && !localActionIds.current.has(i.id));
-            cleanIncidents.forEach((i: any) => unmarkDeletedIncidentId(i.id));
-            const deletedIds = getDeletedIncidentIds();
-            const pendingLocal = (incidentsRef.current || []).filter(i => localActionIds.current.has(i.id) && !deletedIds.has(i.id));
-            const currentRounds = roundsRef.current || [];
-            const withRoundAnomalies = extractAnomaliesAsIncidents(currentRounds, [...pendingLocal, ...cleanIncidents], deletedIds);
-            const finalIncidents = deduplicateIncidents(withRoundAnomalies, deletedIds);
-            if (JSON.stringify(finalIncidents) !== JSON.stringify(incidentsRef.current)) {
-              incidentsRef.current = finalIncidents;
-              setIncidents(finalIncidents);
-              localStorage.setItem(STORAGE_KEYS.INCIDENTS, JSON.stringify(finalIncidents));
-            }
-          }
-          if (Array.isArray(data.requests)) {
-            const cleanRequests = data.requests.filter((r: any) => r && r.id && !localActionIds.current.has(r.id));
-            cleanRequests.forEach((r: any) => unmarkDeletedRequestId(r.id));
-            const mergedRequests = mergeRequestLists(requestsRef.current || [], cleanRequests, new Set(), localActionIds.current);
-            if (JSON.stringify(mergedRequests) !== JSON.stringify(requestsRef.current)) {
-              if (!isInitialLoad.current) {
-                checkAndNotifyNewRequests(mergedRequests, requestsRef.current || []);
-              }
-              requestsRef.current = mergedRequests;
-              setRequests(mergedRequests);
-              localStorage.setItem(STORAGE_KEYS.REQUESTS, JSON.stringify(mergedRequests));
-              idbSet(STORAGE_KEYS.REQUESTS, mergedRequests).catch(() => {});
-            }
-          }
-          if (Array.isArray(data.tasks)) {
-            const cleanTasks = data.tasks.filter((t: any) => t && t.id && !localActionIds.current.has(t.id));
-            cleanTasks.forEach((t: any) => unmarkDeletedTaskId(t.id));
-            const mergedTasks = mergeTaskLists(tasksRef.current || [], cleanTasks, new Set(), localActionIds.current, true);
-            if (JSON.stringify(mergedTasks) !== JSON.stringify(tasksRef.current)) {
-              tasksRef.current = mergedTasks;
-              setTasks(mergedTasks);
-              localStorage.setItem(STORAGE_KEYS.TASKS, JSON.stringify(mergedTasks));
-              idbSet(STORAGE_KEYS.TASKS, mergedTasks).catch(() => {});
-            }
-          }
-          if (Array.isArray(data.pumpInspections)) {
-            if (JSON.stringify(data.pumpInspections) !== JSON.stringify(pumpInspectionsRef.current)) {
-              pumpInspectionsRef.current = data.pumpInspections;
-              setPumpInspections(data.pumpInspections);
-            }
-          }
-          if (Array.isArray(data.preventivePlans)) {
-            if (JSON.stringify(data.preventivePlans) !== JSON.stringify(preventivePlansRef.current)) {
-              preventivePlansRef.current = data.preventivePlans;
-              setPreventivePlans(data.preventivePlans);
-            }
-          }
-          if (Array.isArray(data.workOrders)) {
-            if (JSON.stringify(data.workOrders) !== JSON.stringify(workOrdersRef.current)) {
-              workOrdersRef.current = data.workOrders;
-              setWorkOrders(data.workOrders);
-            }
-          }
-          if (data.settings) {
-            const cleanSettings = sanitizeSystemSettings(data.settings, settingsRef.current);
-            if (JSON.stringify(cleanSettings) !== JSON.stringify(settingsRef.current)) {
-              settingsRef.current = cleanSettings;
-              setSettings(cleanSettings);
-              safeSetItem(STORAGE_KEYS.SETTINGS, JSON.stringify(cleanSettings));
-            }
-          }
-          if (Array.isArray(data.uploadedDocuments)) {
-            if (JSON.stringify(data.uploadedDocuments) !== JSON.stringify(uploadedDocumentsRef.current)) {
-              uploadedDocumentsRef.current = data.uploadedDocuments;
-              setUploadedDocuments(data.uploadedDocuments);
-              localStorage.setItem(STORAGE_KEYS.DOCUMENTS, JSON.stringify(data.uploadedDocuments));
-            }
-          }
-          if (Array.isArray(data.documentFolders)) {
-            if (JSON.stringify(data.documentFolders) !== JSON.stringify(documentFoldersRef.current)) {
-              documentFoldersRef.current = data.documentFolders;
-              setDocumentFolders(data.documentFolders);
-              localStorage.setItem('hotel_doc_folders', JSON.stringify(data.documentFolders));
-            }
-          }
-          if (Array.isArray(data.users)) {
-            const cleanUsers = data.users.filter((u: any) => u && u.id && !localActionIds.current.has(u.id));
-            cleanUsers.forEach((u: any) => unmarkDeletedUserId(u.id));
-            const mergedUsers = mergeUserLists(usersRef.current || [], cleanUsers, new Set());
-            const guaranteed = ensureAdminUserList(mergedUsers);
-            if (JSON.stringify(guaranteed) !== JSON.stringify(usersRef.current)) {
-              usersRef.current = guaranteed;
-              setUsers(guaranteed);
-              localStorage.setItem('hotel_maint_users', JSON.stringify(guaranteed));
-            }
-          }
-          if (Array.isArray(data.schedules)) {
-            const cleanSchedules = data.schedules.filter((s: any) => s && s.id && !localActionIds.current.has(s.id));
-            cleanSchedules.forEach((s: any) => unmarkDeletedScheduleId(s.id));
-            const mergedSchedules = mergeScheduleLists(schedulesRef.current || [], cleanSchedules, new Set());
-            if (JSON.stringify(mergedSchedules) !== JSON.stringify(schedulesRef.current)) {
-              schedulesRef.current = mergedSchedules;
-              setSchedules(mergedSchedules);
-              localStorage.setItem(STORAGE_KEYS.SCHEDULES, JSON.stringify(mergedSchedules));
-              idbSet(STORAGE_KEYS.SCHEDULES, mergedSchedules).catch(() => {});
-            }
-          }
-          if (Array.isArray(data.shiftSwaps)) {
-            if (JSON.stringify(data.shiftSwaps) !== JSON.stringify(shiftSwapRequestsRef.current)) {
-              shiftSwapRequestsRef.current = data.shiftSwaps;
-              setShiftSwapRequests(data.shiftSwaps);
-              localStorage.setItem(STORAGE_KEYS.SHIFT_SWAPS, JSON.stringify(data.shiftSwaps));
-            }
-          }
-          if (Array.isArray(data.cronogramas)) {
-            const cleanCronogramas = data.cronogramas.filter((c: any) => c && c.id && !localActionIds.current.has(c.id));
-            cleanCronogramas.forEach((c: any) => unmarkDeletedCronogramaId(c.id));
-            const mergedCronogramas = mergeCronogramaLists(cronogramasRef.current || [], cleanCronogramas, new Set());
-            if (JSON.stringify(mergedCronogramas) !== JSON.stringify(cronogramasRef.current)) {
-              cronogramasRef.current = mergedCronogramas;
-              setCronogramas(mergedCronogramas);
-              localStorage.setItem(STORAGE_KEYS.CRONOGRAMAS, JSON.stringify(mergedCronogramas));
-            }
-          }
-          if (Array.isArray(data.roundTemplate) && data.roundTemplate.length > 0) {
-            const localSaved = localStorage.getItem('hotel_round_template');
-            if (!localSaved) {
-              roundTemplateRef.current = data.roundTemplate;
-              setRoundTemplate(data.roundTemplate);
-              localStorage.setItem('hotel_round_template', JSON.stringify(data.roundTemplate));
-            }
-          }
-          if (data.serverVersion) {
-            checkServerVersion(data.serverVersion);
-          }
+          applyAuthoritativeServerData(data, true);
           isInitialFetchDone.current = true;
           setIsCloudSynced(true);
         } else {
@@ -5337,199 +5819,16 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
         isInitialFetchDone.current = true;
       });
 
-    // 2. Gentle background polling fallback (every 25s) + on tab focus/visibility/pageshow/online
+    // 2. Background polling fallback (every 8s) + on tab focus/visibility/pageshow/online
     const performBackgroundSync = () => {
       if (!isInitialFetchDone.current) return;
       fetch(`/api/data?_t=${Date.now()}`, { cache: 'no-store' })
         .then(res => res.json())
         .then(data => {
-          if (!data || typeof data !== 'object') return;
-          if (data.serverVersion) {
-            checkServerVersion(data.serverVersion);
-          }
-          if (Array.isArray(data.rounds)) {
-            const deletedIds = reconcileServerDeletedRoundIds(data.deletedIds, data.rounds, localActionIds.current);
-            const cleanRounds = data.rounds.filter(r => r && !deletedIds.has(r.id));
-            const currentActiveId = activeRoundRef.current?.id;
-            const unsyncedIds = getUnsyncedRoundIds();
-            const pendingLocalRounds = (roundsRef.current || []).filter(r =>
-              r && r.id && !deletedIds.has(r.id) && (r.status === 'completada' || Boolean(r.completedAt && r.technicianSignature) || r.id === currentActiveId || localActionIds.current.has(r.id) || unsyncedIds.has(r.id))
-            );
-            const mergedRounds = mergeRoundLists(pendingLocalRounds, cleanRounds, deletedIds, currentActiveId, localActionIds.current);
-            if (!areRoundsEqual(mergedRounds, roundsRef.current || [])) {
-              checkAndNotifyNewRounds(mergedRounds, roundsRef.current || []);
-              roundsRef.current = mergedRounds;
-              setRounds(mergedRounds);
-              safeSetItem(STORAGE_KEYS.ROUNDS, JSON.stringify(mergedRounds));
-            }
-            if (activeRoundRef.current) {
-              const activeId = activeRoundRef.current.id;
-              const deletedIds = getDeletedRoundIds();
-              // Keep active round intact while user is filling it; only discard if deleted or cancelled
-              const isLocked = localStorage.getItem('active_round_resume_lock') === activeId;
-              if (deletedIds.has(activeId) && !isLocked && activeRoundRef.current.status !== 'en_progreso') {
-                activeRoundRef.current = null;
-                setActiveRound(null);
-                localStorage.removeItem(STORAGE_KEYS.ACTIVE_ROUND);
-                idbRemove(STORAGE_KEYS.ACTIVE_ROUND).catch(() => {});
-              }
-            }
-          }
-          if (Array.isArray(data.equipments)) {
-            const cleanEquipments = data.equipments.filter((e: any) => e && e.id && !localActionIds.current.has(e.id));
-            cleanEquipments.forEach((e: any) => unmarkDeletedEquipmentId(e.id));
-            const mergedEquipments = mergeEquipmentLists(equipmentsRef.current || [], cleanEquipments, new Set());
-            if (JSON.stringify(mergedEquipments) !== JSON.stringify(equipmentsRef.current)) {
-              equipmentsRef.current = mergedEquipments;
-              setEquipments(mergedEquipments);
-              localStorage.setItem(STORAGE_KEYS.EQUIPMENT, JSON.stringify(mergedEquipments));
-            }
-          }
-          if (Array.isArray(data.incidents) || Array.isArray(data.rounds)) {
-            const incomingInc = Array.isArray(data.incidents) ? data.incidents : (incidentsRef.current || []);
-            const cleanIncidents = incomingInc.filter((i: any) => i && i.id && !localActionIds.current.has(i.id));
-            cleanIncidents.forEach((i: any) => unmarkDeletedIncidentId(i.id));
-            const deletedIds = getDeletedIncidentIds();
-            const pendingLocal = (incidentsRef.current || []).filter(i => localActionIds.current.has(i.id) && !deletedIds.has(i.id));
-            const currentRounds = roundsRef.current || [];
-            const withRoundAnomalies = extractAnomaliesAsIncidents(currentRounds, [...pendingLocal, ...cleanIncidents], deletedIds);
-            const finalIncidents = deduplicateIncidents(withRoundAnomalies, deletedIds);
-            if (JSON.stringify(finalIncidents) !== JSON.stringify(incidentsRef.current)) {
-              checkAndNotifyNewIncidents(finalIncidents, incidentsRef.current || []);
-              incidentsRef.current = finalIncidents;
-              setIncidents(finalIncidents);
-              localStorage.setItem(STORAGE_KEYS.INCIDENTS, JSON.stringify(finalIncidents));
-            }
-          }
-          if (Array.isArray(data.requests)) {
-            const cleanServer = data.requests.filter((r: any) => r && r.id && !localActionIds.current.has(r.id));
-            cleanServer.forEach((r: any) => unmarkDeletedRequestId(r.id));
-            const merged = mergeRequestLists(requestsRef.current || [], cleanServer, new Set(), localActionIds.current);
-            if (JSON.stringify(merged) !== JSON.stringify(requestsRef.current)) {
-              checkAndNotifyNewRequests(merged, requestsRef.current || []);
-              requestsRef.current = merged;
-              setRequests(merged);
-              localStorage.setItem(STORAGE_KEYS.REQUESTS, JSON.stringify(merged));
-            }
-          }
-          if (Array.isArray(data.tasks)) {
-            const cleanServer = data.tasks.filter((t: any) => t && t.id && !localActionIds.current.has(t.id));
-            cleanServer.forEach((t: any) => unmarkDeletedTaskId(t.id));
-            const merged = mergeTaskLists(tasksRef.current || [], cleanServer, new Set(), localActionIds.current, true);
-            if (JSON.stringify(merged) !== JSON.stringify(tasksRef.current)) {
-              checkAndNotifyNewTasks(merged, tasksRef.current || []);
-              tasksRef.current = merged;
-              setTasks(merged);
-              localStorage.setItem(STORAGE_KEYS.TASKS, JSON.stringify(merged));
-            }
-          }
-          if (Array.isArray(data.pumpInspections)) {
-            if (JSON.stringify(data.pumpInspections) !== JSON.stringify(pumpInspectionsRef.current)) {
-              pumpInspectionsRef.current = data.pumpInspections;
-              setPumpInspections(data.pumpInspections);
-            }
-          }
-          if (Array.isArray(data.preventivePlans)) {
-            if (JSON.stringify(data.preventivePlans) !== JSON.stringify(preventivePlansRef.current)) {
-              preventivePlansRef.current = data.preventivePlans;
-              setPreventivePlans(data.preventivePlans);
-            }
-          }
-          if (Array.isArray(data.workOrders)) {
-            if (JSON.stringify(data.workOrders) !== JSON.stringify(workOrdersRef.current)) {
-              workOrdersRef.current = data.workOrders;
-              setWorkOrders(data.workOrders);
-            }
-          }
-          if (data.settings) {
-            const cleanSettings = sanitizeSystemSettings(data.settings, settingsRef.current);
-            if (JSON.stringify(cleanSettings) !== JSON.stringify(settingsRef.current)) {
-              settingsRef.current = cleanSettings;
-              setSettings(cleanSettings);
-              safeSetItem(STORAGE_KEYS.SETTINGS, JSON.stringify(cleanSettings));
-            }
-          }
-          if (Array.isArray(data.uploadedDocuments)) {
-            if (JSON.stringify(data.uploadedDocuments) !== JSON.stringify(uploadedDocumentsRef.current)) {
-              uploadedDocumentsRef.current = data.uploadedDocuments;
-              setUploadedDocuments(data.uploadedDocuments);
-              localStorage.setItem(STORAGE_KEYS.DOCUMENTS, JSON.stringify(data.uploadedDocuments));
-            }
-          }
-          if (Array.isArray(data.documentFolders)) {
-            if (JSON.stringify(data.documentFolders) !== JSON.stringify(documentFoldersRef.current)) {
-              documentFoldersRef.current = data.documentFolders;
-              setDocumentFolders(data.documentFolders);
-              localStorage.setItem('hotel_doc_folders', JSON.stringify(data.documentFolders));
-            }
-          }
-          if (Array.isArray(data.users)) {
-            const cleanFresh = data.users.filter((u: any) => u && u.id && !localActionIds.current.has(u.id));
-            cleanFresh.forEach((u: any) => unmarkDeletedUserId(u.id));
-            const mergedUsers = mergeUserLists(usersRef.current || [], cleanFresh, new Set());
-            const guaranteed = ensureAdminUserList(mergedUsers);
-            if (JSON.stringify(guaranteed) !== JSON.stringify(usersRef.current)) {
-              usersRef.current = guaranteed;
-              setUsers(guaranteed);
-              localStorage.setItem('hotel_maint_users', JSON.stringify(guaranteed));
-            }
-          }
-          if (Array.isArray(data.schedules)) {
-            const cleanFresh = data.schedules.filter((s: any) => s && s.id && !localActionIds.current.has(s.id));
-            cleanFresh.forEach((s: any) => unmarkDeletedScheduleId(s.id));
-            const mergedSchedules = mergeScheduleLists(schedulesRef.current || [], cleanFresh, new Set());
-            if (JSON.stringify(mergedSchedules) !== JSON.stringify(schedulesRef.current)) {
-              schedulesRef.current = mergedSchedules;
-              setSchedules(mergedSchedules);
-              localStorage.setItem(STORAGE_KEYS.SCHEDULES, JSON.stringify(mergedSchedules));
-              idbSet(STORAGE_KEYS.SCHEDULES, mergedSchedules).catch(() => {});
-            }
-          }
-          if (Array.isArray(data.shiftSwaps)) {
-            if (JSON.stringify(data.shiftSwaps) !== JSON.stringify(shiftSwapRequestsRef.current)) {
-              shiftSwapRequestsRef.current = data.shiftSwaps;
-              setShiftSwapRequests(data.shiftSwaps);
-              localStorage.setItem(STORAGE_KEYS.SHIFT_SWAPS, JSON.stringify(data.shiftSwaps));
-            }
-          }
-          if (Array.isArray(data.cronogramas)) {
-            const cleanCronogramas = data.cronogramas.filter((c: any) => c && c.id && !localActionIds.current.has(c.id));
-            cleanCronogramas.forEach((c: any) => unmarkDeletedCronogramaId(c.id));
-            const mergedCronogramas = mergeCronogramaLists(cronogramasRef.current || [], cleanCronogramas, new Set());
-            if (JSON.stringify(mergedCronogramas) !== JSON.stringify(cronogramasRef.current)) {
-              cronogramasRef.current = mergedCronogramas;
-              setCronogramas(mergedCronogramas);
-              localStorage.setItem(STORAGE_KEYS.CRONOGRAMAS, JSON.stringify(mergedCronogramas));
-            }
-          }
-          if (Array.isArray(data.meters)) {
-            const cleanM = data.meters.filter((m: any) => m && m.id && !localActionIds.current.has(m.id));
-            cleanM.forEach((m: any) => {
-              unmarkDeletedMeterId(m.id);
-              if (m.code) unmarkDeletedMeterId(m.code);
-            });
-            const mergedM = mergeMeterLists(metersRef.current || [], cleanM, new Set(), localActionIds.current);
-            if (!areMetersEqual(mergedM, metersRef.current || [])) {
-              metersRef.current = mergedM;
-              setMeters(mergedM);
-              safeSetItem(STORAGE_KEYS.METERS, JSON.stringify(mergedM));
-            }
-          }
-          if (Array.isArray(data.meterReadingsLog)) {
-            const cleanR = data.meterReadingsLog.filter((r: any) => r && r.id && !localActionIds.current.has(r.id));
-            cleanR.forEach((r: any) => unmarkDeletedMeterReadingId(r.id));
-            const mergedR = mergeMeterReadingLists(meterReadingsLogRef.current || [], cleanR, new Set(), new Set(), localActionIds.current);
-            if (!areReadingsEqual(mergedR, meterReadingsLogRef.current || [])) {
-              meterReadingsLogRef.current = mergedR;
-              setMeterReadingsLog(mergedR);
-              localStorage.setItem(STORAGE_KEYS.METER_READINGS_LOG, JSON.stringify(mergedR));
-            }
-          }
-
+          applyAuthoritativeServerData(data, false);
         })
         .catch(() => {});
 
-      // Sincronizar automáticamente cualquier ronda pendiente de subida offline
       flushPendingOfflineRounds();
     };
 
@@ -5539,7 +5838,6 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
       if (document.visibilityState === 'visible') {
         performBackgroundSync();
         flushPendingOfflineRounds();
-        // Verificar versión del servidor de inmediato al activar/enfocar la pestaña
         fetch(`/api/version?_t=${Date.now()}`, { cache: 'no-store' })
           .then(r => r.json())
           .then(v => {
@@ -5566,7 +5864,6 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
             checkServerVersion(payload.serverVersion);
           }
           if (payload && (payload.type === 'round_completed' || payload.type === 'round_updated') && payload.round) {
-            // Evitar bucle de retroalimentación y consumo de memoria ignorando el eco de nuestras propias actualizaciones en curso
             if (payload.clientId && payload.clientId === clientSessionId.current && payload.type === 'round_updated') {
               return;
             }
@@ -5574,8 +5871,7 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
             const incomingRound = payload.round as DailyRound;
             const isIncomingCompleted = incomingRound.status === 'completada' || Boolean(incomingRound.completedAt && incomingRound.technicianSignature);
 
-            // Si la ronda fue descartada/eliminada, nunca resucitarla por paquetes en_progreso en tránsito
-            if (!isIncomingCompleted && getDeletedRoundIds().has(incomingRound.id)) {
+            if (getDeletedRoundIds().has(incomingRound.id) || isRecentlyLocallyDeleted(incomingRound.id)) {
               return;
             }
 
@@ -5589,7 +5885,6 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
             roundsRef.current = merged;
             setRounds(merged);
 
-            // Guardar en almacenamiento: inmediato si se completó, evitando saturar almacenamiento si es sólo un punto en curso
             if (isIncomingCompleted) {
               safeSetItem(STORAGE_KEYS.ROUNDS, JSON.stringify(merged));
             }
@@ -5603,10 +5898,12 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
               activeRoundRef.current = null;
               setActiveRound(null);
               localStorage.removeItem(STORAGE_KEYS.ACTIVE_ROUND);
+              localStorage.removeItem('active_round_draft_backup');
               idbRemove(STORAGE_KEYS.ACTIVE_ROUND).catch(() => {});
             }
           } else if (payload && payload.type === 'round_deleted' && payload.roundId) {
             const delId = payload.roundId;
+            trackLocalDeletion(delId);
             markDeletedRoundId(delId);
             removePendingOfflineRound(delId);
             const updated = (roundsRef.current || []).filter(r => r.id !== delId);
@@ -5615,43 +5912,41 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
             safeSetItem(STORAGE_KEYS.ROUNDS, JSON.stringify(updated));
             idbSet(STORAGE_KEYS.ROUNDS, updated).catch(() => {});
             if (activeRoundRef.current?.id === delId) {
-              const alternative = updated.find(r => r && r.status === 'en_progreso' && isRoundActivelyBeingPerformed(r) && isUserOwnRound(r, currentUserRef.current));
-              if (alternative) {
-                const reconciled = reconcileActiveRoundWithTemplate(alternative, roundTemplateRef.current || roundTemplate);
-                activeRoundRef.current = reconciled;
-                setActiveRound(reconciled);
-                safeSetItem(STORAGE_KEYS.ACTIVE_ROUND, JSON.stringify(reconciled));
-                idbSet(STORAGE_KEYS.ACTIVE_ROUND, reconciled).catch(() => {});
-              } else {
-                activeRoundRef.current = null;
-                setActiveRound(null);
-                localStorage.removeItem(STORAGE_KEYS.ACTIVE_ROUND);
-                idbRemove(STORAGE_KEYS.ACTIVE_ROUND).catch(() => {});
-              }
+              activeRoundRef.current = null;
+              setActiveRound(null);
+              localStorage.removeItem(STORAGE_KEYS.ACTIVE_ROUND);
+              localStorage.removeItem('active_round_draft_backup');
+              idbRemove(STORAGE_KEYS.ACTIVE_ROUND).catch(() => {});
             }
           } else if (payload && payload.type === 'request_deleted' && payload.requestId) {
             const delId = payload.requestId;
+            trackLocalDeletion(delId);
             markDeletedRequestId(delId);
             const updated = (requestsRef.current || []).filter(r => r.id !== delId);
             requestsRef.current = updated;
             setRequests(updated);
             localStorage.setItem(STORAGE_KEYS.REQUESTS, JSON.stringify(updated));
+            idbSet(STORAGE_KEYS.REQUESTS, updated).catch(() => {});
           } else if (payload && payload.type === 'schedule_deleted' && payload.scheduleId) {
             const delId = payload.scheduleId;
+            trackLocalDeletion(delId);
             markDeletedScheduleId(delId);
             const updated = (schedulesRef.current || []).filter(s => s.id !== delId);
             schedulesRef.current = updated;
             setSchedules(updated);
             localStorage.setItem(STORAGE_KEYS.SCHEDULES, JSON.stringify(updated));
+            idbSet(STORAGE_KEYS.SCHEDULES, updated).catch(() => {});
           } else if (payload && payload.type === 'swap_deleted' && payload.swapId) {
             const delId = payload.swapId;
+            trackLocalDeletion(delId);
+            markDeletedShiftSwapId(delId);
             const updated = (shiftSwapRequestsRef.current || []).filter(s => s.id !== delId);
             shiftSwapRequestsRef.current = updated;
             setShiftSwapRequests(updated);
             localStorage.setItem(STORAGE_KEYS.SHIFT_SWAPS, JSON.stringify(updated));
           } else if (payload && payload.type === 'task_updated' && payload.task) {
             const incomingTask = payload.task as MaintenanceTask;
-            unmarkDeletedTaskId(incomingTask.id);
+            if (getDeletedTaskIds().has(incomingTask.id) || isRecentlyLocallyDeleted(incomingTask.id)) return;
             const prevTasks = tasksRef.current || [];
             const deletedIds = getDeletedTaskIds();
             const merged = mergeTaskLists(prevTasks, [incomingTask], deletedIds, undefined, false);
@@ -5659,22 +5954,54 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
             tasksRef.current = merged;
             setTasks(merged);
             localStorage.setItem(STORAGE_KEYS.TASKS, JSON.stringify(merged));
+            idbSet(STORAGE_KEYS.TASKS, merged).catch(() => {});
           } else if (payload && payload.type === 'task_deleted' && payload.taskId) {
             const delId = payload.taskId;
+            trackLocalDeletion(delId);
             markDeletedTaskId(delId);
             const updated = (tasksRef.current || []).filter(t => t.id !== delId);
             tasksRef.current = updated;
             setTasks(updated);
             localStorage.setItem(STORAGE_KEYS.TASKS, JSON.stringify(updated));
+            idbSet(STORAGE_KEYS.TASKS, updated).catch(() => {});
+          } else if (payload && payload.type === 'incident_updated' && payload.incident) {
+            const incomingInc = payload.incident as Incident;
+            if (getDeletedIncidentIds().has(incomingInc.id) || isRecentlyLocallyDeleted(incomingInc.id)) return;
+            const updated = deduplicateIncidents([incomingInc, ...(incidentsRef.current || []).filter(i => i.id !== incomingInc.id)], getDeletedIncidentIds());
+            incidentsRef.current = updated;
+            setIncidents(updated);
+            localStorage.setItem(STORAGE_KEYS.INCIDENTS, JSON.stringify(updated));
           } else if (payload && payload.type === 'incident_deleted' && payload.incidentId) {
             const delId = payload.incidentId;
+            trackLocalDeletion(delId);
             markDeletedIncidentId(delId);
             const updated = (incidentsRef.current || []).filter(i => i.id !== delId);
             incidentsRef.current = updated;
             setIncidents(updated);
             localStorage.setItem(STORAGE_KEYS.INCIDENTS, JSON.stringify(updated));
+
+            let roundsChanged = false;
+            const cleanedRounds = (roundsRef.current || []).map(r => {
+              if (!r || !Array.isArray(r.anomalies)) return r;
+              const nextAnom = r.anomalies.filter(a => {
+                if (!a) return false;
+                const anomId = a.id || `inc-anom-${r.id}-${String(a.title || '').replace(/\s+/g, '_')}`;
+                return a.id !== delId && anomId !== delId;
+              });
+              if (nextAnom.length !== r.anomalies.length) {
+                roundsChanged = true;
+                return { ...r, anomalies: nextAnom, anomaliesCount: nextAnom.length };
+              }
+              return r;
+            });
+            if (roundsChanged) {
+              roundsRef.current = cleanedRounds;
+              setRounds(cleanedRounds);
+              safeSetItem(STORAGE_KEYS.ROUNDS, JSON.stringify(cleanedRounds));
+            }
           } else if (payload && payload.type === 'equipment_deleted' && payload.equipmentId) {
             const delId = payload.equipmentId;
+            trackLocalDeletion(delId);
             markDeletedEquipmentId(delId);
             const updated = (equipmentsRef.current || []).filter(e => e.id !== delId);
             equipmentsRef.current = updated;
@@ -5682,6 +6009,7 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
             localStorage.setItem(STORAGE_KEYS.EQUIPMENT, JSON.stringify(updated));
           } else if (payload && payload.type === 'user_deleted' && payload.userId) {
             const delId = payload.userId;
+            trackLocalDeletion(delId);
             markDeletedUserId(delId);
             const updated = (usersRef.current || []).filter(u => u.id !== delId);
             usersRef.current = updated;
@@ -5692,10 +6020,11 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
               currentUserRef.current = null;
               localStorage.removeItem('hotel_maint_current_user');
               sessionStorage.removeItem('hotel_maint_current_user');
+              notify('Tu sesión finalizó porque tu cuenta fue eliminada.');
             }
           } else if (payload && (payload.type === 'user_updated' || payload.type === 'user_created') && payload.user) {
             const incomingUser = payload.user as User;
-            unmarkDeletedUserId(incomingUser.id);
+            if (getDeletedUserIds().has(incomingUser.id) || isRecentlyLocallyDeleted(incomingUser.id) || FAKE_USER_IDS.has(incomingUser.id)) return;
             const prevUsers = usersRef.current || [];
             const safeIncomingEmail = String(incomingUser.email ?? '').toLowerCase().trim();
             const uIdx = prevUsers.findIndex(u => u.id === incomingUser.id || (safeIncomingEmail && String(u.email ?? '').toLowerCase().trim() === safeIncomingEmail));
@@ -5706,12 +6035,10 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
             } else {
               updatedUsers = [incomingUser, ...prevUsers];
             }
-            const cleanGuaranteed = ensureAdminUserList(updatedUsers);
-            usersRef.current = cleanGuaranteed;
-            setUsers(cleanGuaranteed);
-            localStorage.setItem('hotel_maint_users', JSON.stringify(cleanGuaranteed));
+            usersRef.current = updatedUsers;
+            setUsers(updatedUsers);
+            localStorage.setItem('hotel_maint_users', JSON.stringify(updatedUsers));
 
-            // Sincronización en vivo e instantánea del perfil de sesión en el dispositivo activo (sin cerrar sesión)
             if (currentUserRef.current) {
               const activeId = currentUserRef.current.id;
               const activeEmail = String(currentUserRef.current.email ?? '').toLowerCase().trim();
@@ -5728,20 +6055,28 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
                   setCurrentUserState(freshMe);
                   currentUserRef.current = freshMe;
                   localStorage.setItem('hotel_maint_current_user', JSON.stringify(freshMe));
+                  sessionStorage.setItem('hotel_maint_current_user', JSON.stringify(freshMe));
                 }
               }
             }
           } else if (payload && payload.type === 'cronograma_deleted' && payload.cronogramaId) {
             const delId = payload.cronogramaId;
+            trackLocalDeletion(delId);
             markDeletedCronogramaId(delId);
             const updated = (cronogramasRef.current || []).filter(c => c.id !== delId);
             cronogramasRef.current = updated;
             setCronogramas(updated);
             localStorage.setItem(STORAGE_KEYS.CRONOGRAMAS, JSON.stringify(updated));
+          } else if (payload && payload.type === 'cronograma_updated' && payload.cronograma) {
+            const item = payload.cronograma;
+            if (getDeletedCronogramaIds().has(item.id) || isRecentlyLocallyDeleted(item.id)) return;
+            const updated = [item, ...(cronogramasRef.current || []).filter(c => c.id !== item.id)];
+            cronogramasRef.current = updated;
+            setCronogramas(updated);
+            localStorage.setItem(STORAGE_KEYS.CRONOGRAMAS, JSON.stringify(updated));
           } else if (payload && payload.type === 'meter_updated' && payload.meter) {
             const incomingMeter = payload.meter as MeterDefinition;
-            unmarkDeletedMeterId(incomingMeter.id);
-            if (incomingMeter.code) unmarkDeletedMeterId(incomingMeter.code);
+            if (getDeletedMeterIds().has(incomingMeter.id) || isRecentlyLocallyDeleted(incomingMeter.id)) return;
             const deletedIds = getDeletedMeterIds();
             const merged = mergeMeterLists(metersRef.current || [], [incomingMeter], deletedIds);
             metersRef.current = merged;
@@ -5749,6 +6084,7 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
             safeSetItem(STORAGE_KEYS.METERS, JSON.stringify(merged));
           } else if (payload && payload.type === 'meter_deleted' && payload.meterId) {
             const delId = payload.meterId;
+            trackLocalDeletion(delId);
             markDeletedMeterId(delId);
             const updated = (metersRef.current || []).filter(m => m.id !== delId && m.code !== delId);
             metersRef.current = updated;
@@ -5760,7 +6096,7 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
             localStorage.setItem(STORAGE_KEYS.METER_READINGS_LOG, JSON.stringify(updatedReadings));
           } else if (payload && payload.type === 'meter_reading_added' && payload.reading) {
             const newReading = payload.reading as MeterReadingRecord;
-            unmarkDeletedMeterReadingId(newReading.id);
+            if (getDeletedMeterReadingIds().has(newReading.id) || isRecentlyLocallyDeleted(newReading.id)) return;
             const deletedIds = getDeletedMeterReadingIds();
             const deletedMeterIds = getDeletedMeterIds();
             const merged = mergeMeterReadingLists(meterReadingsLogRef.current || [], [newReading], deletedIds, deletedMeterIds);
@@ -5768,7 +6104,6 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
             setMeterReadingsLog(merged);
             localStorage.setItem(STORAGE_KEYS.METER_READINGS_LOG, JSON.stringify(merged));
 
-            // Actualizar inmediatamente la lectura actual en la lista de contadores del dispositivo receptor
             const updatedM = (metersRef.current || []).map(m => (m.id === newReading.meterId || m.code === newReading.meterId) ? {
               ...m,
               currentReading: newReading.currentValue,
@@ -5783,194 +6118,70 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
             }
           } else if (payload && payload.type === 'meter_reading_deleted' && payload.readingId) {
             const delId = payload.readingId;
+            trackLocalDeletion(delId);
             markDeletedMeterReadingId(delId);
             const updated = (meterReadingsLogRef.current || []).filter(r => r.id !== delId);
             meterReadingsLogRef.current = updated;
             setMeterReadingsLog(updated);
             localStorage.setItem(STORAGE_KEYS.METER_READINGS_LOG, JSON.stringify(updated));
-          } else if (payload && payload.type === 'cronograma_updated' && payload.cronograma) {
-            const item = payload.cronograma;
-            const updated = [item, ...(cronogramasRef.current || []).filter(c => c.id !== item.id)];
-            cronogramasRef.current = updated;
-            setCronogramas(updated);
-            localStorage.setItem(STORAGE_KEYS.CRONOGRAMAS, JSON.stringify(updated));
+          } else if (payload && payload.type === 'preventive_plan_deleted' && payload.planId) {
+            const delId = payload.planId;
+            trackLocalDeletion(delId);
+            markDeletedPreventivePlanId(delId);
+            const updated = (preventivePlansRef.current || []).filter(p => p.id !== delId);
+            preventivePlansRef.current = updated;
+            setPreventivePlans(updated);
+            localStorage.setItem(STORAGE_KEYS.PLANS, JSON.stringify(updated));
+          } else if (payload && payload.type === 'work_order_deleted' && payload.workOrderId) {
+            const delId = payload.workOrderId;
+            trackLocalDeletion(delId);
+            markDeletedWorkOrderId(delId);
+            const updated = (workOrdersRef.current || []).filter(w => w.id !== delId);
+            workOrdersRef.current = updated;
+            setWorkOrders(updated);
+            localStorage.setItem(STORAGE_KEYS.WORK_ORDERS, JSON.stringify(updated));
+          } else if (payload && payload.type === 'pump_inspection_deleted' && payload.inspectionId) {
+            const delId = payload.inspectionId;
+            trackLocalDeletion(delId);
+            markDeletedPumpInspectionId(delId);
+            const updated = (pumpInspectionsRef.current || []).filter(p => p.id !== delId);
+            pumpInspectionsRef.current = updated;
+            setPumpInspections(updated);
+            localStorage.setItem(STORAGE_KEYS.INSPECTIONS, JSON.stringify(updated));
+          } else if (payload && payload.type === 'uploaded_document_deleted' && payload.documentId) {
+            const delId = payload.documentId;
+            trackLocalDeletion(delId);
+            markDeletedUploadedDocumentId(delId);
+            const updated = (uploadedDocumentsRef.current || []).filter(d => d.id !== delId);
+            uploadedDocumentsRef.current = updated;
+            setUploadedDocuments(updated);
+            localStorage.setItem(STORAGE_KEYS.DOCUMENTS, JSON.stringify(updated));
+          } else if (payload && payload.type === 'document_folder_deleted' && payload.folderId) {
+            const delId = payload.folderId;
+            trackLocalDeletion(delId);
+            markDeletedDocumentFolderId(delId);
+            const updatedFolders = (documentFoldersRef.current || []).filter(f => f.id !== delId);
+            const updatedDocs = (uploadedDocumentsRef.current || []).map(d => d.folderId === delId ? { ...d, folderId: undefined } : d);
+            documentFoldersRef.current = updatedFolders;
+            uploadedDocumentsRef.current = updatedDocs;
+            setDocumentFolders(updatedFolders);
+            setUploadedDocuments(updatedDocs);
+            localStorage.setItem('hotel_doc_folders', JSON.stringify(updatedFolders));
+            localStorage.setItem(STORAGE_KEYS.DOCUMENTS, JSON.stringify(updatedDocs));
+          } else if (payload && payload.type === 'app_data_updated' && payload.id === 'round_template' && payload.data && Array.isArray(payload.data.items)) {
+            if (payload.clientId && payload.clientId === clientSessionId.current) return;
+            const sanitized = payload.data.items.map(sanitizeCheckpointTemplate);
+            roundTemplateRef.current = sanitized;
+            setRoundTemplate(sanitized);
+            localStorage.setItem('hotel_round_template', JSON.stringify(sanitized));
           } else if (payload && payload.type === 'data_updated') {
-            // Avoid re-fetching our own local updates to eliminate UI thrashing and freezing
             if (payload.clientId && payload.clientId === clientSessionId.current) {
               return;
             }
             fetch(`/api/data?_t=${Date.now()}`, { cache: 'no-store' })
               .then(r => r.json())
               .then(fresh => {
-                if (!fresh || typeof fresh !== 'object') return;
-                if (Array.isArray(fresh.meters)) {
-                  const cleanFresh = fresh.meters.filter((m: any) => m && m.id && !localActionIds.current.has(m.id));
-                  cleanFresh.forEach((m: any) => {
-                    unmarkDeletedMeterId(m.id);
-                    if (m.code) unmarkDeletedMeterId(m.code);
-                  });
-                  const mergedMeters = mergeMeterLists(metersRef.current || [], cleanFresh, new Set(), localActionIds.current);
-                  if (!areMetersEqual(mergedMeters, metersRef.current || [])) {
-                    metersRef.current = mergedMeters;
-                    setMeters(mergedMeters);
-                    safeSetItem(STORAGE_KEYS.METERS, JSON.stringify(mergedMeters));
-                  }
-                }
-                if (Array.isArray(fresh.meterReadingsLog)) {
-                  const cleanFresh = fresh.meterReadingsLog.filter((r: any) => r && r.id && !localActionIds.current.has(r.id));
-                  cleanFresh.forEach((r: any) => unmarkDeletedMeterReadingId(r.id));
-                  const mergedReadings = mergeMeterReadingLists(meterReadingsLogRef.current || [], cleanFresh, new Set(), new Set(), localActionIds.current);
-                  if (!areReadingsEqual(mergedReadings, meterReadingsLogRef.current || [])) {
-                    meterReadingsLogRef.current = mergedReadings;
-                    setMeterReadingsLog(mergedReadings);
-                    localStorage.setItem(STORAGE_KEYS.METER_READINGS_LOG, JSON.stringify(mergedReadings));
-                  }
-                }
-                if (Array.isArray(fresh.rounds)) {
-                  const deletedIds = reconcileServerDeletedRoundIds(fresh.deletedIds, fresh.rounds, localActionIds.current);
-                  const cleanFresh = fresh.rounds.filter(r => r && !deletedIds.has(r.id));
-                  const currentActiveId = activeRoundRef.current?.id;
-                  const unsyncedIds = getUnsyncedRoundIds();
-                  const pendingLocalRounds = (roundsRef.current || []).filter(r =>
-                    r && r.id && !deletedIds.has(r.id) && (r.status === 'completada' || Boolean(r.completedAt && r.technicianSignature) || r.id === currentActiveId || localActionIds.current.has(r.id) || unsyncedIds.has(r.id))
-                  );
-                  const mergedRounds = mergeRoundLists(pendingLocalRounds, cleanFresh, deletedIds, currentActiveId);
-                  if (!areRoundsEqual(mergedRounds, roundsRef.current || [])) {
-                    checkAndNotifyNewRounds(mergedRounds, roundsRef.current || []);
-                    roundsRef.current = mergedRounds;
-                    setRounds(mergedRounds);
-                    safeSetItem(STORAGE_KEYS.ROUNDS, JSON.stringify(mergedRounds));
-                  }
-                }
-                if (Array.isArray(fresh.requests)) {
-                  const cleanFresh = fresh.requests.filter((r: any) => r && r.id && !localActionIds.current.has(r.id));
-                  cleanFresh.forEach((r: any) => unmarkDeletedRequestId(r.id));
-                  const merged = mergeRequestLists(requestsRef.current || [], cleanFresh, new Set(), localActionIds.current);
-                  if (JSON.stringify(merged) !== JSON.stringify(requestsRef.current)) {
-                    checkAndNotifyNewRequests(merged, requestsRef.current || []);
-                    requestsRef.current = merged;
-                    setRequests(merged);
-                    localStorage.setItem(STORAGE_KEYS.REQUESTS, JSON.stringify(merged));
-                  }
-                }
-                if (Array.isArray(fresh.tasks)) {
-                  const cleanFresh = fresh.tasks.filter((t: any) => t && t.id && !localActionIds.current.has(t.id));
-                  // PostgreSQL es la única fuente de verdad: desmarcar eliminaciones locales obsoletas
-                  cleanFresh.forEach((t: any) => unmarkDeletedTaskId(t.id));
-                  const merged = mergeTaskLists(tasksRef.current || [], cleanFresh, new Set(), localActionIds.current, true);
-                  if (JSON.stringify(merged) !== JSON.stringify(tasksRef.current)) {
-                    checkAndNotifyNewTasks(merged, tasksRef.current || []);
-                    tasksRef.current = merged;
-                    setTasks(merged);
-                    localStorage.setItem(STORAGE_KEYS.TASKS, JSON.stringify(merged));
-                  }
-                }
-                if (Array.isArray(fresh.incidents) || Array.isArray(fresh.rounds)) {
-                  const incomingInc = Array.isArray(fresh.incidents) ? fresh.incidents : (incidentsRef.current || []);
-                  const cleanFresh = incomingInc.filter((i: any) => i && i.id && !localActionIds.current.has(i.id));
-                  cleanFresh.forEach((i: any) => unmarkDeletedIncidentId(i.id));
-                  const deletedIds = getDeletedIncidentIds();
-                  const pendingLocal = (incidentsRef.current || []).filter(i => localActionIds.current.has(i.id) && !deletedIds.has(i.id));
-                  const currentRounds = roundsRef.current || [];
-                  const withRoundAnomalies = extractAnomaliesAsIncidents(currentRounds, [...pendingLocal, ...cleanFresh], deletedIds);
-                  const finalIncidents = deduplicateIncidents(withRoundAnomalies, deletedIds);
-                  if (JSON.stringify(finalIncidents) !== JSON.stringify(incidentsRef.current)) {
-                    checkAndNotifyNewIncidents(finalIncidents, incidentsRef.current || []);
-                    incidentsRef.current = finalIncidents;
-                    setIncidents(finalIncidents);
-                    localStorage.setItem(STORAGE_KEYS.INCIDENTS, JSON.stringify(finalIncidents));
-                  }
-                }
-                if (Array.isArray(fresh.equipments)) {
-                  const cleanFresh = fresh.equipments.filter((e: any) => e && e.id && !localActionIds.current.has(e.id));
-                  cleanFresh.forEach((e: any) => unmarkDeletedEquipmentId(e.id));
-                  const mergedEquipments = mergeEquipmentLists(equipmentsRef.current || [], cleanFresh, new Set());
-                  if (JSON.stringify(mergedEquipments) !== JSON.stringify(equipmentsRef.current)) {
-                    equipmentsRef.current = mergedEquipments;
-                    setEquipments(mergedEquipments);
-                    localStorage.setItem(STORAGE_KEYS.EQUIPMENT, JSON.stringify(mergedEquipments));
-                  }
-                }
-                if (Array.isArray(fresh.pumpInspections)) {
-                  if (JSON.stringify(fresh.pumpInspections) !== JSON.stringify(pumpInspectionsRef.current)) {
-                    pumpInspectionsRef.current = fresh.pumpInspections;
-                    setPumpInspections(fresh.pumpInspections);
-                  }
-                }
-                if (Array.isArray(fresh.preventivePlans)) {
-                  if (JSON.stringify(fresh.preventivePlans) !== JSON.stringify(preventivePlansRef.current)) {
-                    preventivePlansRef.current = fresh.preventivePlans;
-                    setPreventivePlans(fresh.preventivePlans);
-                  }
-                }
-                if (Array.isArray(fresh.workOrders)) {
-                  if (JSON.stringify(fresh.workOrders) !== JSON.stringify(workOrdersRef.current)) {
-                    workOrdersRef.current = fresh.workOrders;
-                    setWorkOrders(fresh.workOrders);
-                  }
-                }
-                if (Array.isArray(fresh.users)) {
-                  const cleanFresh = fresh.users.filter((u: any) => u && u.id && !localActionIds.current.has(u.id));
-                  cleanFresh.forEach((u: any) => unmarkDeletedUserId(u.id));
-                  const mergedUsers = mergeUserLists(usersRef.current || [], cleanFresh, new Set());
-                  const guaranteed = ensureAdminUserList(mergedUsers);
-                  if (JSON.stringify(guaranteed) !== JSON.stringify(usersRef.current)) {
-                    usersRef.current = guaranteed;
-                    setUsers(guaranteed);
-                    localStorage.setItem('hotel_maint_users', JSON.stringify(guaranteed));
-                  }
-
-                  // Sincronización en vivo del perfil de sesión en el dispositivo activo (sin recargar ni cerrar sesión)
-                  if (currentUserRef.current) {
-                    const activeId = currentUserRef.current.id;
-                    const activeEmail = String(currentUserRef.current.email ?? '').toLowerCase().trim();
-                    const freshMe = guaranteed.find(u => u && (u.id === activeId || (activeEmail && String(u.email ?? '').toLowerCase().trim() === activeEmail)));
-                    if (freshMe) {
-                      if (freshMe.status === 'inactive') {
-                        setCurrentUserState(null);
-                        currentUserRef.current = null;
-                        localStorage.removeItem('hotel_maint_current_user');
-                        sessionStorage.removeItem('hotel_maint_current_user');
-                        notify('Tu sesión ha finalizado porque tu cuenta fue desactivada.');
-                      } else {
-                        const hasDiff = 
-                          freshMe.role !== currentUserRef.current.role ||
-                          freshMe.displayName !== currentUserRef.current.displayName ||
-                          freshMe.password !== currentUserRef.current.password ||
-                          JSON.stringify(freshMe.permissions) !== JSON.stringify(currentUserRef.current.permissions) ||
-                          JSON.stringify(freshMe.visibleSections) !== JSON.stringify(currentUserRef.current.visibleSections) ||
-                          (freshMe as any).shift !== (currentUserRef.current as any).shift;
-                        if (hasDiff) {
-                          const updatedSession = { ...currentUserRef.current, ...freshMe };
-                          setCurrentUserState(updatedSession);
-                          currentUserRef.current = updatedSession;
-                          localStorage.setItem('hotel_maint_current_user', JSON.stringify(updatedSession));
-                          sessionStorage.setItem('hotel_maint_current_user', JSON.stringify(updatedSession));
-                        }
-                      }
-                    }
-                  }
-                }
-                if (fresh.settings) {
-                  const cleanSettings = sanitizeSystemSettings(fresh.settings, settingsRef.current);
-                  if (JSON.stringify(cleanSettings) !== JSON.stringify(settingsRef.current)) {
-                    settingsRef.current = cleanSettings;
-                    setSettings(cleanSettings);
-                    safeSetItem(STORAGE_KEYS.SETTINGS, JSON.stringify(cleanSettings));
-                  }
-                }
-                if (Array.isArray(fresh.schedules)) {
-                  const cleanFresh = fresh.schedules.filter((s: any) => s && s.id && !localActionIds.current.has(s.id));
-                  cleanFresh.forEach((s: any) => unmarkDeletedScheduleId(s.id));
-                  const mergedSchedules = mergeScheduleLists(schedulesRef.current || [], cleanFresh, new Set());
-                  if (JSON.stringify(mergedSchedules) !== JSON.stringify(schedulesRef.current)) {
-                    schedulesRef.current = mergedSchedules;
-                    setSchedules(mergedSchedules);
-                    localStorage.setItem(STORAGE_KEYS.SCHEDULES, JSON.stringify(mergedSchedules));
-                    idbSet(STORAGE_KEYS.SCHEDULES, mergedSchedules).catch(() => {});
-                  }
-                }
-
+                applyAuthoritativeServerData(fresh, false);
               })
               .catch(() => {});
           }
@@ -5986,6 +6197,7 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
     const handleBroadcast = (e: MessageEvent) => {
       if (e.data && e.data.type === 'round_deleted' && e.data.roundId) {
         const delId = e.data.roundId;
+        trackLocalDeletion(delId);
         markDeletedRoundId(delId);
         const updated = (roundsRef.current || []).filter(r => r.id !== delId);
         roundsRef.current = updated;
@@ -5996,11 +6208,13 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
         if (activeRoundRef.current?.id === delId) {
           activeRoundRef.current = null;
           localStorage.removeItem(STORAGE_KEYS.ACTIVE_ROUND);
+          localStorage.removeItem('active_round_draft_backup');
           idbRemove(STORAGE_KEYS.ACTIVE_ROUND).catch(() => {});
         }
         setActiveRound(curr => (curr?.id === delId ? null : curr));
       } else if (e.data && e.data.type === 'active_round_updated' && e.data.round) {
         const updatedRound = e.data.round as DailyRound;
+        if (getDeletedRoundIds().has(updatedRound.id) || isRecentlyLocallyDeleted(updatedRound.id)) return;
         const currentList = roundsRef.current || [];
         const index = currentList.findIndex(r => r.id === updatedRound.id);
         let newList: DailyRound[];
@@ -6014,10 +6228,12 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
         setRounds(newList);
       } else if (e.data && e.data.type === 'round_completed' && e.data.round) {
         const completedRound = e.data.round as DailyRound;
+        if (getDeletedRoundIds().has(completedRound.id) || isRecentlyLocallyDeleted(completedRound.id)) return;
         if (activeRoundRef.current?.id === completedRound.id) {
           activeRoundRef.current = null;
           setActiveRound(null);
           localStorage.removeItem(STORAGE_KEYS.ACTIVE_ROUND);
+          localStorage.removeItem('active_round_draft_backup');
           idbRemove(STORAGE_KEYS.ACTIVE_ROUND).catch(() => {});
         }
         checkAndNotifyNewRounds([completedRound], roundsRef.current || []);
@@ -6028,6 +6244,7 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
         safeSetItem(STORAGE_KEYS.ROUNDS, JSON.stringify(merged));
       } else if (e.data && e.data.type === 'new_incident' && e.data.incident) {
         const newInc = e.data.incident as Incident;
+        if (getDeletedIncidentIds().has(newInc.id) || isRecentlyLocallyDeleted(newInc.id)) return;
         checkAndNotifyNewIncidents([newInc], incidentsRef.current || []);
         const currentList = incidentsRef.current || [];
         const finalIncidents = deduplicateIncidents([newInc, ...currentList], getDeletedIncidentIds());
@@ -6036,16 +6253,32 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
         localStorage.setItem(STORAGE_KEYS.INCIDENTS, JSON.stringify(finalIncidents));
       } else if (e.data && e.data.type === 'incident_updated' && e.data.incident) {
         const updatedInc = e.data.incident as Incident;
+        if (getDeletedIncidentIds().has(updatedInc.id) || isRecentlyLocallyDeleted(updatedInc.id)) return;
         checkAndNotifyNewIncidents([updatedInc], incidentsRef.current || []);
         const currentList = incidentsRef.current || [];
         const finalIncidents = currentList.map(i => i.id === updatedInc.id ? { ...i, ...updatedInc } : i);
         incidentsRef.current = finalIncidents;
         setIncidents(finalIncidents);
         localStorage.setItem(STORAGE_KEYS.INCIDENTS, JSON.stringify(finalIncidents));
+      } else if (e.data && e.data.type === 'incident_deleted' && e.data.incidentId) {
+        const delId = e.data.incidentId;
+        trackLocalDeletion(delId);
+        markDeletedIncidentId(delId);
+        const finalIncidents = (incidentsRef.current || []).filter(i => i.id !== delId);
+        incidentsRef.current = finalIncidents;
+        setIncidents(finalIncidents);
+        localStorage.setItem(STORAGE_KEYS.INCIDENTS, JSON.stringify(finalIncidents));
       } else if (e.data && e.data.type === 'new_request' && e.data.request) {
-        checkAndNotifyNewRequests([e.data.request], requestsRef.current || []);
+        const newReq = e.data.request as HotelRequest;
+        if (getDeletedRequestIds().has(newReq.id) || isRecentlyLocallyDeleted(newReq.id)) return;
+        checkAndNotifyNewRequests([newReq], requestsRef.current || []);
+        const merged = mergeRequestLists(requestsRef.current || [], [newReq], getDeletedRequestIds());
+        requestsRef.current = merged;
+        setRequests(merged);
+        localStorage.setItem(STORAGE_KEYS.REQUESTS, JSON.stringify(merged));
       } else if (e.data && e.data.type === 'request_updated' && e.data.request) {
         const updatedReq = e.data.request as HotelRequest;
+        if (getDeletedRequestIds().has(updatedReq.id) || isRecentlyLocallyDeleted(updatedReq.id)) return;
         checkAndNotifyNewRequests([updatedReq], requestsRef.current || []);
         const currentList = requestsRef.current || [];
         const idx = currentList.findIndex(r => r.id === updatedReq.id);
@@ -6059,8 +6292,17 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
         requestsRef.current = newList;
         setRequests(newList);
         localStorage.setItem(STORAGE_KEYS.REQUESTS, JSON.stringify(newList));
+      } else if (e.data && e.data.type === 'request_deleted' && e.data.requestId) {
+        const delId = e.data.requestId;
+        trackLocalDeletion(delId);
+        markDeletedRequestId(delId);
+        const updated = (requestsRef.current || []).filter(r => r.id !== delId);
+        requestsRef.current = updated;
+        setRequests(updated);
+        localStorage.setItem(STORAGE_KEYS.REQUESTS, JSON.stringify(updated));
       } else if (e.data && e.data.type === 'new_task' && e.data.task) {
         const newTask = e.data.task as MaintenanceTask;
+        if (getDeletedTaskIds().has(newTask.id) || isRecentlyLocallyDeleted(newTask.id)) return;
         checkAndNotifyNewTasks([newTask], tasksRef.current || []);
         const currentList = tasksRef.current || [];
         const merged = mergeTaskLists(currentList, [newTask], getDeletedTaskIds(), undefined, false);
@@ -6069,6 +6311,7 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
         localStorage.setItem(STORAGE_KEYS.TASKS, JSON.stringify(merged));
       } else if (e.data && e.data.type === 'task_updated' && e.data.task) {
         const updatedTask = e.data.task as MaintenanceTask;
+        if (getDeletedTaskIds().has(updatedTask.id) || isRecentlyLocallyDeleted(updatedTask.id)) return;
         checkAndNotifyNewTasks([updatedTask], tasksRef.current || []);
         const currentList = tasksRef.current || [];
         const idx = currentList.findIndex(t => t.id === updatedTask.id);
@@ -6082,16 +6325,70 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
         tasksRef.current = newList;
         setTasks(newList);
         localStorage.setItem(STORAGE_KEYS.TASKS, JSON.stringify(newList));
+      } else if (e.data && e.data.type === 'task_deleted' && e.data.taskId) {
+        const delId = e.data.taskId;
+        trackLocalDeletion(delId);
+        markDeletedTaskId(delId);
+        const updated = (tasksRef.current || []).filter(t => t.id !== delId);
+        tasksRef.current = updated;
+        setTasks(updated);
+        localStorage.setItem(STORAGE_KEYS.TASKS, JSON.stringify(updated));
+      } else if (e.data && e.data.type === 'equipment_deleted' && e.data.equipmentId) {
+        const delId = e.data.equipmentId;
+        trackLocalDeletion(delId);
+        markDeletedEquipmentId(delId);
+        const updated = (equipmentsRef.current || []).filter(eq => eq.id !== delId);
+        equipmentsRef.current = updated;
+        setEquipments(updated);
+        localStorage.setItem(STORAGE_KEYS.EQUIPMENT, JSON.stringify(updated));
+      } else if (e.data && e.data.type === 'user_deleted' && e.data.userId) {
+        const delId = e.data.userId;
+        trackLocalDeletion(delId);
+        markDeletedUserId(delId);
+        const updated = (usersRef.current || []).filter(u => u.id !== delId);
+        usersRef.current = updated;
+        setUsers(updated);
+        localStorage.setItem('hotel_maint_users', JSON.stringify(updated));
+      } else if (e.data && e.data.type === 'schedule_updated' && e.data.schedule) {
+        const item = e.data.schedule as TechnicianSchedule;
+        if (getDeletedScheduleIds().has(item.id) || isRecentlyLocallyDeleted(item.id)) return;
+        const merged = mergeScheduleLists(schedulesRef.current || [], [item], getDeletedScheduleIds());
+        schedulesRef.current = merged;
+        setSchedules(merged);
+        localStorage.setItem(STORAGE_KEYS.SCHEDULES, JSON.stringify(merged));
+      } else if (e.data && e.data.type === 'schedule_deleted' && e.data.scheduleId) {
+        const delId = e.data.scheduleId;
+        trackLocalDeletion(delId);
+        markDeletedScheduleId(delId);
+        const updated = (schedulesRef.current || []).filter(s => s.id !== delId);
+        schedulesRef.current = updated;
+        setSchedules(updated);
+        localStorage.setItem(STORAGE_KEYS.SCHEDULES, JSON.stringify(updated));
+      } else if (e.data && e.data.type === 'cronograma_updated' && e.data.cronograma) {
+        const item = e.data.cronograma as Cronograma;
+        if (getDeletedCronogramaIds().has(item.id) || isRecentlyLocallyDeleted(item.id)) return;
+        const updated = [item, ...(cronogramasRef.current || []).filter(c => c.id !== item.id)];
+        cronogramasRef.current = updated;
+        setCronogramas(updated);
+        localStorage.setItem(STORAGE_KEYS.CRONOGRAMAS, JSON.stringify(updated));
+      } else if (e.data && e.data.type === 'cronograma_deleted' && e.data.cronogramaId) {
+        const delId = e.data.cronogramaId;
+        trackLocalDeletion(delId);
+        markDeletedCronogramaId(delId);
+        const updated = (cronogramasRef.current || []).filter(c => c.id !== delId);
+        cronogramasRef.current = updated;
+        setCronogramas(updated);
+        localStorage.setItem(STORAGE_KEYS.CRONOGRAMAS, JSON.stringify(updated));
       } else if (e.data && e.data.type === 'meter_updated' && e.data.meter) {
         const item = e.data.meter as MeterDefinition;
-        unmarkDeletedMeterId(item.id);
-        if (item.code) unmarkDeletedMeterId(item.code);
+        if (getDeletedMeterIds().has(item.id) || isRecentlyLocallyDeleted(item.id)) return;
         const merged = mergeMeterLists(metersRef.current || [], [item], getDeletedMeterIds());
         metersRef.current = merged;
         setMeters(merged);
         safeSetItem(STORAGE_KEYS.METERS, JSON.stringify(merged));
       } else if (e.data && e.data.type === 'meter_deleted' && e.data.meterId) {
         const delId = e.data.meterId;
+        trackLocalDeletion(delId);
         markDeletedMeterId(delId);
         const updated = (metersRef.current || []).filter(m => m.id !== delId && m.code !== delId);
         metersRef.current = updated;
@@ -6099,13 +6396,12 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
         safeSetItem(STORAGE_KEYS.METERS, JSON.stringify(updated));
       } else if (e.data && e.data.type === 'meter_reading_added' && e.data.reading) {
         const newReading = e.data.reading as MeterReadingRecord;
-        unmarkDeletedMeterReadingId(newReading.id);
+        if (getDeletedMeterReadingIds().has(newReading.id) || isRecentlyLocallyDeleted(newReading.id)) return;
         const merged = mergeMeterReadingLists(meterReadingsLogRef.current || [], [newReading], getDeletedMeterReadingIds(), getDeletedMeterIds());
         meterReadingsLogRef.current = merged;
         setMeterReadingsLog(merged);
         localStorage.setItem(STORAGE_KEYS.METER_READINGS_LOG, JSON.stringify(merged));
 
-        // Actualizar lectura actual en el estado de contadores
         const updatedM = (metersRef.current || []).map(m => (m.id === newReading.meterId || m.code === newReading.meterId) ? {
           ...m,
           currentReading: newReading.currentValue,
@@ -6120,6 +6416,7 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
         }
       } else if (e.data && e.data.type === 'meter_reading_deleted' && e.data.readingId) {
         const delId = e.data.readingId;
+        trackLocalDeletion(delId);
         markDeletedMeterReadingId(delId);
         const updated = (meterReadingsLogRef.current || []).filter(r => r.id !== delId);
         meterReadingsLogRef.current = updated;
@@ -6153,6 +6450,14 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
         const qId = encodeURIComponent(activeUser.id || '');
         const qEmail = encodeURIComponent(activeUser.email || '');
         const res = await fetch(`/api/auth/me?id=${qId}&email=${qEmail}`, { cache: 'no-store' });
+        if (res.status === 404 && !isCancelled) {
+          setCurrentUserState(null);
+          currentUserRef.current = null;
+          localStorage.removeItem('hotel_maint_current_user');
+          sessionStorage.removeItem('hotel_maint_current_user');
+          notify('Tu sesión finalizó porque tu usuario fue eliminado por el administrador.');
+          return;
+        }
         if (res.ok && !isCancelled) {
           const body = await res.json();
           const serverUser = body.user as User;
@@ -6226,27 +6531,46 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
   const persistToServer = async () => {
     hasPendingLocalChanges.current = false;
     try {
+      const delRounds = getDeletedRoundIds();
+      const delEquipments = getDeletedEquipmentIds();
+      const delIncidents = getDeletedIncidentIds();
+      const delRequests = getDeletedRequestIds();
+      const delTasks = getDeletedTaskIds();
+      const delInsp = getDeletedPumpInspectionIds();
+      const delPlans = getDeletedPreventivePlanIds();
+      const delOrders = getDeletedWorkOrderIds();
+      const delDocs = getDeletedUploadedDocumentIds();
+      const delFolders = getDeletedDocumentFolderIds();
+      const delUsers = getDeletedUserIds();
+      const delSchedules = getDeletedScheduleIds();
+      const delSwaps = getDeletedShiftSwapIds();
+      const delCronogramas = getDeletedCronogramaIds();
+      const delMeters = getDeletedMeterIds();
+      const delReadings = getDeletedMeterReadingIds();
+
       const payload = {
-        rounds: (roundsRef.current || []).filter(r => r && r.id && !getDeletedRoundIds().has(r.id)),
-        equipments: equipmentsRef.current || [],
-        incidents: incidentsRef.current || [],
-        requests: requestsRef.current || [],
-        tasks: tasksRef.current || [],
-        pumpInspections: pumpInspectionsRef.current || [],
-        preventivePlans: preventivePlansRef.current || [],
-        workOrders: workOrdersRef.current || [],
+        rounds: (roundsRef.current || []).filter(r => r && r.id && !delRounds.has(r.id) && !isRecentlyLocallyDeleted(r.id)),
+        equipments: (equipmentsRef.current || []).filter(e => e && e.id && !delEquipments.has(e.id) && !isRecentlyLocallyDeleted(e.id)),
+        incidents: (incidentsRef.current || []).filter(i => i && i.id && !delIncidents.has(i.id) && !isRecentlyLocallyDeleted(i.id)),
+        requests: (requestsRef.current || []).filter(r => r && r.id && !delRequests.has(r.id) && !isRecentlyLocallyDeleted(r.id)),
+        tasks: (tasksRef.current || []).filter(t => t && t.id && !delTasks.has(t.id) && !isRecentlyLocallyDeleted(t.id)),
+        pumpInspections: (pumpInspectionsRef.current || []).filter(p => p && p.id && !delInsp.has(p.id) && !isRecentlyLocallyDeleted(p.id)),
+        preventivePlans: (preventivePlansRef.current || []).filter(p => p && p.id && !delPlans.has(p.id) && !isRecentlyLocallyDeleted(p.id)),
+        workOrders: (workOrdersRef.current || []).filter(w => w && w.id && !delOrders.has(w.id) && !isRecentlyLocallyDeleted(w.id)),
         settings: settingsRef.current,
-        uploadedDocuments: (uploadedDocumentsRef.current || []).map(doc => ({
-          ...doc,
-          rawBase64: doc.rawBase64 && doc.rawBase64.length > 50000 ? undefined : doc.rawBase64
-        })),
-        documentFolders: documentFoldersRef.current || [],
-        users: usersRef.current || [],
-        schedules: schedulesRef.current || [],
-        shiftSwaps: shiftSwapRequestsRef.current || [],
-        cronogramas: cronogramasRef.current || [],
-        meters: metersRef.current || [],
-        meterReadingsLog: meterReadingsLogRef.current || [],
+        uploadedDocuments: (uploadedDocumentsRef.current || [])
+          .filter(d => d && d.id && !delDocs.has(d.id) && !isRecentlyLocallyDeleted(d.id))
+          .map(doc => ({
+            ...doc,
+            rawBase64: doc.rawBase64 && doc.rawBase64.length > 50000 ? undefined : doc.rawBase64
+          })),
+        documentFolders: (documentFoldersRef.current || []).filter(f => f && f.id && !delFolders.has(f.id) && !isRecentlyLocallyDeleted(f.id)),
+        users: (usersRef.current || []).filter(u => u && u.id && !delUsers.has(u.id) && !isRecentlyLocallyDeleted(u.id) && !FAKE_USER_IDS.has(u.id) && u.displayName !== 'Administrador Principal'),
+        schedules: (schedulesRef.current || []).filter(s => s && s.id && !delSchedules.has(s.id) && !isRecentlyLocallyDeleted(s.id) && !isLegacyMockSchedule(s)),
+        shiftSwaps: (shiftSwapRequestsRef.current || []).filter(s => s && s.id && !delSwaps.has(s.id) && !isRecentlyLocallyDeleted(s.id)),
+        cronogramas: (cronogramasRef.current || []).filter(c => c && c.id && !delCronogramas.has(c.id) && !isRecentlyLocallyDeleted(c.id)),
+        meters: (metersRef.current || []).filter(m => m && m.id && !delMeters.has(m.id) && !(m.code && delMeters.has(m.code)) && !isRecentlyLocallyDeleted(m.id)),
+        meterReadingsLog: (meterReadingsLogRef.current || []).filter(r => r && r.id && !delReadings.has(r.id) && !delMeters.has(r.meterId) && !isRecentlyLocallyDeleted(r.id)),
         roundTemplate: roundTemplateRef.current
       };
 
@@ -6276,605 +6600,19 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
     return () => clearTimeout(timer);
   }, [rounds, equipments, incidents, requests, tasks, pumpInspections, preventivePlans, workOrders, settings, users, schedules, shiftSwapRequests, cronogramas, meters, meterReadingsLog, roundTemplate]);
 
-  // -------------------------------------------------------------
-  // REAL-TIME FIRESTORE SYNCHRONIZATION (Cross-Device)
-  // -------------------------------------------------------------
-  useEffect(() => {
-    let unsubs: (() => void)[] = [];
-
-    const handleSnapshotError = (label: string, err: any) => {
-      const msg = String(err?.code || err?.message || err || '').toLowerCase();
-      if (msg.includes('resource-exhausted') || msg.includes('quota exceeded') || msg.includes('quota')) {
-        markFirestoreQuotaExceeded();
-        unsubs.forEach(fn => { try { fn(); } catch {} });
-        unsubs = [];
-        return;
-      }
-      console.warn(`${label} snapshot warning:`, err);
-    };
-
-    async function initRealtime() {
-      setIsCloudSynced(true);
-      setTimeout(() => {
-        isInitialLoad.current = false;
-      }, 1200);
-      return;
-      try {
-
-        // 1. Incidents / Inconvenientes Listener
-        const unsubIncidents = onSnapshot(collection(db, 'incidents'), (snapshot) => {
-          const list: Incident[] = [];
-          const deletedIds = getDeletedIncidentIds();
-          snapshot.forEach(docSnap => {
-            const data = docSnap.data() as Incident;
-            if (data && data.id && !deletedIds.has(data.id)) {
-              list.push(data);
-            }
-          });
-          list.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
-
-          // Keep pending local creations (within 15s) that have not landed in Firestore yet
-          const pendingLocal = (incidentsRef.current || []).filter(i => 
-            localActionIds.current.has(i.id) && !deletedIds.has(i.id) && !list.some(s => s.id === i.id)
-          );
-
-          // Reconcile with anomalies in current rounds to guarantee 100% detection across all devices
-          const withRounds = extractAnomaliesAsIncidents(roundsRef.current || [], [...pendingLocal, ...list], deletedIds);
-          const finalIncidents = deduplicateIncidents(withRounds, deletedIds);
-
-          if (JSON.stringify(finalIncidents) !== JSON.stringify(incidentsRef.current)) {
-            if (!isInitialLoad.current) {
-              checkAndNotifyNewIncidents(finalIncidents, incidentsRef.current || []);
-            }
-            incidentsRef.current = finalIncidents;
-            setIncidents(finalIncidents);
-            localStorage.setItem(STORAGE_KEYS.INCIDENTS, JSON.stringify(finalIncidents));
-          }
-          setIsCloudSynced(true);
-        }, (err) => handleSnapshotError('Incidents', err));
-        unsubs.push(unsubIncidents);
-
-        // 1b. Requests Listener
-        const unsubRequests = onSnapshot(collection(db, 'requests'), (snapshot) => {
-          const list: HotelRequest[] = [];
-          const deletedIds = getDeletedRequestIds();
-          snapshot.forEach(docSnap => {
-            const data = docSnap.data() as HotelRequest;
-            if (data && data.id && !deletedIds.has(data.id)) {
-              list.push(data);
-            }
-          });
-          const mergedList = mergeRequestLists(requestsRef.current || [], list, deletedIds, localActionIds.current);
-
-          if (JSON.stringify(mergedList) !== JSON.stringify(requestsRef.current)) {
-            if (!isInitialLoad.current) {
-              checkAndNotifyNewRequests(mergedList, requestsRef.current || []);
-            }
-            requestsRef.current = mergedList;
-            setRequests(mergedList);
-            localStorage.setItem(STORAGE_KEYS.REQUESTS, JSON.stringify(mergedList));
-          }
-          setIsCloudSynced(true);
-        }, (err) => handleSnapshotError('Requests', err));
-        unsubs.push(unsubRequests);
-
-        // 1c. Tasks Listener (Tareas para compañeros)
-        const unsubTasks = onSnapshot(collection(db, 'tasks'), (snapshot) => {
-          const list: MaintenanceTask[] = [];
-          const deletedIds = getDeletedTaskIds();
-          snapshot.forEach(docSnap => {
-            const data = docSnap.data() as MaintenanceTask;
-            if (data && data.id && !deletedIds.has(data.id)) {
-              list.push(data);
-            }
-          });
-          const mergedList = mergeTaskLists(tasksRef.current || [], list, deletedIds, localActionIds.current, true);
-
-          if (JSON.stringify(mergedList) !== JSON.stringify(tasksRef.current)) {
-            if (!isInitialLoad.current) {
-              checkAndNotifyNewTasks(mergedList, tasksRef.current || []);
-            }
-            tasksRef.current = mergedList;
-            setTasks(mergedList);
-            localStorage.setItem(STORAGE_KEYS.TASKS, JSON.stringify(mergedList));
-          }
-          setIsCloudSynced(true);
-        }, (err) => handleSnapshotError('Tasks', err));
-        unsubs.push(unsubTasks);
-
-        // 2. Equipment Listener
-        const unsubEquipments = onSnapshot(collection(db, 'equipments'), (snapshot) => {
-          const list: Equipment[] = [];
-          const deletedIds = getDeletedEquipmentIds();
-          snapshot.forEach(docSnap => {
-            const data = docSnap.data() as Equipment;
-            if (data && data.id && !deletedIds.has(data.id)) {
-              list.push(data);
-            }
-          });
-
-          const mergedList = mergeEquipmentLists(equipmentsRef.current || [], list, deletedIds);
-          if (JSON.stringify(mergedList) !== JSON.stringify(equipmentsRef.current)) {
-            equipmentsRef.current = mergedList;
-            setEquipments(mergedList);
-            localStorage.setItem(STORAGE_KEYS.EQUIPMENT, JSON.stringify(mergedList));
-          }
-          setIsCloudSynced(true);
-        }, (err) => handleSnapshotError('Equipments', err));
-        unsubs.push(unsubEquipments);
-
-        // 3. Rounds Listener (Cross-Device Real-Time Sync)
-        const unsubRounds = onSnapshot(collection(db, 'rounds'), (snapshot) => {
-          const rawList: DailyRound[] = [];
-          snapshot.forEach(docSnap => {
-            const data = docSnap.data() as DailyRound;
-            if (data && data.id) {
-              rawList.push(data);
-            }
-          });
-
-          const currentActiveId = activeRoundRef.current?.id;
-          const deletedIds = getDeletedRoundIds();
-          const list = rawList.filter(r => !deletedIds.has(r.id));
-          const mergedList = mergeRoundLists(roundsRef.current || [], list, deletedIds, currentActiveId, localActionIds.current);
-
-          if (!areRoundsEqual(mergedList, roundsRef.current || [])) {
-            if (!isInitialLoad.current) {
-              checkAndNotifyNewRounds(mergedList, roundsRef.current || []);
-            }
-            roundsRef.current = mergedList;
-            setRounds(mergedList);
-            safeSetItem(STORAGE_KEYS.ROUNDS, JSON.stringify(mergedList));
-            persistToServer();
-          }
-          if (activeRoundRef.current) {
-            const isCompletedRemotely = mergedList.some(r => r && (
-              r.id === activeRoundRef.current?.id
-            ) && (r.status === 'completada' || (Boolean(r.completedAt && r.technicianSignature) && r.compliancePercentage === 100)));
-
-            const roundDate = (activeRoundRef.current.date || '').replace(/\//g, '-').trim();
-            const todayStr = getLocalDateString();
-            const isPastDay = Boolean(roundDate && roundDate < todayStr);
-
-            if (activeRoundRef.current.status === 'en_progreso') {
-              // Si la ronda está en progreso en este dispositivo, sólo se cierra si fue completada y firmada remotamente
-              if (isCompletedRemotely) {
-                activeRoundRef.current = null;
-                setActiveRound(null);
-                localStorage.removeItem(STORAGE_KEYS.ACTIVE_ROUND);
-                idbRemove(STORAGE_KEYS.ACTIVE_ROUND).catch(() => {});
-              }
-            } else if (activeRoundRef.current.status === 'completada' || isCompletedRemotely || isPastDay) {
-              activeRoundRef.current = null;
-              setActiveRound(null);
-              localStorage.removeItem(STORAGE_KEYS.ACTIVE_ROUND);
-              idbRemove(STORAGE_KEYS.ACTIVE_ROUND).catch(() => {});
-            }
-          }
-
-          // Reconcile and reflect round anomalies in live incidents instantly for all users
-          const delIncIds = getDeletedIncidentIds();
-          const syncedIncidents = extractAnomaliesAsIncidents(mergedList, incidentsRef.current || [], delIncIds);
-          const finalIncidents = deduplicateIncidents(syncedIncidents, delIncIds);
-          if (JSON.stringify(finalIncidents) !== JSON.stringify(incidentsRef.current)) {
-            incidentsRef.current = finalIncidents;
-            setIncidents(finalIncidents);
-            localStorage.setItem(STORAGE_KEYS.INCIDENTS, JSON.stringify(finalIncidents));
-          }
-
-          setIsCloudSynced(true);
-        }, (err) => handleSnapshotError('Rounds', err));
-        unsubs.push(unsubRounds);
-
-        // 4. Pump Inspections Listener
-        const unsubInspections = onSnapshot(collection(db, 'pump_inspections'), (snapshot) => {
-          const list: PumpInspection[] = [];
-          snapshot.forEach(docSnap => {
-            list.push(docSnap.data() as PumpInspection);
-          });
-          list.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-          if (JSON.stringify(list) !== JSON.stringify(pumpInspectionsRef.current)) {
-            pumpInspectionsRef.current = list;
-            setPumpInspections(list);
-          }
-          setIsCloudSynced(true);
-        }, (err) => handleSnapshotError('Inspections', err));
-        unsubs.push(unsubInspections);
-
-        // 5. Preventive Plans Listener
-        const unsubPlans = onSnapshot(collection(db, 'preventive_plans'), (snapshot) => {
-          const list: PreventivePlan[] = [];
-          snapshot.forEach(docSnap => {
-            list.push(docSnap.data() as PreventivePlan);
-          });
-          if (JSON.stringify(list) !== JSON.stringify(preventivePlansRef.current)) {
-            preventivePlansRef.current = list;
-            setPreventivePlans(list);
-          }
-          setIsCloudSynced(true);
-        }, (err) => handleSnapshotError('Plans', err));
-        unsubs.push(unsubPlans);
-
-        // 6. Work Orders Listener
-        const unsubOrders = onSnapshot(collection(db, 'work_orders'), (snapshot) => {
-          const list: PreventiveWorkOrder[] = [];
-          snapshot.forEach(docSnap => {
-            list.push(docSnap.data() as PreventiveWorkOrder);
-          });
-          if (JSON.stringify(list) !== JSON.stringify(workOrdersRef.current)) {
-            workOrdersRef.current = list;
-            setWorkOrders(list);
-          }
-          setIsCloudSynced(true);
-        }, (err) => handleSnapshotError('Work orders', err));
-        unsubs.push(unsubOrders);
-
-        // 7. Hotel Settings Listener
-        const unsubSettings = onSnapshot(doc(db, 'hotel_settings', 'main'), (docSnap) => {
-          if (docSnap.metadata.fromCache) return;
-          if (docSnap.exists()) {
-            const data = docSnap.data() as SystemSettings;
-            const cleanSettings = sanitizeSystemSettings(data, settingsRef.current);
-            settingsRef.current = cleanSettings;
-            setSettings(cleanSettings);
-            safeSetItem(STORAGE_KEYS.SETTINGS, JSON.stringify(cleanSettings));
-            setIsCloudSynced(true);
-          }
-        }, (err) => handleSnapshotError('Settings', err));
-        unsubs.push(unsubSettings);
-
-        // 8. Uploaded Documents Listener
-        const unsubDocs = onSnapshot(collection(db, 'uploaded_documents'), (snapshot) => {
-          const list: UploadedDocument[] = [];
-          snapshot.forEach(docSnap => {
-            const data = docSnap.data() as UploadedDocument;
-            if (data && data.id) {
-              list.push(data);
-            }
-          });
-          list.sort((a, b) => new Date(b.uploadDate).getTime() - new Date(a.uploadDate).getTime());
-          if (JSON.stringify(list) !== JSON.stringify(uploadedDocumentsRef.current)) {
-            uploadedDocumentsRef.current = list;
-            setUploadedDocuments(list);
-            localStorage.setItem(STORAGE_KEYS.DOCUMENTS, JSON.stringify(list));
-          }
-          setIsCloudSynced(true);
-        }, (err) => handleSnapshotError('Documents', err));
-        unsubs.push(unsubDocs);
-
-        // 10. Document Folders Listener
-        const unsubFolders = onSnapshot(collection(db, 'document_folders'), (snapshot) => {
-          const list: DocumentFolder[] = [];
-          snapshot.forEach(docSnap => {
-            const data = docSnap.data() as DocumentFolder;
-            if (data && data.id) {
-              list.push(data);
-            }
-          });
-          list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-          if (JSON.stringify(list) !== JSON.stringify(documentFoldersRef.current)) {
-            documentFoldersRef.current = list;
-            setDocumentFolders(list);
-            localStorage.setItem('hotel_doc_folders', JSON.stringify(list));
-          }
-          setIsCloudSynced(true);
-        }, (err) => handleSnapshotError('Document folders', err));
-        unsubs.push(unsubFolders);
-
-        // 11. Users Listener
-        const unsubUsers = onSnapshot(collection(db, 'users'), (snapshot) => {
-          const list: User[] = [];
-          snapshot.forEach(docSnap => {
-            const data = docSnap.data() as User;
-            if (data && data.id) {
-              list.push(data);
-            }
-          });
-          const deletedUserIds = getDeletedUserIds();
-          const cleanFresh = list.filter(u => u && !deletedUserIds.has(u.id));
-          const mergedUsers = mergeUserLists(usersRef.current || [], cleanFresh, deletedUserIds, localActionIds.current);
-          const guaranteed = ensureAdminUserList(mergedUsers);
-
-          if (JSON.stringify(guaranteed) !== JSON.stringify(usersRef.current)) {
-            usersRef.current = guaranteed;
-            setUsers(guaranteed);
-            localStorage.setItem('hotel_maint_users', JSON.stringify(guaranteed));
-          }
-
-          // Real-time synchronization of currently logged-in user permissions and sections
-          if (currentUserRef.current) {
-            const activeId = currentUserRef.current.id;
-            const activeEmail = currentUserRef.current.email?.toLowerCase().trim();
-            const freshMe = guaranteed.find(u => u.id === activeId || (u.email && u.email.toLowerCase().trim() === activeEmail));
-            if (freshMe) {
-              if (freshMe.status === 'inactive') {
-                setCurrentUserState(null);
-                currentUserRef.current = null;
-                localStorage.removeItem('hotel_maint_current_user');
-                sessionStorage.removeItem('hotel_maint_current_user');
-                notify('Tu sesión ha finalizado porque el usuario fue desactivado.');
-              } else if (JSON.stringify(freshMe) !== JSON.stringify(currentUserRef.current)) {
-                setCurrentUserState(freshMe);
-                currentUserRef.current = freshMe;
-                localStorage.setItem('hotel_maint_current_user', JSON.stringify(freshMe));
-                sessionStorage.setItem('hotel_maint_current_user', JSON.stringify(freshMe));
-              }
-            }
-          }
-
-          setIsCloudSynced(true);
-        }, (err) => handleSnapshotError('Users', err));
-        unsubs.push(unsubUsers);
-
-        // 12. Round Template Listener (Real-Time Sync across all users)
-        const unsubRoundTemplate = onSnapshot(doc(db, 'hotel_round_template', 'main'), (docSnap) => {
-          if (docSnap.exists()) {
-            const data = docSnap.data() as { items?: RoundCheckpoint[] };
-            if (data && Array.isArray(data.items)) {
-              if (JSON.stringify(data.items) !== JSON.stringify(roundTemplateRef.current)) {
-                roundTemplateRef.current = data.items;
-                setRoundTemplate(data.items);
-                localStorage.setItem('hotel_round_template', JSON.stringify(data.items));
-              }
-            }
-            setIsCloudSynced(true);
-          }
-        }, (err) => handleSnapshotError('Round template', err));
-        unsubs.push(unsubRoundTemplate);
-
-        // 13. Schedules Listener (Real-Time Sync across devices)
-        const unsubSchedules = onSnapshot(collection(db, 'schedules'), (snapshot) => {
-          if (snapshot.metadata.fromCache) return;
-          const list: TechnicianSchedule[] = [];
-          const deletedIds = getDeletedScheduleIds();
-          snapshot.forEach(docSnap => {
-            const data = docSnap.data() as TechnicianSchedule;
-            if (data && data.id && !deletedIds.has(data.id)) {
-              if (!isLegacyMockSchedule(data)) {
-                list.push(data);
-              } else {
-                safeCloudWrite(() => deleteDoc(doc(db, 'schedules', data.id))).catch(() => {});
-              }
-            }
-          });
-          const mergedList = mergeScheduleLists(schedulesRef.current || [], list, deletedIds);
-          if (JSON.stringify(mergedList) !== JSON.stringify(schedulesRef.current)) {
-            schedulesRef.current = mergedList;
-            setSchedules(mergedList);
-            localStorage.setItem(STORAGE_KEYS.SCHEDULES, JSON.stringify(mergedList));
-            idbSet(STORAGE_KEYS.SCHEDULES, mergedList).catch(() => {});
-          }
-          setIsCloudSynced(true);
-        }, (err) => handleSnapshotError('Schedules', err));
-        unsubs.push(unsubSchedules);
-
-        // 14. Shift Swaps Listener
-        const unsubSwaps = onSnapshot(collection(db, 'shift_swaps'), (snapshot) => {
-          const list: ShiftSwapRequest[] = [];
-          snapshot.forEach(docSnap => {
-            const data = docSnap.data() as ShiftSwapRequest;
-            if (data && data.id) {
-              list.push(data);
-            }
-          });
-          if (JSON.stringify(list) !== JSON.stringify(shiftSwapRequestsRef.current)) {
-            shiftSwapRequestsRef.current = list;
-            setShiftSwapRequests(list);
-            localStorage.setItem(STORAGE_KEYS.SHIFT_SWAPS, JSON.stringify(list));
-          }
-          setIsCloudSynced(true);
-        }, (err) => handleSnapshotError('Shift swaps', err));
-        unsubs.push(unsubSwaps);
-
-        // 15. Cronogramas Listener (Real-Time Sync across devices)
-        const unsubCronogramas = onSnapshot(collection(db, 'cronogramas'), (snapshot) => {
-          const list: Cronograma[] = [];
-          const deletedIds = getDeletedCronogramaIds();
-          snapshot.forEach(docSnap => {
-            const data = docSnap.data() as Cronograma;
-            if (data && data.id && !deletedIds.has(data.id)) {
-              list.push(data);
-            }
-          });
-          const mergedList = mergeCronogramaLists(cronogramasRef.current || [], list, deletedIds);
-          if (JSON.stringify(mergedList) !== JSON.stringify(cronogramasRef.current)) {
-            cronogramasRef.current = mergedList;
-            setCronogramas(mergedList);
-            localStorage.setItem(STORAGE_KEYS.CRONOGRAMAS, JSON.stringify(mergedList));
-          }
-          setIsCloudSynced(true);
-        }, (err) => handleSnapshotError('Cronogramas', err));
-        unsubs.push(unsubCronogramas);
-
-        // 16. Meter Definitions Listener (Real-Time Sync & Permanent Deletions)
-        const unsubMeters = onSnapshot(collection(db, 'meter_definitions'), (snapshot) => {
-          const remoteList: MeterDefinition[] = [];
-          const deletedIds = getDeletedMeterIds();
-          snapshot.forEach(docSnap => {
-            const data = docSnap.data() as MeterDefinition;
-            if (data && data.id && !deletedIds.has(data.id) && (data.code ? !deletedIds.has(data.code) : true)) {
-              remoteList.push(data);
-            }
-          });
-          const merged = mergeMeterLists(metersRef.current || [], remoteList, deletedIds, localActionIds.current);
-          if (!areMetersEqual(merged, metersRef.current || [])) {
-            metersRef.current = merged;
-            setMeters(merged);
-            safeSetItem(STORAGE_KEYS.METERS, JSON.stringify(merged));
-          }
-          setIsCloudSynced(true);
-        }, (err) => handleSnapshotError('Meters', err));
-        unsubs.push(unsubMeters);
-
-        // 17. Meter Readings Log Listener (Real-Time Sync & Deduplication)
-        const unsubMeterReadings = onSnapshot(collection(db, 'meter_readings_log'), (snapshot) => {
-          const remoteList: MeterReadingRecord[] = [];
-          const deletedIds = getDeletedMeterReadingIds();
-          const deletedMeterIds = getDeletedMeterIds();
-          snapshot.forEach(docSnap => {
-            const data = docSnap.data() as MeterReadingRecord;
-            if (
-              data && 
-              data.id && 
-              !deletedIds.has(data.id) && 
-              !deletedMeterIds.has(data.meterId) && 
-              !DEMO_METER_IDS.includes(data.meterId) &&
-              !DEMO_READING_IDS.includes(data.id)
-            ) {
-              remoteList.push(data);
-            }
-          });
-          const merged = mergeMeterReadingLists(meterReadingsLogRef.current || [], remoteList, deletedIds, deletedMeterIds, localActionIds.current);
-          if (!areReadingsEqual(merged, meterReadingsLogRef.current || [])) {
-            meterReadingsLogRef.current = merged;
-            setMeterReadingsLog(merged);
-            localStorage.setItem(STORAGE_KEYS.METER_READINGS_LOG, JSON.stringify(merged));
-          }
-          setIsCloudSynced(true);
-        }, (err) => handleSnapshotError('Meter readings', err));
-        unsubs.push(unsubMeterReadings);
-
-        // 13. Global Real-Time Deletions Listener (Cross-Device Instant Deletion Sync)
-        const unsubDeleted = onSnapshot(doc(db, 'system', 'deleted_records'), (docSnap) => {
-          if (docSnap.metadata.fromCache) return;
-          if (docSnap.exists()) {
-            const data = docSnap.data();
-            if (data && Array.isArray(data.ids)) {
-              let anyNew = false;
-              const currentAll = getAllDeletedIds();
-              for (const id of data.ids) {
-                if (typeof id === 'string' && id && !currentAll.has(id)) {
-                  markDeletedAnyId(id);
-                  anyNew = true;
-                }
-              }
-              if (anyNew) {
-                const delInc = getDeletedIncidentIds();
-                const delReq = getDeletedRequestIds();
-                const delEq = getDeletedEquipmentIds();
-                const delRnd = getDeletedRoundIds();
-                const delUsr = getDeletedUserIds();
-                const delMeters = getDeletedMeterIds();
-                const delReadings = getDeletedMeterReadingIds();
-
-                setMeters(prev => {
-                  const filtered = (prev || []).filter(m => !delMeters.has(m.id) && (m.code ? !delMeters.has(m.code) : true));
-                  if (filtered.length !== (prev || []).length) {
-                    metersRef.current = filtered;
-                    /* Server Authoritative Meters */
-                    return filtered;
-                  }
-                  return prev;
-                });
-
-                setMeterReadingsLog(prev => {
-                  const filtered = (prev || []).filter(r => !delReadings.has(r.id) && !delMeters.has(r.meterId));
-                  if (filtered.length !== (prev || []).length) {
-                    meterReadingsLogRef.current = filtered;
-                    localStorage.setItem(STORAGE_KEYS.METER_READINGS_LOG, JSON.stringify(filtered));
-                    return filtered;
-                  }
-                  return prev;
-                });
-
-                setIncidents(prev => {
-                  const filtered = (prev || []).filter(i => !delInc.has(i.id));
-                  if (filtered.length !== (prev || []).length) {
-                    incidentsRef.current = filtered;
-                    localStorage.setItem(STORAGE_KEYS.INCIDENTS, JSON.stringify(filtered));
-                    return filtered;
-                  }
-                  return prev;
-                });
-
-                setRequests(prev => {
-                  const filtered = (prev || []).filter(r => !delReq.has(r.id));
-                  if (filtered.length !== (prev || []).length) {
-                    requestsRef.current = filtered;
-                    localStorage.setItem(STORAGE_KEYS.REQUESTS, JSON.stringify(filtered));
-                    return filtered;
-                  }
-                  return prev;
-                });
-
-                setEquipments(prev => {
-                  const filtered = (prev || []).filter(e => !delEq.has(e.id));
-                  if (filtered.length !== (prev || []).length) {
-                    equipmentsRef.current = filtered;
-                    localStorage.setItem(STORAGE_KEYS.EQUIPMENT, JSON.stringify(filtered));
-                    return filtered;
-                  }
-                  return prev;
-                });
-
-                setRounds(prev => {
-                  const filtered = (prev || []).filter(r => !delRnd.has(r.id));
-                  if (filtered.length !== (prev || []).length) {
-                    roundsRef.current = filtered;
-                    safeSetItem(STORAGE_KEYS.ROUNDS, JSON.stringify(filtered));
-                    return filtered;
-                  }
-                  return prev;
-                });
-
-                setUsers(prev => {
-                  const filtered = (prev || []).filter(u => !delUsr.has(u.id));
-                  if (filtered.length !== (prev || []).length) {
-                    const guaranteed = ensureAdminUserList(filtered);
-                    usersRef.current = guaranteed;
-                    localStorage.setItem('hotel_maint_users', JSON.stringify(guaranteed));
-                    return guaranteed;
-                  }
-                  return prev;
-                });
-              }
-            }
-          }
-        }, (err) => handleSnapshotError('Deleted records', err));
-        unsubs.push(unsubDeleted);
-
-        // 14. Global Real-Time App Version Listener (Instant Update Sync across all devices)
-        const unsubAppVersion = onSnapshot(doc(db, 'system', 'app_version'), (docSnap) => {
-          if (docSnap.exists()) {
-            const data = docSnap.data();
-            if (data && typeof data.versionCode === 'number') {
-              const appliedVer = Number(localStorage.getItem('hotel_maint_applied_version') || 0);
-              if (data.versionCode <= appliedVer) {
-                return;
-              }
-              if (initialAppVersionCodeRef.current === null) {
-                initialAppVersionCodeRef.current = data.versionCode;
-              } else if (data.versionCode > initialAppVersionCodeRef.current) {
-                triggerInstantAppUpdate(`Nueva versión ${data.changelog?.version || ''} publicada`);
-              }
-            }
-          }
-        }, (err) => handleSnapshotError('App version', err));
-        unsubs.push(unsubAppVersion);
-
-        // Mark initial load done after 1 second
-        setTimeout(() => {
-          isInitialLoad.current = false;
-        }, 1500);
-
-      } catch (e) {
-        console.warn('Firebase init error:', e);
-      }
-    }
-
-    initRealtime();
-
-    return () => {
-      unsubs.forEach(fn => fn());
-    };
-  }, []);
-
-  // Active round heartbeat emitter: keeps real active round alive so it is never marked as ghost
+  // Active round heartbeat emitter: keeps real active round alive on PostgreSQL
   useEffect(() => {
     if (!activeRound || activeRound.status !== 'en_progreso') return;
 
     const sendHeartbeat = () => {
       if (!activeRoundRef.current || activeRoundRef.current.status !== 'en_progreso') return;
+      if (
+        completedRoundIdsRef.current.has(activeRoundRef.current.id) ||
+        getDeletedRoundIds().has(activeRoundRef.current.id) ||
+        isRecentlyLocallyDeleted(activeRoundRef.current.id)
+      ) {
+        return;
+      }
       const nowIso = new Date().toISOString();
       const updatedRound: DailyRound = {
         ...activeRoundRef.current,
@@ -6884,10 +6622,15 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
       activeRoundRef.current = updatedRound;
       setActiveRound(updatedRound);
       safeSetItem(STORAGE_KEYS.ACTIVE_ROUND, JSON.stringify(updatedRound));
-      hasPendingLocalChanges.current = true;
-      persistToServer();
-      // Sync heartbeat to cloud so administrators and supervisors see live status
-      safeCloudWrite(() => setDoc(doc(db, 'rounds', updatedRound.id), cleanForFirestore(updatedRound), { merge: true }));
+      safeSetItem('active_round_draft_backup', JSON.stringify(updatedRound));
+      fetch('/api/rounds', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Client-Id': clientSessionId.current
+        },
+        body: JSON.stringify(updatedRound)
+      }).catch(() => {});
     };
 
     const heartbeatInterval = setInterval(sendHeartbeat, 60000);
@@ -6960,11 +6703,21 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
       excludeEmail: currentUser?.email
     });
 
-    hasPendingLocalChanges.current = true;
-    persistToServer();
-
-    // Sync to Firestore Cloud safely with quota protection
-    await safeCloudWrite(() => setDoc(doc(db, 'incidents', newIncident.id), cleanForFirestore(newIncident)));
+    hasPendingLocalChanges.current = false;
+    try {
+      const res = await fetch('/api/incidents', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Client-Id': clientSessionId.current
+        },
+        body: JSON.stringify(newIncident)
+      });
+      if (!res.ok) throw new Error('Incident POST failed');
+    } catch {
+      hasPendingLocalChanges.current = true;
+      persistToServer();
+    }
   };
 
   const updateIncident = async (id: string, data: Partial<Incident>) => {
@@ -6975,7 +6728,6 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
     localStorage.setItem(STORAGE_KEYS.INCIDENTS, JSON.stringify(updated));
     notify('Estado del inconveniente actualizado');
 
-    // Si fue solucionado, enviar notificación de sistema local y Push a los demás dispositivos
     if ((data.status as string) === 'solucionado' || (data.status as string) === 'resuelto') {
       sendSystemNotification('✅ 👏 Inconveniente Solucionado', {
         body: `"${targetInc?.title || 'Inconveniente'}" en ${targetInc?.area || 'Hotel'} fue marcado como solucionado.\n• Resuelto por: ${data.resolvedBy || currentUserRef.current?.displayName || 'Técnico'}`,
@@ -6995,14 +6747,13 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
       });
     }
 
-    // Broadcast instantáneamente a otras pestañas
     if (targetInc) {
       try {
         roundsChannel.current?.postMessage({ type: 'incident_updated', incident: targetInc });
       } catch (e) {}
     }
 
-    // If this incident originated from a round, keep the round's anomaly updated too
+    const modifiedRounds: DailyRound[] = [];
     setRounds(prevRounds => {
       let anyRoundModified = false;
 
@@ -7028,7 +6779,7 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
         });
         if (roundModified) {
           const newRound = { ...r, anomalies: newAnomalies };
-          safeCloudWrite(() => setDoc(doc(db, 'rounds', newRound.id), cleanForFirestore(newRound), { merge: true }));
+          modifiedRounds.push(newRound);
           return newRound;
         }
         return r;
@@ -7040,13 +6791,29 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
       return updatedRounds;
     });
 
-    hasPendingLocalChanges.current = true;
-    persistToServer();
-
-    if (targetInc) {
-      await safeCloudWrite(() => setDoc(doc(db, 'incidents', id), cleanForFirestore(targetInc), { merge: true }));
-    } else {
-      await safeCloudWrite(() => setDoc(doc(db, 'incidents', id), cleanForFirestore(data as any), { merge: true }));
+    try {
+      const res = await fetch(`/api/incidents/${id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Client-Id': clientSessionId.current
+        },
+        body: JSON.stringify(targetInc || data)
+      });
+      for (const mr of modifiedRounds) {
+        fetch('/api/rounds', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Client-Id': clientSessionId.current
+          },
+          body: JSON.stringify(mr)
+        }).catch(() => {});
+      }
+      if (!res.ok) throw new Error('Incident PUT failed');
+    } catch {
+      hasPendingLocalChanges.current = true;
+      persistToServer();
     }
   };
 
@@ -7055,26 +6822,26 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
       notify('Acceso restringido: No tienes permisos para eliminar registros.');
       return;
     }
+    localActionIds.current.delete(id);
+    trackLocalDeletion(id);
     markDeletedIncidentId(id);
-    localActionIds.current.add(id);
-    setTimeout(() => { localActionIds.current.delete(id); }, 15000);
     const updated = (incidentsRef.current || []).filter(item => item.id !== id);
     incidentsRef.current = updated;
     setIncidents(updated);
     localStorage.setItem(STORAGE_KEYS.INCIDENTS, JSON.stringify(updated));
     notify('Inconveniente eliminado con éxito');
 
-    // Also remove from rounds anomalies so it doesn't get resurrected
     setRounds(prevRounds => {
       let modified = false;
       const updatedRounds = prevRounds.map(r => {
         if (!r || !Array.isArray(r.anomalies)) return r;
-        const filtered = r.anomalies.filter(a => a.id !== id);
+        const filtered = r.anomalies.filter(a => {
+          const anomId = a.id || `inc-anom-${r.id}-${String(a.title || '').replace(/\s+/g, '_')}`;
+          return a.id !== id && anomId !== id;
+        });
         if (filtered.length !== r.anomalies.length) {
           modified = true;
-          const newRound = { ...r, anomalies: filtered, anomaliesCount: filtered.length };
-          safeCloudWrite(() => setDoc(doc(db, 'rounds', newRound.id), cleanForFirestore(newRound), { merge: true }));
-          return newRound;
+          return { ...r, anomalies: filtered, anomaliesCount: filtered.length };
         }
         return r;
       });
@@ -7089,13 +6856,12 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
       roundsChannel.current?.postMessage({ type: 'incident_deleted', incidentId: id });
     } catch (e) {}
 
-    fetch(`/api/incidents/${id}`, { method: 'DELETE' }).catch(() => {});
-    recordCloudDeletion(id);
-
-    await safeCloudWrite(() => deleteDoc(doc(db, 'incidents', id)));
-
-    hasPendingLocalChanges.current = true;
-    persistToServer();
+    try {
+      await fetch(`/api/incidents/${id}`, {
+        method: 'DELETE',
+        headers: { 'X-Client-Id': clientSessionId.current }
+      });
+    } catch {}
   };
 
   const addRequest = async (requestData: Omit<HotelRequest, 'id' | 'createdAt'> & { createdAt?: string }) => {
@@ -7132,7 +6898,6 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
     });
     playAlertSound();
 
-    // Notificar por Push al teléfono de todos los compañeros y administradores
     broadcastServerPushNotification({
       category: 'solicitudes',
       title: `🚨 Nueva Solicitud Hotelera`,
@@ -7150,10 +6915,20 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
       }
     });
 
-    hasPendingLocalChanges.current = true;
-    persistToServer();
-
-    await safeCloudWrite(() => setDoc(doc(db, 'requests', newRequest.id), cleanForFirestore(newRequest), { merge: true }));
+    try {
+      const res = await fetch('/api/requests', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Client-Id': clientSessionId.current
+        },
+        body: JSON.stringify(newRequest)
+      });
+      if (!res.ok) throw new Error('Request POST failed');
+    } catch {
+      hasPendingLocalChanges.current = true;
+      persistToServer();
+    }
   };
 
   // -------------------------------------------------------------
@@ -7167,11 +6942,20 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
       updatedAt: new Date().toISOString()
     };
 
+    const replaced = (schedulesRef.current || []).filter(
+      s => s.id !== newSchedule.id && s.date === newSchedule.date && s.technicianId === newSchedule.technicianId
+    );
+    replaced.forEach(s => {
+      trackLocalDeletion(s.id);
+      markDeletedScheduleId(s.id);
+    });
+
     unmarkDeletedScheduleId(newSchedule.id);
+    trackLocalCreation(newSchedule.id);
     const updated = [
-      newSchedule, 
-      ...(schedulesRef.current || []).filter(s => 
-        s.id !== newSchedule.id && 
+      newSchedule,
+      ...(schedulesRef.current || []).filter(s =>
+        s.id !== newSchedule.id &&
         !(s.date === newSchedule.date && s.technicianId === newSchedule.technicianId)
       )
     ];
@@ -7181,10 +6965,27 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
     idbSet(STORAGE_KEYS.SCHEDULES, updated).catch(() => {});
 
     roundsChannel.current?.postMessage({ type: 'schedule_updated', schedule: newSchedule });
-    hasPendingLocalChanges.current = true;
-    persistToServer();
 
-    await safeCloudWrite(() => setDoc(doc(db, 'schedules', newSchedule.id), cleanForFirestore(newSchedule), { merge: true }));
+    try {
+      for (const old of replaced) {
+        fetch(`/api/schedules/${old.id}`, {
+          method: 'DELETE',
+          headers: { 'X-Client-Id': clientSessionId.current }
+        }).catch(() => {});
+      }
+      const res = await fetch('/api/schedules', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Client-Id': clientSessionId.current
+        },
+        body: JSON.stringify(newSchedule)
+      });
+      if (!res.ok) throw new Error('Schedule POST failed');
+    } catch {
+      hasPendingLocalChanges.current = true;
+      persistToServer();
+    }
   };
 
   const updateSchedule = async (id: string, data: Partial<TechnicianSchedule>) => {
@@ -7197,14 +6998,26 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
     const target = updated.find(s => s.id === id);
     if (target) {
       roundsChannel.current?.postMessage({ type: 'schedule_updated', schedule: target });
-      await safeCloudWrite(() => setDoc(doc(db, 'schedules', id), cleanForFirestore(target), { merge: true }));
+      try {
+        const res = await fetch('/api/schedules', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Client-Id': clientSessionId.current
+          },
+          body: JSON.stringify(target)
+        });
+        if (!res.ok) throw new Error('Schedule update failed');
+      } catch {
+        hasPendingLocalChanges.current = true;
+        persistToServer();
+      }
     }
-
-    hasPendingLocalChanges.current = true;
-    persistToServer();
   };
 
   const deleteSchedule = async (id: string) => {
+    localActionIds.current.delete(id);
+    trackLocalDeletion(id);
     markDeletedScheduleId(id);
     const updated = (schedulesRef.current || []).filter(s => s.id !== id);
     schedulesRef.current = updated;
@@ -7212,13 +7025,16 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
     localStorage.setItem(STORAGE_KEYS.SCHEDULES, JSON.stringify(updated));
     idbSet(STORAGE_KEYS.SCHEDULES, updated).catch(() => {});
 
-    fetch(`/api/schedules/${id}`, { method: 'DELETE' }).catch(() => {});
-    recordCloudDeletion(id);
+    try {
+      roundsChannel.current?.postMessage({ type: 'schedule_deleted', scheduleId: id });
+    } catch {}
 
-    hasPendingLocalChanges.current = true;
-    persistToServer();
-
-    await safeCloudWrite(() => deleteDoc(doc(db, 'schedules', id)));
+    try {
+      await fetch(`/api/schedules/${id}`, {
+        method: 'DELETE',
+        headers: { 'X-Client-Id': clientSessionId.current }
+      });
+    } catch {}
   };
 
   const bulkGenerateSchedules = async (params: BulkScheduleParams) => {
@@ -7242,7 +7058,7 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
         let shift: ShiftType = 'manana';
 
         if (pattern === '5x2') {
-          const dayOfWeek = curr.getDay(); // 0 is Sun, 6 is Sat
+          const dayOfWeek = curr.getDay();
           shift = (dayOfWeek === 0 || dayOfWeek === 6) ? 'descanso' : 'diurno';
         } else if (pattern === 'rotativo_3turnos') {
           const cycle = (dayCount + techIdx) % 4;
@@ -7254,7 +7070,7 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
         else if (pattern === 'fijo_tarde') shift = 'tarde';
         else if (pattern === 'fijo_noche') shift = 'noche';
         else if (pattern === 'fijo_diurno') shift = 'diurno';
-        else { // 6x1 default
+        else {
           const cycle = (dayCount + techIdx) % 7;
           shift = cycle === 6 ? 'descanso' : (cycle % 2 === 0 ? 'manana' : 'tarde');
         }
@@ -7284,22 +7100,52 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
       dayCount++;
     }
 
-    let merged = [...schedules];
+    newGenerated.forEach(item => {
+      unmarkDeletedScheduleId(item.id);
+      trackLocalCreation(item.id);
+    });
+
+    let merged = [...(schedulesRef.current || schedules)];
+    const replacedItems: TechnicianSchedule[] = [];
     if (overwriteExisting) {
       const generatedKeys = new Set(newGenerated.map(g => `${g.technicianId}_${g.date}`));
-      merged = merged.filter(s => !generatedKeys.has(`${s.technicianId}_${s.date}`));
+      const generatedIds = new Set(newGenerated.map(g => g.id));
+      merged = merged.filter(s => {
+        const shouldReplace = generatedKeys.has(`${s.technicianId}_${s.date}`);
+        if (shouldReplace && !generatedIds.has(s.id)) {
+          replacedItems.push(s);
+        }
+        return !shouldReplace;
+      });
     }
     merged = [...newGenerated, ...merged];
 
+    schedulesRef.current = merged;
     setSchedules(merged);
     localStorage.setItem(STORAGE_KEYS.SCHEDULES, JSON.stringify(merged));
     idbSet(STORAGE_KEYS.SCHEDULES, merged).catch(() => {});
 
-    hasPendingLocalChanges.current = true;
-    persistToServer();
-
-    for (const item of newGenerated) {
-      await safeCloudWrite(() => setDoc(doc(db, 'schedules', item.id), cleanForFirestore(item), { merge: true }));
+    try {
+      for (const old of replacedItems) {
+        trackLocalDeletion(old.id);
+        markDeletedScheduleId(old.id);
+        fetch(`/api/schedules/${old.id}`, {
+          method: 'DELETE',
+          headers: { 'X-Client-Id': clientSessionId.current }
+        }).catch(() => {});
+      }
+      const res = await fetch('/api/schedules', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Client-Id': clientSessionId.current
+        },
+        body: JSON.stringify(newGenerated)
+      });
+      if (!res.ok) throw new Error('Bulk schedules POST failed');
+    } catch {
+      hasPendingLocalChanges.current = true;
+      persistToServer();
     }
   };
 
@@ -7311,18 +7157,31 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
       createdAt: new Date().toISOString()
     };
 
-    const updated = [newSwap, ...shiftSwapRequests];
+    unmarkDeletedShiftSwapId(newSwap.id);
+    trackLocalCreation(newSwap.id);
+    const updated = [newSwap, ...(shiftSwapRequestsRef.current || shiftSwapRequests)];
+    shiftSwapRequestsRef.current = updated;
     setShiftSwapRequests(updated);
     localStorage.setItem(STORAGE_KEYS.SHIFT_SWAPS, JSON.stringify(updated));
 
-    hasPendingLocalChanges.current = true;
-    persistToServer();
-
-    await safeCloudWrite(() => setDoc(doc(db, 'shift_swaps', newSwap.id), cleanForFirestore(newSwap), { merge: true }));
+    try {
+      const res = await fetch('/api/shift-swaps', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Client-Id': clientSessionId.current
+        },
+        body: JSON.stringify(newSwap)
+      });
+      if (!res.ok) throw new Error('Shift swap POST failed');
+    } catch {
+      hasPendingLocalChanges.current = true;
+      persistToServer();
+    }
   };
 
   const resolveShiftSwap = async (swapId: string, approved: boolean) => {
-    const updated = shiftSwapRequests.map(s => {
+    const updated = (shiftSwapRequestsRef.current || shiftSwapRequests).map(s => {
       if (s.id === swapId) {
         return {
           ...s,
@@ -7334,13 +7193,13 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
       return s;
     });
 
+    shiftSwapRequestsRef.current = updated;
     setShiftSwapRequests(updated);
     localStorage.setItem(STORAGE_KEYS.SHIFT_SWAPS, JSON.stringify(updated));
 
     if (approved) {
       const targetSwap = updated.find(s => s.id === swapId);
       if (targetSwap && targetSwap.scheduleId) {
-        // Swap technician on schedule
         updateSchedule(targetSwap.scheduleId, {
           technicianId: targetSwap.targetTechnicianId,
           technicianName: targetSwap.targetTechnicianName,
@@ -7352,8 +7211,23 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
       notify('❌ Permuta de turno rechazada.');
     }
 
-    hasPendingLocalChanges.current = true;
-    persistToServer();
+    const target = updated.find(s => s.id === swapId);
+    if (target) {
+      try {
+        const res = await fetch(`/api/shift-swaps/${swapId}`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Client-Id': clientSessionId.current
+          },
+          body: JSON.stringify(target)
+        });
+        if (!res.ok) throw new Error('Shift swap PUT failed');
+      } catch {
+        hasPendingLocalChanges.current = true;
+        persistToServer();
+      }
+    }
   };
 
   // -------------------------------------------------------------
@@ -7367,6 +7241,7 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
       updatedAt: new Date().toISOString()
     };
 
+    unmarkDeletedCronogramaId(newCronograma.id);
     trackLocalCreation(newCronograma.id);
     const updated = [newCronograma, ...(cronogramasRef.current || []).filter(c => c.id !== newCronograma.id)];
     cronogramasRef.current = updated;
@@ -7374,10 +7249,20 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
     localStorage.setItem(STORAGE_KEYS.CRONOGRAMAS, JSON.stringify(updated));
 
     roundsChannel.current?.postMessage({ type: 'cronograma_updated', cronograma: newCronograma });
-    hasPendingLocalChanges.current = true;
-    persistToServer();
-
-    await safeCloudWrite(() => setDoc(doc(db, 'cronogramas', newCronograma.id), cleanForFirestore(newCronograma)));
+    try {
+      const res = await fetch('/api/cronogramas', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Client-Id': clientSessionId.current
+        },
+        body: JSON.stringify(newCronograma)
+      });
+      if (!res.ok) throw new Error('Cronograma POST failed');
+    } catch {
+      hasPendingLocalChanges.current = true;
+      persistToServer();
+    }
     return newCronograma;
   };
 
@@ -7390,31 +7275,42 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
     const target = updated.find(c => c.id === id);
     if (target) {
       roundsChannel.current?.postMessage({ type: 'cronograma_updated', cronograma: target });
-      await safeCloudWrite(() => setDoc(doc(db, 'cronogramas', id), cleanForFirestore(target), { merge: true }));
+      try {
+        const res = await fetch(`/api/cronogramas/${id}`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Client-Id': clientSessionId.current
+          },
+          body: JSON.stringify(target)
+        });
+        if (!res.ok) throw new Error('Cronograma PUT failed');
+      } catch {
+        hasPendingLocalChanges.current = true;
+        persistToServer();
+      }
     }
-
-    hasPendingLocalChanges.current = true;
-    persistToServer();
   };
 
   const deleteCronograma = async (id: string) => {
+    localActionIds.current.delete(id);
+    trackLocalDeletion(id);
     markDeletedCronogramaId(id);
     const updated = (cronogramasRef.current || []).filter(c => c.id !== id);
     cronogramasRef.current = updated;
     setCronogramas(updated);
     localStorage.setItem(STORAGE_KEYS.CRONOGRAMAS, JSON.stringify(updated));
 
-    fetch(`/api/cronogramas/${id}`, { method: 'DELETE' }).catch(() => {});
-    recordCloudDeletion(id);
-
     try {
       roundsChannel.current?.postMessage({ type: 'cronograma_deleted', cronogramaId: id });
     } catch (e) {}
 
-    await safeCloudWrite(() => deleteDoc(doc(db, 'cronogramas', id)));
-
-    hasPendingLocalChanges.current = true;
-    persistToServer();
+    try {
+      await fetch(`/api/cronogramas/${id}`, {
+        method: 'DELETE',
+        headers: { 'X-Client-Id': clientSessionId.current }
+      });
+    } catch {}
   };
 
   // -------------------------------------------------------------
@@ -7464,16 +7360,18 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
     safeSetItem(STORAGE_KEYS.METERS, JSON.stringify(updated));
 
     roundsChannel.current?.postMessage({ type: 'meter_updated', meter: newMeter });
-    fetch('/api/meters', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Client-Id': clientSessionId.current },
-      body: JSON.stringify(newMeter)
-    }).catch(() => {});
-    hasPendingLocalChanges.current = true;
-    persistToServer();
+    try {
+      const res = await fetch('/api/meters', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Client-Id': clientSessionId.current },
+        body: JSON.stringify(newMeter)
+      });
+      if (!res.ok) throw new Error('Meter POST failed');
+    } catch {
+      hasPendingLocalChanges.current = true;
+      persistToServer();
+    }
 
-    safeCloudWrite(() => setDoc(doc(db, 'meter_definitions', newMeter.id), cleanForFirestore(newMeter))).catch(() => {});
-    safeCloudWrite(() => setDoc(doc(db, 'meters', newMeter.id), cleanForFirestore(newMeter))).catch(() => {});
     notify(`✅ Contador "${newMeter.name}" agregado con éxito`);
     return newMeter;
   };
@@ -7489,22 +7387,23 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
     const updated = (metersRef.current || []).map(m => m.id === id ? { ...m, ...data, updatedAt: new Date().toISOString() } : m);
     metersRef.current = updated;
     setMeters(updated);
-    /* Server Authoritative Meters */
+    safeSetItem(STORAGE_KEYS.METERS, JSON.stringify(updated));
 
     const target = updated.find(m => m.id === id);
     if (target) {
       roundsChannel.current?.postMessage({ type: 'meter_updated', meter: target });
-      fetch('/api/meters', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Client-Id': clientSessionId.current },
-        body: JSON.stringify(target)
-      }).catch(() => {});
-      safeCloudWrite(() => setDoc(doc(db, 'meter_definitions', id), cleanForFirestore(target), { merge: true })).catch(() => {});
-      safeCloudWrite(() => setDoc(doc(db, 'meters', id), cleanForFirestore(target), { merge: true })).catch(() => {});
+      try {
+        const res = await fetch('/api/meters', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Client-Id': clientSessionId.current },
+          body: JSON.stringify(target)
+        });
+        if (!res.ok) throw new Error('Meter update failed');
+      } catch {
+        hasPendingLocalChanges.current = true;
+        persistToServer();
+      }
     }
-
-    hasPendingLocalChanges.current = true;
-    persistToServer();
     notify('Ajustes del contador actualizados');
   };
 
@@ -7513,23 +7412,25 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
     const meterId = targetMeter ? targetMeter.id : id;
     const meterCode = targetMeter?.code;
 
+    localActionIds.current.delete(meterId);
+    trackLocalDeletion(meterId);
     markDeletedMeterId(meterId);
-    if (meterCode) markDeletedMeterId(meterCode);
-    unmarkLocalCreation(meterId);
-    if (meterCode) unmarkLocalCreation(meterCode);
+    if (meterCode) {
+      localActionIds.current.delete(meterCode);
+      trackLocalDeletion(meterCode);
+      markDeletedMeterId(meterCode);
+    }
 
-    // Filter out the meter
     const updated = (metersRef.current || []).filter(m => m.id !== meterId && (!meterCode || m.code !== meterCode));
     metersRef.current = updated;
     setMeters(updated);
-    /* Server Authoritative Meters */
+    safeSetItem(STORAGE_KEYS.METERS, JSON.stringify(updated));
 
-    // Also permanently delete and purge all readings associated with this meter
     const readingsToDelete = (meterReadingsLogRef.current || []).filter(r => r.meterId === meterId || (meterCode && r.meterId === meterCode));
     readingsToDelete.forEach(r => {
+      localActionIds.current.delete(r.id);
+      trackLocalDeletion(r.id);
       markDeletedMeterReadingId(r.id);
-      unmarkLocalCreation(r.id);
-      recordCloudDeletion(r.id);
     });
 
     const updatedReadings = (meterReadingsLogRef.current || []).filter(r => r.meterId !== meterId && (!meterCode || r.meterId !== meterCode));
@@ -7537,28 +7438,20 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
     setMeterReadingsLog(updatedReadings);
     localStorage.setItem(STORAGE_KEYS.METER_READINGS_LOG, JSON.stringify(updatedReadings));
 
-    recordCloudDeletion(meterId);
-    if (meterCode) recordCloudDeletion(meterCode);
-
     try {
       roundsChannel.current?.postMessage({ type: 'meter_deleted', meterId });
     } catch (e) {}
 
-    fetch(`/api/meters/${meterId}`, { method: 'DELETE' }).catch(() => {});
-
-    await safeCloudWrite(() => deleteDoc(doc(db, 'meter_definitions', meterId)));
-    await safeCloudWrite(() => deleteDoc(doc(db, 'meters', meterId)));
-    for (const r of readingsToDelete) {
-      await safeCloudWrite(() => deleteDoc(doc(db, 'meter_readings_log', r.id)));
-    }
-
-    hasPendingLocalChanges.current = true;
-    persistToServer();
+    try {
+      await fetch(`/api/meters/${meterId}`, {
+        method: 'DELETE',
+        headers: { 'X-Client-Id': clientSessionId.current }
+      });
+    } catch {}
     notify('Contador y lecturas eliminados permanentemente');
   };
 
   const recordMeterReading = async (data: Omit<MeterReadingRecord, 'id' | 'createdAt' | 'consumption' | 'intervalHours'>): Promise<MeterReadingRecord> => {
-    // Prevent duplicate reading for the exact same meter on the same date/time with the same value
     const existingDuplicate = (meterReadingsLogRef.current || []).find(r => 
       r.meterId === data.meterId && 
       r.date === data.date && 
@@ -7607,13 +7500,13 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
       createdAt: new Date().toISOString()
     };
 
+    unmarkDeletedMeterReadingId(newRecord.id);
     trackLocalCreation(newRecord.id);
     const updatedLogs = [newRecord, ...(meterReadingsLogRef.current || []).filter(r => r.id !== newRecord.id)];
     meterReadingsLogRef.current = updatedLogs;
     setMeterReadingsLog(updatedLogs);
     localStorage.setItem(STORAGE_KEYS.METER_READINGS_LOG, JSON.stringify(updatedLogs));
 
-    // Update meter currentReading and lastReadingDate
     const updatedMeters = (metersRef.current || []).map(m => m.id === data.meterId ? {
       ...m,
       currentReading: data.currentValue,
@@ -7623,48 +7516,47 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
     } : m);
     metersRef.current = updatedMeters;
     setMeters(updatedMeters);
-    /* Server Authoritative Meters */
-
-    // Sync to Firestore in background
-    safeCloudWrite(() => setDoc(doc(db, 'meter_readings_log', newRecord.id), cleanForFirestore(newRecord))).catch(() => {});
-    const updatedMeter = updatedMeters.find(m => m.id === data.meterId);
-    if (updatedMeter) {
-      safeCloudWrite(() => setDoc(doc(db, 'meter_definitions', updatedMeter.id), cleanForFirestore(updatedMeter), { merge: true })).catch(() => {});
-      safeCloudWrite(() => setDoc(doc(db, 'meters', updatedMeter.id), cleanForFirestore(updatedMeter), { merge: true })).catch(() => {});
-    }
+    safeSetItem(STORAGE_KEYS.METERS, JSON.stringify(updatedMeters));
 
     try {
       roundsChannel.current?.postMessage({ type: 'meter_reading_added', reading: newRecord });
     } catch (e) {}
 
-    fetch('/api/meter-readings', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Client-Id': clientSessionId.current },
-      body: JSON.stringify(newRecord)
-    }).catch(() => {});
-
-    hasPendingLocalChanges.current = true;
-    persistToServer();
+    try {
+      const res = await fetch('/api/meter-readings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Client-Id': clientSessionId.current },
+        body: JSON.stringify(newRecord)
+      });
+      if (!res.ok) throw new Error('Meter reading POST failed');
+    } catch {
+      hasPendingLocalChanges.current = true;
+      persistToServer();
+    }
 
     notify(`✅ Lectura guardada: ${data.currentValue} ${data.unit} (${consumption >= 0 ? `+${consumption}` : consumption} ${data.unit} en ${intervalHours}h)`);
     return newRecord;
   };
 
   const deleteMeterReading = async (id: string) => {
+    localActionIds.current.delete(id);
+    trackLocalDeletion(id);
     markDeletedMeterReadingId(id);
     const updated = (meterReadingsLogRef.current || []).filter(r => r.id !== id);
     meterReadingsLogRef.current = updated;
     setMeterReadingsLog(updated);
     localStorage.setItem(STORAGE_KEYS.METER_READINGS_LOG, JSON.stringify(updated));
 
-    recordCloudDeletion(id);
     try {
       roundsChannel.current?.postMessage({ type: 'meter_reading_deleted', readingId: id });
     } catch (e) {}
 
-    await safeCloudWrite(() => deleteDoc(doc(db, 'meter_readings_log', id)));
-    hasPendingLocalChanges.current = true;
-    persistToServer();
+    try {
+      await fetch(`/api/meter-readings/${id}`, {
+        method: 'DELETE',
+        headers: { 'X-Client-Id': clientSessionId.current }
+      });
+    } catch {}
     notify('Lectura eliminada');
   };
 
@@ -7707,7 +7599,6 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
       roundsChannel.current?.postMessage({ type: 'request_updated', request: updatedReq });
     }
 
-    // Notificaciones Push al sistema operativo aunque la aplicación esté cerrada o minimizada
     if (data.status === 'resuelto' && prevReq?.status !== 'resuelto') {
       broadcastServerPushNotification({
         category: 'solicitudes',
@@ -7746,10 +7637,20 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
       });
     }
 
-    hasPendingLocalChanges.current = true;
-    persistToServer();
-
-    await safeCloudWrite(() => updateDoc(doc(db, 'requests', id), cleanForFirestore(data as any)));
+    try {
+      const res = await fetch(`/api/requests/${id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Client-Id': clientSessionId.current
+        },
+        body: JSON.stringify(updatedReq || { ...data, updatedAt: updatedTimestamp })
+      });
+      if (!res.ok) throw new Error('Request PUT failed');
+    } catch {
+      hasPendingLocalChanges.current = true;
+      persistToServer();
+    }
   };
 
   const deleteRequest = async (id: string) => {
@@ -7757,26 +7658,26 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
       notify('Acceso restringido: No tienes permisos para eliminar solicitudes.');
       return;
     }
+    localActionIds.current.delete(id);
+    trackLocalDeletion(id);
     markDeletedRequestId(id);
-    localActionIds.current.add(id);
-    setTimeout(() => { localActionIds.current.delete(id); }, 15000);
     const updated = (requestsRef.current || []).filter(item => item.id !== id);
     requestsRef.current = updated;
     setRequests(updated);
     localStorage.setItem(STORAGE_KEYS.REQUESTS, JSON.stringify(updated));
+    idbSet(STORAGE_KEYS.REQUESTS, updated).catch(() => {});
     notify('Solicitud eliminada');
 
     try {
       roundsChannel.current?.postMessage({ type: 'request_deleted', requestId: id });
     } catch (e) {}
 
-    fetch(`/api/requests/${id}`, { method: 'DELETE' }).catch(() => {});
-    recordCloudDeletion(id);
-
-    await safeCloudWrite(() => deleteDoc(doc(db, 'requests', id)));
-
-    hasPendingLocalChanges.current = true;
-    persistToServer();
+    try {
+      await fetch(`/api/requests/${id}`, {
+        method: 'DELETE',
+        headers: { 'X-Client-Id': clientSessionId.current }
+      });
+    } catch {}
   };
 
   // -------------------------------------------------------------
@@ -7932,26 +7833,26 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
       notify('Acceso restringido: No tienes permisos para eliminar tareas.');
       return;
     }
+    localActionIds.current.delete(id);
+    trackLocalDeletion(id);
     markDeletedTaskId(id);
-    localActionIds.current.add(id);
-    setTimeout(() => { localActionIds.current.delete(id); }, 15000);
     const updated = (tasksRef.current || []).filter(item => item.id !== id);
     tasksRef.current = updated;
     setTasks(updated);
     localStorage.setItem(STORAGE_KEYS.TASKS, JSON.stringify(updated));
+    idbSet(STORAGE_KEYS.TASKS, updated).catch(() => {});
     notify('Tarea eliminada');
 
     try {
       roundsChannel.current?.postMessage({ type: 'task_deleted', taskId: id });
     } catch (e) {}
 
-    fetch(`/api/tasks/${id}`, { method: 'DELETE' }).catch(() => {});
-    recordCloudDeletion(id);
-
-    await safeCloudWrite(() => deleteDoc(doc(db, 'tasks', id)));
-
-    hasPendingLocalChanges.current = true;
-    persistToServer();
+    try {
+      await fetch(`/api/tasks/${id}`, {
+        method: 'DELETE',
+        headers: { 'X-Client-Id': clientSessionId.current }
+      });
+    } catch {}
   };
 
   const toggleTaskChecklistItem = async (taskId: string, itemId: string) => {
@@ -8025,10 +7926,20 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
     localStorage.setItem(STORAGE_KEYS.EQUIPMENT, JSON.stringify(updated));
     notify(`Equipo ${newEq.tag} agregado con éxito`);
 
-    hasPendingLocalChanges.current = true;
-    persistToServer();
-
-    await safeCloudWrite(() => setDoc(doc(db, 'equipments', newEq.id), cleanForFirestore(newEq)));
+    try {
+      const res = await fetch('/api/equipments', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Client-Id': clientSessionId.current
+        },
+        body: JSON.stringify(newEq)
+      });
+      if (!res.ok) throw new Error('Equipment POST failed');
+    } catch {
+      hasPendingLocalChanges.current = true;
+      persistToServer();
+    }
   };
 
   const updateEquipment = async (id: string, data: Partial<Equipment>) => {
@@ -8038,10 +7949,21 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
     localStorage.setItem(STORAGE_KEYS.EQUIPMENT, JSON.stringify(updated));
     notify('Equipo actualizado correctamente');
 
-    hasPendingLocalChanges.current = true;
-    persistToServer();
-
-    await safeCloudWrite(() => updateDoc(doc(db, 'equipments', id), cleanForFirestore(data as any)));
+    const target = updated.find(e => e.id === id);
+    try {
+      const res = await fetch(`/api/equipments/${id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Client-Id': clientSessionId.current
+        },
+        body: JSON.stringify(target || data)
+      });
+      if (!res.ok) throw new Error('Equipment PUT failed');
+    } catch {
+      hasPendingLocalChanges.current = true;
+      persistToServer();
+    }
   };
 
   const deleteEquipment = async (id: string) => {
@@ -8049,9 +7971,9 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
       notify('Acceso restringido: No tienes permisos para eliminar equipos.');
       return;
     }
+    localActionIds.current.delete(id);
+    trackLocalDeletion(id);
     markDeletedEquipmentId(id);
-    localActionIds.current.add(id);
-    setTimeout(() => { localActionIds.current.delete(id); }, 15000);
     const updated = (equipmentsRef.current || []).filter(item => item.id !== id);
     equipmentsRef.current = updated;
     setEquipments(updated);
@@ -8062,40 +7984,39 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
       roundsChannel.current?.postMessage({ type: 'equipment_deleted', equipmentId: id });
     } catch (e) {}
 
-    fetch(`/api/equipments/${id}`, { method: 'DELETE' }).catch(() => {});
-    recordCloudDeletion(id);
-
-    await safeCloudWrite(() => deleteDoc(doc(db, 'equipments', id)));
-
-    hasPendingLocalChanges.current = true;
-    persistToServer();
+    try {
+      await fetch(`/api/equipments/${id}`, {
+        method: 'DELETE',
+        headers: { 'X-Client-Id': clientSessionId.current }
+      });
+    } catch {}
   };
 
   const clearGenericImportedEquipments = async () => {
-    const generic = equipments.filter(e => e.tag.startsWith('EQ-IMP-') || e.name === 'Equipo Importado');
+    const generic = (equipmentsRef.current || equipments).filter(e => e.tag.startsWith('EQ-IMP-') || e.name === 'Equipo Importado');
     if (generic.length === 0) {
       notify('No se encontraron equipos genéricos importados');
       return;
     }
+    const updated = (equipmentsRef.current || equipments).filter(e => !e.tag.startsWith('EQ-IMP-') && e.name !== 'Equipo Importado');
+    equipmentsRef.current = updated;
+    setEquipments(updated);
+    localStorage.setItem(STORAGE_KEYS.EQUIPMENT, JSON.stringify(updated));
     for (const item of generic) {
+      trackLocalDeletion(item.id);
       markDeletedEquipmentId(item.id);
-      fetch(`/api/equipments/${item.id}`, { method: 'DELETE' }).catch(() => {});
+      fetch(`/api/equipments/${item.id}`, {
+        method: 'DELETE',
+        headers: { 'X-Client-Id': clientSessionId.current }
+      }).catch(() => {});
     }
-    setEquipments(prev => prev.filter(e => !e.tag.startsWith('EQ-IMP-') && e.name !== 'Equipo Importado'));
     notify(`Se eliminaron ${generic.length} equipos genéricos.`);
-    persistToServer();
-    try {
-      for (const item of generic) {
-        await safeCloudWrite(() => deleteDoc(doc(db, 'equipments', item.id))).catch(() => null);
-      }
-    } catch (e) {
-      console.warn('Error deleting generic equipments:', e);
-    }
   };
 
   const cleanAllImportedEquipments = async () => {
     const initialIds = new Set(INITIAL_EQUIPMENT.map(e => e.id));
-    const toRemove = equipments.filter(e => 
+    const current = equipmentsRef.current || equipments;
+    const toRemove = current.filter(e => 
       !initialIds.has(e.id) || 
       e.tag.startsWith('EQ-IMP-') || 
       e.name === 'Equipo Importado' || 
@@ -8107,50 +8028,49 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
       return;
     }
     
+    const updated = current.filter(e => !toRemove.some(rem => rem.id === e.id));
+    equipmentsRef.current = updated;
+    setEquipments(updated);
+    localStorage.setItem(STORAGE_KEYS.EQUIPMENT, JSON.stringify(updated));
     for (const item of toRemove) {
+      trackLocalDeletion(item.id);
       markDeletedEquipmentId(item.id);
-      fetch(`/api/equipments/${item.id}`, { method: 'DELETE' }).catch(() => {});
+      fetch(`/api/equipments/${item.id}`, {
+        method: 'DELETE',
+        headers: { 'X-Client-Id': clientSessionId.current }
+      }).catch(() => {});
     }
-    
-    setEquipments(prev => prev.filter(e => !toRemove.some(rem => rem.id === e.id)));
     notify(`Se eliminaron ${toRemove.length} equipos importados de Excel. Parque de Bombas restaurado.`);
-    persistToServer();
-    
-    try {
-      for (const item of toRemove) {
-        await safeCloudWrite(() => deleteDoc(doc(db, 'equipments', item.id))).catch(() => null);
-      }
-      setIsCloudSynced(true);
-    } catch (e) {
-      console.warn('Error deleting imported equipments in cloud:', e);
-    }
   };
 
   const restoreOfficialEquipmentPark = async () => {
     const initialIds = new Set(INITIAL_EQUIPMENT.map(e => e.id));
-    const toRemove = equipments.filter(e => !initialIds.has(e.id));
+    const current = equipmentsRef.current || equipments;
+    const toRemove = current.filter(e => !initialIds.has(e.id));
     for (const item of toRemove) {
+      trackLocalDeletion(item.id);
       markDeletedEquipmentId(item.id);
-      fetch(`/api/equipments/${item.id}`, { method: 'DELETE' }).catch(() => {});
+      fetch(`/api/equipments/${item.id}`, {
+        method: 'DELETE',
+        headers: { 'X-Client-Id': clientSessionId.current }
+      }).catch(() => {});
     }
     for (const initEq of INITIAL_EQUIPMENT) {
       unmarkDeletedEquipmentId(initEq.id);
+      trackLocalCreation(initEq.id);
+      fetch('/api/equipments', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Client-Id': clientSessionId.current
+        },
+        body: JSON.stringify({ ...initEq, forceRestore: true })
+      }).catch(() => {});
     }
+    equipmentsRef.current = INITIAL_EQUIPMENT;
     setEquipments(INITIAL_EQUIPMENT);
+    localStorage.setItem(STORAGE_KEYS.EQUIPMENT, JSON.stringify(INITIAL_EQUIPMENT));
     notify('Parque oficial de bombas restablecido (12 unidades oficiales)');
-    persistToServer();
-    try {
-      await ensureAuthenticated();
-      for (const item of toRemove) {
-        await safeCloudWrite(() => deleteDoc(doc(db, 'equipments', item.id))).catch(() => null);
-      }
-      for (const initEq of INITIAL_EQUIPMENT) {
-        await safeCloudWrite(() => setDoc(doc(db, 'equipments', initEq.id), initEq));
-      }
-      setIsCloudSynced(true);
-    } catch (e) {
-      console.warn('Error restoring official equipment park in cloud:', e);
-    }
   };
 
   // -------------------------------------------------------------
@@ -8161,36 +8081,52 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
       ...docData,
       id: `doc-${Date.now()}`
     };
-    setUploadedDocuments(prev => [newDoc, ...prev]);
+    unmarkDeletedUploadedDocumentId(newDoc.id);
+    trackLocalCreation(newDoc.id);
+    const updated = [newDoc, ...(uploadedDocumentsRef.current || []).filter(d => d.id !== newDoc.id)];
+    uploadedDocumentsRef.current = updated;
+    setUploadedDocuments(updated);
+    localStorage.setItem(STORAGE_KEYS.DOCUMENTS, JSON.stringify(updated));
     notify(`Documento "${newDoc.name}" guardado correctamente`);
 
-    try {
-      const firestoreDoc = { ...newDoc };
-      // Strip oversized base64 for Firestore to avoid 1MB limit, but it remains in state and localStorage
-      if (firestoreDoc.rawBase64 && firestoreDoc.rawBase64.length > 600000) {
-        firestoreDoc.rawBase64 = undefined;
-      }
-      await safeCloudWrite(() => setDoc(doc(db, 'uploaded_documents', newDoc.id), cleanForFirestore(firestoreDoc)));
-      setIsCloudSynced(true);
-    } catch (e) {
-      console.warn('Error saving uploaded document in cloud:', e);
+    const serverDoc = { ...newDoc };
+    if (serverDoc.rawBase64 && serverDoc.rawBase64.length > 50000) {
+      serverDoc.rawBase64 = undefined;
     }
+    try {
+      await fetch('/api/uploaded-documents', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Client-Id': clientSessionId.current
+        },
+        body: JSON.stringify(serverDoc)
+      });
+    } catch {}
     return newDoc;
   };
 
   const updateUploadedDocument = async (updatedDoc: UploadedDocument) => {
-    setUploadedDocuments(prev => prev.map(d => d.id === updatedDoc.id ? updatedDoc : d));
+    const updated = (uploadedDocumentsRef.current || []).map(d => d.id === updatedDoc.id ? updatedDoc : d);
+    uploadedDocumentsRef.current = updated;
+    setUploadedDocuments(updated);
+    localStorage.setItem(STORAGE_KEYS.DOCUMENTS, JSON.stringify(updated));
     notify('Documento actualizado correctamente');
-    try {
-      const firestoreDoc = { ...updatedDoc };
-      if (firestoreDoc.rawBase64 && firestoreDoc.rawBase64.length > 600000) {
-        firestoreDoc.rawBase64 = undefined;
-      }
-      await safeCloudWrite(() => setDoc(doc(db, 'uploaded_documents', updatedDoc.id), cleanForFirestore(firestoreDoc)));
-      setIsCloudSynced(true);
-    } catch (e) {
-      console.warn('Error updating document in cloud:', e);
+
+    const serverDoc = { ...updatedDoc };
+    if (serverDoc.rawBase64 && serverDoc.rawBase64.length > 50000) {
+      serverDoc.rawBase64 = undefined;
     }
+    try {
+      await fetch('/api/uploaded-documents', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Client-Id': clientSessionId.current
+        },
+        body: JSON.stringify(serverDoc)
+      });
+    } catch {}
   };
 
   const deleteUploadedDocument = async (id: string) => {
@@ -8198,16 +8134,19 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
       notify('Acceso restringido: No tienes permisos para eliminar documentos.');
       return;
     }
-    setUploadedDocuments(prev => prev.filter(d => d.id !== id));
+    trackLocalDeletion(id);
+    markDeletedUploadedDocumentId(id);
+    const updated = (uploadedDocumentsRef.current || []).filter(d => d.id !== id);
+    uploadedDocumentsRef.current = updated;
+    setUploadedDocuments(updated);
+    localStorage.setItem(STORAGE_KEYS.DOCUMENTS, JSON.stringify(updated));
     notify('Documento eliminado correctamente');
-    fetch(`/api/uploaded-documents/${id}`, { method: 'DELETE' }).catch(() => {});
-    persistToServer();
     try {
-      await safeCloudWrite(() => deleteDoc(doc(db, 'uploaded_documents', id)));
-      setIsCloudSynced(true);
-    } catch (e) {
-      console.warn('Error deleting document in cloud:', e);
-    }
+      await fetch(`/api/uploaded-documents/${id}`, {
+        method: 'DELETE',
+        headers: { 'X-Client-Id': clientSessionId.current }
+      });
+    } catch {}
   };
 
   const createDocumentFolder = async (name: string, color?: string) => {
@@ -8221,14 +8160,23 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
       color: color || 'emerald',
       createdAt: new Date().toISOString()
     };
-    setDocumentFolders(prev => [newFolder, ...prev]);
+    unmarkDeletedDocumentFolderId(newFolder.id);
+    trackLocalCreation(newFolder.id);
+    const updated = [newFolder, ...(documentFoldersRef.current || [])];
+    documentFoldersRef.current = updated;
+    setDocumentFolders(updated);
+    localStorage.setItem('hotel_doc_folders', JSON.stringify(updated));
     notify(`Carpeta "${name}" creada correctamente`);
     try {
-      await safeCloudWrite(() => setDoc(doc(db, 'document_folders', newFolder.id), cleanForFirestore(newFolder)));
-      setIsCloudSynced(true);
-    } catch (e) {
-      console.warn('Error creating document folder in cloud:', e);
-    }
+      await fetch('/api/document-folders', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Client-Id': clientSessionId.current
+        },
+        body: JSON.stringify(newFolder)
+      });
+    } catch {}
   };
 
   const deleteDocumentFolder = async (folderId: string) => {
@@ -8236,21 +8184,23 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
       notify('Acceso restringido: No tienes permisos para eliminar carpetas.');
       return;
     }
+    trackLocalDeletion(folderId);
+    markDeletedDocumentFolderId(folderId);
     const updatedFolders = (documentFoldersRef.current || []).filter(f => f.id !== folderId);
     const updatedDocs = (uploadedDocumentsRef.current || []).map(d => d.folderId === folderId ? { ...d, folderId: undefined } : d);
     documentFoldersRef.current = updatedFolders;
     uploadedDocumentsRef.current = updatedDocs;
     setDocumentFolders(updatedFolders);
     setUploadedDocuments(updatedDocs);
+    localStorage.setItem('hotel_doc_folders', JSON.stringify(updatedFolders));
+    localStorage.setItem(STORAGE_KEYS.DOCUMENTS, JSON.stringify(updatedDocs));
     notify('Carpeta eliminada correctamente');
-    fetch(`/api/document-folders/${folderId}`, { method: 'DELETE' }).catch(() => {});
     try {
-      await safeCloudWrite(() => deleteDoc(doc(db, 'document_folders', folderId)));
-      setIsCloudSynced(true);
-    } catch (e) {
-      console.warn('Error deleting document folder in cloud:', e);
-    }
-    persistToServer();
+      await fetch(`/api/document-folders/${folderId}`, {
+        method: 'DELETE',
+        headers: { 'X-Client-Id': clientSessionId.current }
+      });
+    } catch {}
   };
 
   const clearAllUploadedDocuments = async () => {
@@ -8258,21 +8208,19 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
       notify('Acceso restringido: No tienes permisos para eliminar documentos.');
       return;
     }
-    const current = [...uploadedDocuments];
+    const current = [...(uploadedDocumentsRef.current || uploadedDocuments)];
     uploadedDocumentsRef.current = [];
     setUploadedDocuments([]);
     localStorage.removeItem(STORAGE_KEYS.DOCUMENTS);
     notify('Todos los documentos de Hojas de Vida han sido eliminados.');
-    try {
-      for (const docItem of current) {
-        fetch(`/api/uploaded-documents/${docItem.id}`, { method: 'DELETE' }).catch(() => {});
-        await safeCloudWrite(() => deleteDoc(doc(db, 'uploaded_documents', docItem.id))).catch(() => null);
-      }
-      setIsCloudSynced(true);
-    } catch (e) {
-      console.warn('Error clearing uploaded documents in cloud:', e);
+    for (const docItem of current) {
+      trackLocalDeletion(docItem.id);
+      markDeletedUploadedDocumentId(docItem.id);
+      fetch(`/api/uploaded-documents/${docItem.id}`, {
+        method: 'DELETE',
+        headers: { 'X-Client-Id': clientSessionId.current }
+      }).catch(() => {});
     }
-    persistToServer();
   };
 
   const addUser = async (userData: Omit<User, 'id' | 'createdAt'>) => {
@@ -8345,8 +8293,7 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
     };
 
     unmarkDeletedUserId(newUser.id);
-    localActionIds.current.add(newUser.id);
-    setTimeout(() => { localActionIds.current.delete(newUser.id); }, 15000);
+    trackLocalCreation(newUser.id);
 
     // Ensure phantom or legacy placeholder users are never preserved
     const baseClean = (usersRef.current || users).filter(u => u && u.id !== 'usr-admin-master' && u.displayName !== 'Administrador Principal');
@@ -8471,9 +8418,9 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
       notify('No puedes eliminar tu propia cuenta en sesión activa.');
       return;
     }
+    localActionIds.current.delete(id);
+    trackLocalDeletion(id);
     markDeletedUserId(id);
-    localActionIds.current.add(id);
-    setTimeout(() => { localActionIds.current.delete(id); }, 15000);
     const updated = (usersRef.current || users).filter(u => u.id !== id);
     usersRef.current = updated;
     setUsers(updated);
@@ -8489,10 +8436,14 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
       roundsChannel.current?.postMessage({ type: 'user_deleted', userId: id });
     } catch (e) {}
 
-    fetch(`/api/users/${id}`, { 
-      method: 'DELETE',
-      headers: { 'X-Client-Id': clientSessionId.current }
-    }).catch(() => {});
+    try {
+      await fetch(`/api/users/${id}`, { 
+        method: 'DELETE',
+        headers: { 'X-Client-Id': clientSessionId.current }
+      });
+    } catch (e) {
+      console.warn('Error deleting user from PostgreSQL:', e);
+    }
   };
 
   // -------------------------------------------------------------
@@ -8503,35 +8454,66 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
       ...insp,
       id: `insp-${Date.now()}`
     };
-    setPumpInspections(prev => [newInsp, ...prev]);
+    unmarkDeletedPumpInspectionId(newInsp.id);
+    trackLocalCreation(newInsp.id);
+
+    const updatedInspections = [newInsp, ...(pumpInspectionsRef.current || [])];
+    pumpInspectionsRef.current = updatedInspections;
+    setPumpInspections(updatedInspections);
+    localStorage.setItem(STORAGE_KEYS.INSPECTIONS, JSON.stringify(updatedInspections));
 
     // Update equipment status & last inspection date
     const updatedStatus = insp.overallCondition === 'critico' ? 'fuera_servicio' : (insp.overallCondition === 'observacion' ? 'alerta' : 'operativo');
     const lastDate = insp.date.split(' ')[0];
 
-    setEquipments(prev => prev.map(eq => {
+    let updatedEqPayload: Partial<Equipment> | null = null;
+    const updatedEquipments = (equipmentsRef.current || []).map(eq => {
       if (eq.id === insp.equipmentId) {
-        return {
+        const nextEq: Equipment = {
           ...eq,
           status: updatedStatus as any,
           lastInspectionDate: lastDate,
           currentHours: Math.max(eq.currentHours, insp.hourMeter || eq.currentHours),
         };
+        updatedEqPayload = {
+          status: nextEq.status,
+          lastInspectionDate: nextEq.lastInspectionDate,
+          currentHours: nextEq.currentHours
+        };
+        return nextEq;
       }
       return eq;
-    }));
+    });
+    equipmentsRef.current = updatedEquipments;
+    setEquipments(updatedEquipments);
+    localStorage.setItem(STORAGE_KEYS.EQUIPMENT, JSON.stringify(updatedEquipments));
 
     notify(`Revisión técnica registrada para ${insp.equipmentTag}`);
 
     try {
-      await safeCloudWrite(() => setDoc(doc(db, 'pump_inspections', newInsp.id), cleanForFirestore(newInsp)));
-      await safeCloudWrite(() => updateDoc(doc(db, 'equipments', insp.equipmentId), cleanForFirestore({
-        status: updatedStatus,
-        lastInspectionDate: lastDate,
-      })));
-      setIsCloudSynced(true);
+      const res = await fetch('/api/pump-inspections', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Client-Id': clientSessionId.current
+        },
+        body: JSON.stringify(newInsp)
+      });
+      if (updatedEqPayload && insp.equipmentId) {
+        await fetch(`/api/equipments/${insp.equipmentId}`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Client-Id': clientSessionId.current
+          },
+          body: JSON.stringify(updatedEqPayload)
+        });
+      }
+      if (res.ok) setIsCloudSynced(true);
     } catch (e) {
-      console.warn('Error saving pump inspection in cloud:', e);
+      console.warn('Error saving pump inspection to PostgreSQL:', e);
+      hasPendingLocalChanges.current = true;
+      persistToServer();
     }
   };
 
@@ -8541,7 +8523,7 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
   const syncActiveRoundTimeoutRef = useRef<any>(null);
   const syncActiveRoundToCloud = (round: DailyRound, immediate = false) => {
     // Si la ronda ya fue completada o descartada, no sincronizar nunca más un estado 'en_progreso'
-    if (completedRoundIdsRef.current.has(round.id) || getDeletedRoundIds().has(round.id)) {
+    if (completedRoundIdsRef.current.has(round.id) || getDeletedRoundIds().has(round.id) || isRecentlyLocallyDeleted(round.id)) {
       return;
     }
     if ((roundsRef.current || []).some(r => r.id === round.id && r.status === 'completada')) {
@@ -8559,10 +8541,9 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
     const roundToSync: DailyRound = round;
 
     const executeSync = async () => {
-      if (completedRoundIdsRef.current.has(roundToSync.id) || getDeletedRoundIds().has(roundToSync.id)) return;
+      if (completedRoundIdsRef.current.has(roundToSync.id) || getDeletedRoundIds().has(roundToSync.id) || isRecentlyLocallyDeleted(roundToSync.id)) return;
       if ((roundsRef.current || []).some(r => r.id === roundToSync.id && r.status === 'completada')) return;
 
-      // 1. Post to Express server so SSE emits round_updated (<30ms)
       fetch('/api/rounds', {
         method: 'POST',
         headers: {
@@ -8571,9 +8552,6 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
         },
         body: JSON.stringify(roundToSync)
       }).catch(() => {});
-
-      // 2. Persist safely in Cloud Firestore
-      await safeCloudWrite(() => setDoc(doc(db, 'rounds', roundToSync.id), cleanForFirestore(roundToSync)));
     };
 
     if (immediate) {
@@ -8698,15 +8676,10 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
     setRounds(updated);
     safeSetItem(STORAGE_KEYS.ROUNDS, JSON.stringify(updated));
 
-    localActionIds.current.add(newRound.id);
-    setTimeout(() => { localActionIds.current.delete(newRound.id); }, 15000);
-
     // Queue for reliable offline sync
     queuePendingOfflineRound(newRound);
 
-    // Save to local server
-    hasPendingLocalChanges.current = true;
-    persistToServer();
+    // Save directly to PostgreSQL API
     fetch('/api/rounds', {
       method: 'POST',
       headers: {
@@ -8715,11 +8688,11 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
       },
       body: JSON.stringify(newRound)
     }).then(res => {
-      if (res.ok) removePendingOfflineRound(newRound.id);
+      if (res.ok) {
+        removePendingOfflineRound(newRound.id);
+        setIsCloudSynced(true);
+      }
     }).catch(() => {});
-
-    // Save safely to Firestore collection 'rounds'
-    safeCloudWrite(() => setDoc(doc(db, 'rounds', newRound.id), cleanForFirestore(newRound)));
 
     // Emitir notificación Push a los teléfonos y dispositivos de todos los compañeros configurados
     const shiftLabel = shift === 'manana' ? 'Turno Mañana' : shift === 'tarde' ? 'Turno Tarde' : 'Turno Noche';
@@ -9224,8 +9197,7 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
     localStorage.removeItem(STORAGE_KEYS.ACTIVE_ROUND);
     localStorage.removeItem('active_round_draft_backup');
     idbRemove(STORAGE_KEYS.ACTIVE_ROUND).catch(() => {});
-    localActionIds.current.add(completed.id);
-    setTimeout(() => { localActionIds.current.delete(completed.id); }, 15000);
+    trackLocalCreation(completed.id);
 
     // 2. Subir directamente a la API de PostgreSQL con tolerancia a señal baja (timeout 8s)
     let uploadConfirmed = false;
@@ -9245,6 +9217,7 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
       if (res.ok) {
         uploadConfirmed = true;
         removePendingOfflineRound(completed.id);
+        setIsCloudSynced(true);
       }
     } catch (netErr) {
       console.warn('Advertencia en carga inicial a servidor API:', netErr);
@@ -9281,9 +9254,6 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
       excludeEmail: currentUser?.email
     });
 
-    hasPendingLocalChanges.current = true;
-    persistToServer();
-
     return completed;
   };
 
@@ -9310,6 +9280,11 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
         const parsed = JSON.parse(savedActiveRaw);
         if (parsed?.id) idsToCancel.add(parsed.id);
       }
+      const backupRaw = localStorage.getItem('active_round_draft_backup');
+      if (backupRaw) {
+        const parsed = JSON.parse(backupRaw);
+        if (parsed?.id) idsToCancel.add(parsed.id);
+      }
     } catch {}
 
     const activeUser = currentUserRef.current || currentUser;
@@ -9323,14 +9298,15 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
     activeRoundRef.current = null;
     setActiveRound(null);
     localStorage.removeItem(STORAGE_KEYS.ACTIVE_ROUND);
+    localStorage.removeItem('active_round_draft_backup');
     idbRemove(STORAGE_KEYS.ACTIVE_ROUND).catch(() => {});
 
     if (idsToCancel.size > 0) {
       idsToCancel.forEach(cancelledId => {
+        localActionIds.current.delete(cancelledId);
+        trackLocalDeletion(cancelledId);
         markDeletedRoundId(cancelledId);
         removePendingOfflineRound(cancelledId);
-        localActionIds.current.add(cancelledId);
-        setTimeout(() => { localActionIds.current.delete(cancelledId); }, 30000);
       });
 
       const updated = (roundsRef.current || []).filter(r => r && !idsToCancel.has(r.id));
@@ -9339,26 +9315,22 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
       safeSetItem(STORAGE_KEYS.ROUNDS, JSON.stringify(updated));
       idbSet(STORAGE_KEYS.ROUNDS, updated).catch(() => {});
 
-      for (const cancelledId of idsToCancel) {
-        try {
-          roundsChannel.current?.postMessage({ type: 'round_deleted', roundId: cancelledId });
-        } catch (e) {}
+      await Promise.all(
+        Array.from(idsToCancel).map(async (cancelledId) => {
+          try {
+            roundsChannel.current?.postMessage({ type: 'round_deleted', roundId: cancelledId });
+          } catch (e) {}
 
-        fetch(`/api/rounds/${cancelledId}`, {
-          method: 'DELETE',
-          headers: { 'X-Client-Id': clientSessionId.current }
-        }).catch(err => {
-          console.warn('Error deleting cancelled round from API:', err);
-        });
-        recordCloudDeletion(cancelledId);
-      }
-
-      hasPendingLocalChanges.current = true;
-      persistToServer();
-
-      for (const cancelledId of idsToCancel) {
-        await safeCloudWrite(() => deleteDoc(doc(db, 'rounds', cancelledId)));
-      }
+          try {
+            await fetch(`/api/rounds/${cancelledId}`, {
+              method: 'DELETE',
+              headers: { 'X-Client-Id': clientSessionId.current }
+            });
+          } catch (err) {
+            console.warn('Error deleting cancelled round from API:', err);
+          }
+        })
+      );
       notify('Ronda en curso descartada definitivamente.');
     }
   };
@@ -9379,10 +9351,10 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
     if (localStorage.getItem('active_round_resume_lock') === roundId) {
       localStorage.removeItem('active_round_resume_lock');
     }
+    localActionIds.current.delete(roundId);
+    trackLocalDeletion(roundId);
     markDeletedRoundId(roundId);
     removePendingOfflineRound(roundId);
-    localActionIds.current.add(roundId);
-    setTimeout(() => { localActionIds.current.delete(roundId); }, 30000);
 
     const updated = (roundsRef.current || []).filter(r => r.id !== roundId);
     roundsRef.current = updated;
@@ -9395,6 +9367,10 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
       try {
         const rawActive = localStorage.getItem(STORAGE_KEYS.ACTIVE_ROUND);
         if (rawActive && JSON.parse(rawActive)?.id === roundId) {
+          shouldClearActive = true;
+        }
+        const rawBackup = localStorage.getItem('active_round_draft_backup');
+        if (rawBackup && JSON.parse(rawBackup)?.id === roundId) {
           shouldClearActive = true;
         }
       } catch {}
@@ -9410,29 +9386,24 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
       activeRoundRef.current = null;
       setActiveRound(null);
       localStorage.removeItem(STORAGE_KEYS.ACTIVE_ROUND);
+      localStorage.removeItem('active_round_draft_backup');
       idbRemove(STORAGE_KEYS.ACTIVE_ROUND).catch(() => {});
     }
 
-    // 1. Difusión a otras pestañas en el mismo equipo (0ms)
     try {
       roundsChannel.current?.postMessage({ type: 'round_deleted', roundId });
     } catch (e) {
       console.warn('BroadcastChannel postMessage error:', e);
     }
 
-    // 3. Notificación y eliminación ultra-rápida en el servidor (<30ms) para que todas las demás pantallas la reciban de inmediato
-    fetch(`/api/rounds/${roundId}`, {
-      method: 'DELETE',
-      headers: { 'X-Client-Id': clientSessionId.current }
-    }).catch(err => {
+    try {
+      await fetch(`/api/rounds/${roundId}`, {
+        method: 'DELETE',
+        headers: { 'X-Client-Id': clientSessionId.current }
+      });
+    } catch (err) {
       console.warn('Error calling delete round API:', err);
-    });
-    recordCloudDeletion(roundId);
-    hasPendingLocalChanges.current = true;
-    persistToServer();
-
-    // 4. Eliminación en la nube Firestore
-    await safeCloudWrite(() => deleteDoc(doc(db, 'rounds', roundId)));
+    }
     notify(isInProgress ? 'Ronda en curso descartada con éxito' : 'Ronda eliminada con éxito');
   };
 
@@ -9453,9 +9424,11 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
     reconciled.completedAt = undefined;
     reconciled.technicianSignature = undefined;
 
+    completedRoundIdsRef.current.delete(reconciled.id);
     activeRoundRef.current = reconciled;
     setActiveRound(reconciled);
     safeSetItem(STORAGE_KEYS.ACTIVE_ROUND, JSON.stringify(reconciled));
+    safeSetItem('active_round_draft_backup', JSON.stringify(reconciled));
 
     const updated = (roundsRef.current || []).map(r => r.id === reconciled.id ? reconciled : r);
     if (!updated.some(r => r.id === reconciled.id)) {
@@ -9480,10 +9453,6 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
       body: JSON.stringify(reconciled)
     }).catch(() => {});
 
-    safeCloudWrite(() => setDoc(doc(db, 'rounds', reconciled.id), cleanForFirestore(reconciled))).catch(() => {});
-
-    hasPendingLocalChanges.current = true;
-    
     // Set a lock in storage to protect this round across background operations
     localStorage.setItem('active_round_resume_lock', reconciled.id);
     setTimeout(() => localStorage.removeItem('active_round_resume_lock'), 10000);
@@ -9492,27 +9461,36 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
   };
 
   const updateRound = async (roundId: string, data: Partial<DailyRound>) => {
-    const updatedRounds = (roundsRef.current || []).map(r => r.id === roundId ? { ...r, ...data } : r);
+    const nowIso = new Date().toISOString();
+    const updatedRounds = (roundsRef.current || []).map(r => r.id === roundId ? { ...r, ...data, lastUpdated: nowIso } : r);
     roundsRef.current = updatedRounds;
     setRounds(updatedRounds);
     safeSetItem(STORAGE_KEYS.ROUNDS, JSON.stringify(updatedRounds));
 
     if (activeRoundRef.current && activeRoundRef.current.id === roundId) {
-      const updatedActive = { ...activeRoundRef.current, ...data };
+      const updatedActive = { ...activeRoundRef.current, ...data, lastUpdated: nowIso };
       activeRoundRef.current = updatedActive;
       setActiveRound(updatedActive);
-      safeSetItem('hotel_maint_active_round', JSON.stringify(updatedActive));
+      safeSetItem(STORAGE_KEYS.ACTIVE_ROUND, JSON.stringify(updatedActive));
+      safeSetItem('active_round_draft_backup', JSON.stringify(updatedActive));
     }
 
     notify('Ronda actualizada correctamente');
-    hasPendingLocalChanges.current = true;
-    persistToServer();
 
     try {
-      await safeCloudWrite(() => updateDoc(doc(db, 'rounds', roundId), cleanForFirestore(data as any)));
-      setIsCloudSynced(true);
+      const res = await fetch(`/api/rounds/${roundId}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Client-Id': clientSessionId.current
+        },
+        body: JSON.stringify({ ...data, lastUpdated: nowIso })
+      });
+      if (res.ok) setIsCloudSynced(true);
     } catch (e) {
-      console.warn('Error updating round in cloud:', e);
+      console.warn('Error updating round in PostgreSQL:', e);
+      hasPendingLocalChanges.current = true;
+      persistToServer();
     }
   };
 
@@ -9524,9 +9502,6 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
       ...plan,
       id: `plan-${Date.now()}`
     };
-    setPreventivePlans(prev => [newPlan, ...prev]);
-
-    // Also auto-generate the first work order for this plan
     const newOrder: PreventiveWorkOrder = {
       id: `ot-${Date.now()}`,
       planId: newPlan.id,
@@ -9542,28 +9517,73 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
       usedMaterials: [],
       approvedByAdmin: false
     };
-    setWorkOrders(prev => [newOrder, ...prev]);
+
+    unmarkDeletedPreventivePlanId(newPlan.id);
+    unmarkDeletedWorkOrderId(newOrder.id);
+    trackLocalCreation(newPlan.id);
+    trackLocalCreation(newOrder.id);
+
+    const updatedPlans = [newPlan, ...(preventivePlansRef.current || [])];
+    preventivePlansRef.current = updatedPlans;
+    setPreventivePlans(updatedPlans);
+    localStorage.setItem(STORAGE_KEYS.PLANS, JSON.stringify(updatedPlans));
+
+    const updatedOrders = [newOrder, ...(workOrdersRef.current || [])];
+    workOrdersRef.current = updatedOrders;
+    setWorkOrders(updatedOrders);
+    localStorage.setItem(STORAGE_KEYS.WORK_ORDERS, JSON.stringify(updatedOrders));
 
     notify(`Plan preventivo creado para ${plan.equipmentTag}`);
 
     try {
-      await safeCloudWrite(() => setDoc(doc(db, 'preventive_plans', newPlan.id), cleanForFirestore(newPlan)));
-      await safeCloudWrite(() => setDoc(doc(db, 'work_orders', newOrder.id), cleanForFirestore(newOrder)));
-      setIsCloudSynced(true);
+      const [planRes, orderRes] = await Promise.all([
+        fetch('/api/preventive-plans', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Client-Id': clientSessionId.current
+          },
+          body: JSON.stringify(newPlan)
+        }),
+        fetch('/api/work-orders', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Client-Id': clientSessionId.current
+          },
+          body: JSON.stringify(newOrder)
+        })
+      ]);
+      if (planRes.ok && orderRes.ok) setIsCloudSynced(true);
     } catch (e) {
-      console.warn('Error saving plan in cloud:', e);
+      console.warn('Error saving plan to PostgreSQL:', e);
+      hasPendingLocalChanges.current = true;
+      persistToServer();
     }
   };
 
   const updatePreventivePlan = async (id: string, data: Partial<PreventivePlan>) => {
-    setPreventivePlans(prev => prev.map(p => p.id === id ? { ...p, ...data } : p));
+    const updatedPlans = (preventivePlansRef.current || []).map(p => p.id === id ? { ...p, ...data } : p);
+    preventivePlansRef.current = updatedPlans;
+    setPreventivePlans(updatedPlans);
+    localStorage.setItem(STORAGE_KEYS.PLANS, JSON.stringify(updatedPlans));
     notify('Plan preventivo modificado');
 
+    const updatedPlan = updatedPlans.find(p => p.id === id);
     try {
-      await safeCloudWrite(() => updateDoc(doc(db, 'preventive_plans', id), cleanForFirestore(data as any)));
-      setIsCloudSynced(true);
+      const res = await fetch(`/api/preventive-plans/${id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Client-Id': clientSessionId.current
+        },
+        body: JSON.stringify(updatedPlan || data)
+      });
+      if (res.ok) setIsCloudSynced(true);
     } catch (e) {
-      console.warn('Error updating plan in cloud:', e);
+      console.warn('Error updating plan in PostgreSQL:', e);
+      hasPendingLocalChanges.current = true;
+      persistToServer();
     }
   };
 
@@ -9572,20 +9592,26 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
       notify('Acceso restringido: No tienes permisos para eliminar planes.');
       return;
     }
+    trackLocalDeletion(id);
+    markDeletedPreventivePlanId(id);
     const updated = (preventivePlansRef.current || []).filter(p => p.id !== id);
     preventivePlansRef.current = updated;
     setPreventivePlans(updated);
+    localStorage.setItem(STORAGE_KEYS.PLANS, JSON.stringify(updated));
     notify('Plan preventivo eliminado');
-    fetch(`/api/preventive-plans/${id}`, { method: 'DELETE' }).catch(() => {});
 
     try {
-      await safeCloudWrite(() => deleteDoc(doc(db, 'preventive_plans', id)));
-      setIsCloudSynced(true);
-    } catch (e) {
-      console.warn('Error deleting plan in cloud:', e);
-    }
+      roundsChannel.current?.postMessage({ type: 'preventive_plan_deleted', planId: id });
+    } catch {}
 
-    persistToServer();
+    try {
+      await fetch(`/api/preventive-plans/${id}`, {
+        method: 'DELETE',
+        headers: { 'X-Client-Id': clientSessionId.current }
+      });
+    } catch (e) {
+      console.warn('Error deleting plan in PostgreSQL:', e);
+    }
   };
 
   const executeWorkOrder = async (
@@ -9599,7 +9625,7 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
   ) => {
     const today = new Date().toISOString().split('T')[0];
 
-    const updatedOrders = workOrders.map(order => {
+    const updatedOrders = (workOrdersRef.current || workOrders).map(order => {
       if (order.id === orderId) {
         return {
           ...order,
@@ -9614,10 +9640,12 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
       }
       return order;
     });
+    workOrdersRef.current = updatedOrders;
     setWorkOrders(updatedOrders);
+    localStorage.setItem(STORAGE_KEYS.WORK_ORDERS, JSON.stringify(updatedOrders));
 
     // Update equipment's lastPreventiveDate
-    const order = workOrders.find(o => o.id === orderId);
+    const order = (workOrdersRef.current || workOrders).find(o => o.id === orderId);
     let updatedEqId: string | null = null;
     let nextDateStr = '';
 
@@ -9627,7 +9655,7 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
       nextDate.setDate(nextDate.getDate() + 30);
       nextDateStr = nextDate.toISOString().split('T')[0];
 
-      setEquipments(prev => prev.map(eq => {
+      const updatedEquipments = (equipmentsRef.current || equipments).map(eq => {
         if (eq.id === order.equipmentId) {
           return {
             ...eq,
@@ -9636,7 +9664,10 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
           };
         }
         return eq;
-      }));
+      });
+      equipmentsRef.current = updatedEquipments;
+      setEquipments(updatedEquipments);
+      localStorage.setItem(STORAGE_KEYS.EQUIPMENT, JSON.stringify(updatedEquipments));
     }
 
     notify('Orden de trabajo preventiva completada con éxito');
@@ -9644,22 +9675,38 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
     try {
       const updatedOrder = updatedOrders.find(o => o.id === orderId);
       if (updatedOrder) {
-        await safeCloudWrite(() => updateDoc(doc(db, 'work_orders', orderId), cleanForFirestore(updatedOrder as any)));
+        await fetch(`/api/work-orders/${orderId}`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Client-Id': clientSessionId.current
+          },
+          body: JSON.stringify(updatedOrder)
+        });
       }
       if (updatedEqId) {
-        await safeCloudWrite(() => updateDoc(doc(db, 'equipments', updatedEqId), cleanForFirestore({
-          lastPreventiveDate: today,
-          nextPreventiveDate: nextDateStr
-        })));
+        await fetch(`/api/equipments/${updatedEqId}`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Client-Id': clientSessionId.current
+          },
+          body: JSON.stringify({
+            lastPreventiveDate: today,
+            nextPreventiveDate: nextDateStr
+          })
+        });
       }
       setIsCloudSynced(true);
     } catch (e) {
-      console.warn('Error updating work order in cloud:', e);
+      console.warn('Error updating work order in PostgreSQL:', e);
+      hasPendingLocalChanges.current = true;
+      persistToServer();
     }
   };
 
   const createWorkOrderFromPlan = async (planId: string, scheduledDate: string, technician: string) => {
-    const plan = preventivePlans.find(p => p.id === planId);
+    const plan = (preventivePlansRef.current || preventivePlans).find(p => p.id === planId);
     if (!plan) return;
 
     const newOrder: PreventiveWorkOrder = {
@@ -9678,14 +9725,29 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
       approvedByAdmin: false
     };
 
-    setWorkOrders(prev => [newOrder, ...prev]);
+    unmarkDeletedWorkOrderId(newOrder.id);
+    trackLocalCreation(newOrder.id);
+
+    const updatedOrders = [newOrder, ...(workOrdersRef.current || [])];
+    workOrdersRef.current = updatedOrders;
+    setWorkOrders(updatedOrders);
+    localStorage.setItem(STORAGE_KEYS.WORK_ORDERS, JSON.stringify(updatedOrders));
     notify(`Nueva OT programada para el ${scheduledDate}`);
 
     try {
-      await safeCloudWrite(() => setDoc(doc(db, 'work_orders', newOrder.id), cleanForFirestore(newOrder)));
-      setIsCloudSynced(true);
+      const res = await fetch('/api/work-orders', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Client-Id': clientSessionId.current
+        },
+        body: JSON.stringify(newOrder)
+      });
+      if (res.ok) setIsCloudSynced(true);
     } catch (e) {
-      console.warn('Error saving work order in cloud:', e);
+      console.warn('Error saving work order in PostgreSQL:', e);
+      hasPendingLocalChanges.current = true;
+      persistToServer();
     }
   };
 
@@ -9702,54 +9764,35 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
     settingsRef.current = merged;
     setSettings(merged);
     safeSetItem(STORAGE_KEYS.SETTINGS, JSON.stringify(merged));
-    hasPendingLocalChanges.current = true;
-    persistToServer();
-    notify('Ajustes del hotel actualizados en la nube');
 
-    await safeCloudWrite(() => setDoc(doc(db, 'hotel_settings', 'main'), cleanForFirestore(merged)));
+    try {
+      const res = await fetch('/api/settings', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Client-Id': clientSessionId.current
+        },
+        body: JSON.stringify(merged)
+      });
+      if (res.ok) {
+        setIsCloudSynced(true);
+      }
+      notify('Ajustes del hotel actualizados en PostgreSQL');
+    } catch (e) {
+      console.warn('Error updating settings in PostgreSQL:', e);
+      hasPendingLocalChanges.current = true;
+      persistToServer();
+      notify('Ajustes guardados localmente (reintentando sincronización).');
+    }
   };
 
   const clearAllData = async () => {
-    // 1. Clear local memory state immediately
-    setEquipments([]);
-    setRounds([]);
-    setActiveRound(null);
-    setPumpInspections([]);
-    setPreventivePlans([]);
-    setWorkOrders([]);
-    setIncidents([]);
-    setRequests([]);
-
-    // 2. Clear local storage records
-    localStorage.setItem(STORAGE_KEYS.EQUIPMENT, JSON.stringify([]));
-    safeSetItem(STORAGE_KEYS.ROUNDS, JSON.stringify([]));
+    // Protección estricta: nunca ejecutar eliminaciones masivas ni destructivas en PostgreSQL.
+    // Sólo limpia el caché visual local en el navegador si el usuario solicita reiniciar vista local.
     localStorage.removeItem(STORAGE_KEYS.ACTIVE_ROUND);
-    localStorage.setItem(STORAGE_KEYS.INSPECTIONS, JSON.stringify([]));
-    localStorage.setItem(STORAGE_KEYS.PLANS, JSON.stringify([]));
-    localStorage.setItem(STORAGE_KEYS.WORK_ORDERS, JSON.stringify([]));
-    localStorage.setItem(STORAGE_KEYS.INCIDENTS, JSON.stringify([]));
-    localStorage.setItem(STORAGE_KEYS.REQUESTS, JSON.stringify([]));
-    localStorage.removeItem(DELETED_EQUIPMENT_STORAGE_KEY);
-    localStorage.removeItem(DELETED_ROUNDS_STORAGE_KEY);
-    localStorage.setItem('hotel_maint_database_cleared_v3', 'true');
-
-    notify('Vaciando todos los registros de la aplicación...');
-
-    // 3. Clear cloud Firestore collections
-    try {
-      await ensureAuthenticated();
-      const collectionsToPurge = ['equipments', 'rounds', 'incidents', 'requests', 'pump_inspections', 'preventive_plans', 'work_orders'];
-      for (const colName of collectionsToPurge) {
-        const snap = await getDocs(collection(db, colName));
-        const deletePromises = snap.docs.map(d => safeCloudWrite(() => deleteDoc(doc(db, colName, d.id))));
-        await Promise.all(deletePromises);
-      }
-      setIsCloudSynced(true);
-      notify('Todos los registros (equipos, rondas, solicitudes, alertas) han sido eliminados correctamente.');
-    } catch (e) {
-      console.warn('Error purging records from cloud:', e);
-      notify('Registros eliminados del almacenamiento local.');
-    }
+    localStorage.removeItem('active_round_draft_backup');
+    idbRemove(STORAGE_KEYS.ACTIVE_ROUND).catch(() => {});
+    notify('Caché de borrador local limpiado de forma segura sin alterar la base de datos.');
   };
 
   const resetToDefaults = () => {

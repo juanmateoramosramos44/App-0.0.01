@@ -156,7 +156,7 @@ if (DATABASE_URL) {
       ssl: isSsl ? { rejectUnauthorized: false } : undefined,
       max: 20,
       idleTimeoutMillis: 30000,
-      connectionTimeoutMillis: 3500,
+      connectionTimeoutMillis: 8000,
     });
     pgPool.on('error', (err) => {
       console.warn("[PostgreSQL Pool] Warning / connection event:", err.message);
@@ -311,580 +311,81 @@ async function initPostgresSchema() {
   }
 }
 
-async function syncMemoryToPostgresIfEmpty(client: any) {
-  try {
-    const tablesToCheck = ['rounds', 'users', 'equipments', 'tasks', 'incidents', 'requests', 'meters'];
-    let totalExistingRecords = 0;
-    for (const tbl of tablesToCheck) {
-      try {
-        const cRes = await client.query(`SELECT COUNT(*) as count FROM ${tbl}`);
-        totalExistingRecords += parseInt(cRes.rows[0]?.count || '0', 10);
-      } catch {}
+function createEmptyMemoryStore() {
+  return {
+    rounds: [],
+    equipments: [],
+    incidents: [],
+    requests: [],
+    tasks: [],
+    pumpInspections: [],
+    preventivePlans: [],
+    workOrders: [],
+    schedules: [],
+    shiftSwaps: [],
+    cronogramas: [],
+    meters: [],
+    meterReadingsLog: [],
+    settings: {},
+    uploadedDocuments: [],
+    documentFolders: [],
+    users: [],
+    roundTemplate: [],
+    deletedIds: [],
+    pmsData: {
+      occupancyPercentage: 88,
+      totalGuests: 156,
+      arrivalsToday: 24,
+      departuresToday: 19,
+      arrivalsTomorrow: 30,
+      totalRooms: 120,
+      occupiedRooms: 106,
+      vacantRooms: 14,
+      maintenanceRooms: 0,
+      lastSyncedAt: new Date().toISOString(),
+      source: 'Recepción PMS'
     }
+  };
+}
 
-    if (totalExistingRecords === 0) {
-      console.log('[PostgreSQL] Database is currently empty across all tables. Seeding initial baseline data...');
-      const data = getCachedData();
-      await seedPostgresFromData(data, client);
-      console.log('[PostgreSQL] Database baseline initialized without overwriting.');
-    } else {
-      console.log(`[PostgreSQL] Database has existing data (${totalExistingRecords} records found across primary tables). Loading into memory...`);
-      await loadPostgresIntoMemory(client);
+function sanitizeCheckpointTemplateServer(chk: any) {
+  if (!chk) return chk;
+  const copy = { ...chk };
+  delete copy.currentValue;
+  delete copy.statusValue;
+  delete copy.notes;
+  delete copy.photoUrl;
+  delete copy.photos;
+  delete copy.anomalyId;
+  delete copy.isAlarmActive;
+  delete copy.alarmReason;
+  if (Array.isArray(copy.measurementFields)) {
+    copy.measurementFields = copy.measurementFields.map((f: any) => {
+      const fCopy = { ...f };
+      delete fCopy.value;
+      delete fCopy.statusValue;
+      delete fCopy.photoUrl;
+      delete fCopy.photos;
+      return fCopy;
+    });
+  }
+  return copy;
+}
+
+function buildInitialSeedData() {
+  let seed: any = null;
+  try {
+    if (fs.existsSync(DATA_FILE)) {
+      const raw = fs.readFileSync(DATA_FILE, 'utf-8');
+      seed = JSON.parse(raw);
     }
   } catch (e) {
-    console.warn('[PostgreSQL] Notice checking database initial state:', e);
+    console.warn("Notice reading data.json for initial seed:", e);
   }
-}
-
-async function seedPostgresFromData(data: any, client: any) {
-  if (!data || typeof data !== 'object') return;
-  const collections: Array<{ name: string; items: any[] }> = [
-    { name: 'rounds', items: Array.isArray(data.rounds) ? data.rounds : [] },
-    { name: 'equipments', items: Array.isArray(data.equipments) ? data.equipments : [] },
-    { name: 'incidents', items: Array.isArray(data.incidents) ? data.incidents : [] },
-    { name: 'requests', items: Array.isArray(data.requests) ? data.requests : [] },
-    { name: 'tasks', items: Array.isArray(data.tasks) ? data.tasks : [] },
-    { name: 'schedules', items: Array.isArray(data.schedules) ? data.schedules : [] },
-    { name: 'shift_swaps', items: Array.isArray(data.shiftSwaps) ? data.shiftSwaps : [] },
-    { name: 'cronogramas', items: Array.isArray(data.cronogramas) ? data.cronogramas : [] },
-    { name: 'meters', items: Array.isArray(data.meters) ? data.meters : [] },
-    { name: 'meter_readings_log', items: Array.isArray(data.meterReadingsLog) ? data.meterReadingsLog : [] },
-    { name: 'pump_inspections', items: Array.isArray(data.pumpInspections) ? data.pumpInspections : [] },
-    { name: 'preventive_plans', items: Array.isArray(data.preventivePlans) ? data.preventivePlans : [] },
-    { name: 'work_orders', items: Array.isArray(data.workOrders) ? data.workOrders : [] },
-    { name: 'uploaded_documents', items: Array.isArray(data.uploadedDocuments) ? data.uploadedDocuments : [] },
-    { name: 'document_folders', items: Array.isArray(data.documentFolders) ? data.documentFolders : [] },
-    { name: 'users', items: Array.isArray(data.users) ? data.users : [] }
-  ];
-
-  for (const col of collections) {
-    for (const item of col.items) {
-      if (!item || !item.id) continue;
-      try {
-        await client.query(
-          `INSERT INTO ${col.name} (id, data, updated_at) VALUES ($1, $2, CURRENT_TIMESTAMP) ON CONFLICT (id) DO NOTHING`,
-          [item.id, JSON.stringify(item)]
-        );
-      } catch (err) {}
-    }
-  }
-
-  if (data.settings) {
-    try {
-      await client.query(
-        `INSERT INTO settings (id, data, updated_at) VALUES ($1, $2, CURRENT_TIMESTAMP) ON CONFLICT (id) DO NOTHING`,
-        ['app_settings', JSON.stringify(data.settings)]
-      );
-    } catch {}
-  }
-
-  if (Array.isArray(data.roundTemplate)) {
-    try {
-      await client.query(
-        `INSERT INTO app_data (id, data, updated_at) VALUES ($1, $2, CURRENT_TIMESTAMP) ON CONFLICT (id) DO NOTHING`,
-        ['round_template', JSON.stringify({ items: data.roundTemplate })]
-      );
-    } catch {}
-  }
-}
-
-async function loadPostgresIntoMemory(client: any) {
-  try {
-    const tables = [
-      { name: 'rounds', key: 'rounds' },
-      { name: 'equipments', key: 'equipments' },
-      { name: 'incidents', key: 'incidents' },
-      { name: 'requests', key: 'requests' },
-      { name: 'tasks', key: 'tasks' },
-      { name: 'schedules', key: 'schedules' },
-      { name: 'shift_swaps', key: 'shiftSwaps' },
-      { name: 'cronogramas', key: 'cronogramas' },
-      { name: 'meters', key: 'meters' },
-      { name: 'meter_readings_log', key: 'meterReadingsLog' },
-      { name: 'pump_inspections', key: 'pumpInspections' },
-      { name: 'preventive_plans', key: 'preventivePlans' },
-      { name: 'work_orders', key: 'workOrders' },
-      { name: 'uploaded_documents', key: 'uploadedDocuments' },
-      { name: 'document_folders', key: 'documentFolders' },
-      { name: 'users', key: 'users' }
-    ];
-
-    if (!memoryCache) getCachedData();
-
-    const delQ = await client.query('SELECT id FROM deleted_ids');
-    const deletedSet = new Set<string>((delQ.rows || []).map((r: any) => r.id));
-
-    for (const t of tables) {
-      const q = await client.query(`SELECT id, data FROM ${t.name}`);
-      if (q.rows && q.rows.length > 0) {
-        memoryCache[t.key] = q.rows
-          .map((r: any) => (r && r.data && typeof r.data === 'object') ? { ...r.data, id: r.data.id || r.id } : null)
-          .filter((d: any) => d && d.id);
-        for (const item of memoryCache[t.key]) {
-          deletedSet.delete(item.id);
-        }
-      } else {
-        memoryCache[t.key] = [];
-      }
-    }
-    memoryCache.deletedIds = Array.from(deletedSet);
-
-    const setQ = await client.query('SELECT data FROM settings WHERE id = $1', ['app_settings']);
-    if (setQ.rows.length > 0) {
-      memoryCache.settings = setQ.rows[0].data;
-    }
-
-    const tplQ = await client.query('SELECT data FROM app_data WHERE id = $1', ['round_template']);
-    if (tplQ.rows.length > 0 && Array.isArray(tplQ.rows[0].data?.items)) {
-      memoryCache.roundTemplate = tplQ.rows[0].data.items;
-    }
-    console.log('[PostgreSQL] Loaded records from PostgreSQL into memory cache.');
-  } catch (e) {
-    console.warn('[PostgreSQL] Warning loading postgres records into memory:', e);
-  }
-}
-
-async function pgUpsert(table: string, id: string, data: any) {
-  if (!pgPool) return;
-  try {
-    await pgPool.query(
-      `INSERT INTO ${table} (id, data, updated_at) 
-       VALUES ($1, $2, CURRENT_TIMESTAMP) 
-       ON CONFLICT (id) 
-       DO UPDATE SET data = EXCLUDED.data, updated_at = CURRENT_TIMESTAMP`,
-      [id, JSON.stringify(data)]
-    );
-    await pgPool.query(`DELETE FROM deleted_ids WHERE id = $1`, [id]);
-    if (memoryCache && Array.isArray(memoryCache.deletedIds)) {
-      memoryCache.deletedIds = memoryCache.deletedIds.filter((dId: string) => dId !== id);
-    }
-  } catch (err) {
-    console.warn(`[PostgreSQL] Notice on ${table} (falling back to JSON store):`, (err as any)?.message || err);
-  }
-}
-
-async function pgDelete(table: string, id: string) {
-  if (!pgPool) return;
-  try {
-    await pgPool.query(`DELETE FROM ${table} WHERE id = $1`, [id]);
-    await pgPool.query(
-      `INSERT INTO deleted_ids (id, deleted_at) VALUES ($1, CURRENT_TIMESTAMP) ON CONFLICT (id) DO NOTHING`,
-      [id]
-    );
-  } catch (err) {
-    console.warn(`[PostgreSQL] Notice on delete ${table}:`, (err as any)?.message || err);
-  }
-}
-
-async function pgGet(table: string, id: string) {
-  if (!pgPool) return null;
-  try {
-    const res = await pgPool.query(`SELECT data FROM ${table} WHERE id = $1`, [id]);
-    return res.rows[0]?.data || null;
-  } catch (err) {
-    return null;
-  }
-}
-
-async function pgGetAll(table: string) {
-  if (!pgPool) return null;
-  try {
-    const res = await pgPool.query(`SELECT data FROM ${table}`);
-    return res.rows.map(r => r.data);
-  } catch (err) {
-    console.warn(`[PostgreSQL] GetAll error on ${table}:`, err);
-    return null;
-  }
-}
-
-async function persistMemoryToPostgres(incoming: any) {
-  if (!pgPool || !incoming || typeof incoming !== 'object') return;
-  try {
-    const mappings: Array<{ key: string; table: string }> = [
-      { key: 'rounds', table: 'rounds' },
-      { key: 'equipments', table: 'equipments' },
-      { key: 'incidents', table: 'incidents' },
-      { key: 'requests', table: 'requests' },
-      { key: 'tasks', table: 'tasks' },
-      { key: 'schedules', table: 'schedules' },
-      { key: 'shiftSwaps', table: 'shift_swaps' },
-      { key: 'cronogramas', table: 'cronogramas' },
-      { key: 'meters', table: 'meters' },
-      { key: 'meterReadingsLog', table: 'meter_readings_log' },
-      { key: 'pumpInspections', table: 'pump_inspections' },
-      { key: 'preventivePlans', table: 'preventive_plans' },
-      { key: 'workOrders', table: 'work_orders' },
-      { key: 'uploadedDocuments', table: 'uploaded_documents' },
-      { key: 'documentFolders', table: 'document_folders' },
-      { key: 'users', table: 'users' }
-    ];
-
-    for (const m of mappings) {
-      if (Array.isArray(incoming[m.key])) {
-        for (const item of incoming[m.key]) {
-          if (item && item.id) {
-            await pgUpsert(m.table, item.id, item);
-          }
-        }
-      }
-    }
-
-    if (incoming.settings) {
-      await pgUpsert('settings', 'app_settings', incoming.settings);
-    }
-    if (Array.isArray(incoming.roundTemplate)) {
-      await pgUpsert('app_data', 'round_template', { items: incoming.roundTemplate });
-    }
-  } catch (err) {
-    console.warn('[PostgreSQL] Async persist error:', err);
-  }
-}
-
-function getLocalDateStringServer(): string {
-  try {
-    const formatter = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Bogota', year: 'numeric', month: '2-digit', day: '2-digit' });
-    return formatter.format(new Date());
-  } catch (e) {
-    const d = new Date();
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-  }
-}
-
-function getCachedData() {
-  if (!memoryCache) {
-    try {
-      if (fs.existsSync(DATA_FILE)) {
-        const raw = fs.readFileSync(DATA_FILE, 'utf-8');
-        memoryCache = JSON.parse(raw);
-      }
-    } catch (e) {
-      console.error("Error reading initial data.json:", e);
-    }
-    if (!memoryCache) {
-      memoryCache = {
-        rounds: [],
-        equipments: [],
-        incidents: [],
-        requests: [],
-        tasks: [],
-        pumpInspections: [],
-        preventivePlans: [],
-        workOrders: [],
-        settings: {},
-        uploadedDocuments: [],
-        documentFolders: [],
-        users: [],
-        roundTemplate: [],
-        deletedIds: [],
-        pmsData: {
-          occupancyPercentage: 88,
-          totalGuests: 156,
-          arrivalsToday: 24,
-          departuresToday: 19,
-          arrivalsTomorrow: 30,
-          totalRooms: 120,
-          occupiedRooms: 106,
-          vacantRooms: 14,
-          maintenanceRooms: 0,
-          lastSyncedAt: new Date().toISOString(),
-          source: 'Recepción PMS'
-        }
-      };
-    }
-
-    function sanitizeCheckpointTemplateServer(chk: any) {
-      if (!chk) return chk;
-      const copy = { ...chk };
-      delete copy.currentValue;
-      delete copy.statusValue;
-      delete copy.notes;
-      delete copy.photoUrl;
-      delete copy.photos;
-      delete copy.anomalyId;
-      delete copy.isAlarmActive;
-      delete copy.alarmReason;
-      if (Array.isArray(copy.measurementFields)) {
-        copy.measurementFields = copy.measurementFields.map((f: any) => {
-          const fCopy = { ...f };
-          delete fCopy.value;
-          delete fCopy.statusValue;
-          delete fCopy.photoUrl;
-          delete fCopy.photos;
-          return fCopy;
-        });
-      }
-      return copy;
-    }
-
-    if (!Array.isArray(memoryCache.roundTemplate) || memoryCache.roundTemplate.length < 26) {
-      try {
-        if (HISTORICAL_ROUNDS && HISTORICAL_ROUNDS[0] && HISTORICAL_ROUNDS[0].checkpoints) {
-          memoryCache.roundTemplate = HISTORICAL_ROUNDS[0].checkpoints.map(sanitizeCheckpointTemplateServer);
-        }
-      } catch (e) {
-        if (!Array.isArray(memoryCache.roundTemplate)) memoryCache.roundTemplate = [];
-      }
-    } else {
-      memoryCache.roundTemplate = memoryCache.roundTemplate.map(sanitizeCheckpointTemplateServer);
-    }
-
-    if (Array.isArray(memoryCache.rounds)) {
-      const deletedIdsSet = new Set(memoryCache.deletedIds || []);
-
-      const existingRoundsMap = new Map((memoryCache.rounds || []).map((r: any) => [r.id, r]));
-      for (const hr of HISTORICAL_ROUNDS) {
-        if (!existingRoundsMap.has(hr.id) && !deletedIdsSet.has(hr.id)) {
-          existingRoundsMap.set(hr.id, { ...hr, status: 'completada', compliancePercentage: 100 });
-        }
-      }
-      memoryCache.rounds = Array.from(existingRoundsMap.values()).filter((r: any) => r && r.id && !deletedIdsSet.has(r.id));
-
-      const todayStr = getLocalDateStringServer();
-      const sampleRoundWithChks = memoryCache.rounds.find((r: any) => r && Array.isArray(r.checkpoints) && r.checkpoints.length >= 22);
-      const defaultCheckpoints = sampleRoundWithChks?.checkpoints 
-        ? JSON.parse(JSON.stringify(sampleRoundWithChks.checkpoints))
-        : (Array.isArray(memoryCache.roundTemplate) && memoryCache.roundTemplate.length >= 22 ? JSON.parse(JSON.stringify(memoryCache.roundTemplate)) : []);
-
-      // Alonso 2026-10-26 tarde initial seed only if not deleted
-      if (!deletedIdsSet.has('rnd-1793041800000') && !memoryCache.rounds.some((r: any) => r && (r.id === 'rnd-1793041800000' || (r.date === '2026-10-26' && r.shift === 'tarde')))) {
-        const sampleAlonso = memoryCache.rounds.find((r: any) => r && r.id === 'rnd-1791427641734') || memoryCache.rounds[0];
-        if (sampleAlonso) {
-          memoryCache.rounds.push({
-            ...JSON.parse(JSON.stringify(sampleAlonso)),
-            id: 'rnd-1793041800000',
-            date: '2026-10-26',
-            shift: 'tarde',
-            time: '21:30',
-            technician: 'Ferney Alonso/Supervisor',
-            technicianName: 'Ferney Alonso/Supervisor',
-            technicianSignature: 'Ferney Alonso',
-            status: 'completada',
-            compliancePercentage: 100,
-            progress: 100,
-            completedAt: '2026-10-26T21:48:30.000Z',
-            generalNotes: 'Ronda de tarde ejecutada con normalidad. Todos los sistemas y equipos inspeccionados al 100%.',
-            anomalies: [],
-            anomaliesCount: 0
-          });
-        }
-      }
-
-      // Carlos 2026-10-29 noche initial seed only if not deleted
-      if (!deletedIdsSet.has('rnd-1793318700000') && !memoryCache.rounds.some((r: any) => r && (r.id === 'rnd-1793318700000' || (r.date === '2026-10-29' && (r.shift === 'noche' || r.shift === 'tarde') && String(r.technicianName||'').includes('Carlos'))))) {
-        const sampleCarlos = memoryCache.rounds.find((r: any) => r && r.id === 'rnd-1793236464859') || memoryCache.rounds[0];
-        if (sampleCarlos) {
-          memoryCache.rounds.push({
-            ...JSON.parse(JSON.stringify(sampleCarlos)),
-            id: 'rnd-1793318700000',
-            date: '2026-10-29',
-            shift: 'noche',
-            time: '20:45',
-            technician: 'Carlos Manuel/ Técnico',
-            technicianName: 'Carlos Manuel/ Técnico',
-            technicianSignature: 'Carlos Manuel',
-            status: 'completada',
-            compliancePercentage: 100,
-            progress: 100,
-            completedAt: '2026-10-29T21:30:00.000Z',
-            generalNotes: 'Ronda nocturna finalizada al 100%. Parámetros y lecturas clave dentro de rangos normales de operación.',
-            anomalies: [],
-            anomaliesCount: 0
-          });
-        }
-      }
-
-      // Quality validation & complete readings guarantee for all rounds
-      memoryCache.rounds.forEach((r: any) => {
-        if (!r) return;
-        // If a round is actively in progress by a technician, NEVER override its status, readings or auto-complete it
-        if (r.status === 'en_progreso') {
-          return;
-        }
-
-        // Never allow empty or missing meterReadings - always provide valid operational numbers for historical rounds
-        if (!r.meterReadings || typeof r.meterReadings !== 'object') {
-          r.meterReadings = {};
-        }
-        if (!r.meterReadings.mainWaterPressurePsi) r.meterReadings.mainWaterPressurePsi = 72;
-        if (!r.meterReadings.hotWaterSupplyTempC) r.meterReadings.hotWaterSupplyTempC = 60;
-        if (!r.meterReadings.hotWaterReturnTempC) r.meterReadings.hotWaterReturnTempC = 53.5;
-        if (!r.meterReadings.waterCubicMeters) r.meterReadings.waterCubicMeters = 48925;
-        if (!r.meterReadings.electricKwh) r.meterReadings.electricKwh = 341950;
-        if (!r.meterReadings.gasCubicMeters) r.meterReadings.gasCubicMeters = 18215;
-        if (!r.meterReadings.poolPh) r.meterReadings.poolPh = 7.35;
-        if (!r.meterReadings.poolChlorinePpm) r.meterReadings.poolChlorinePpm = 2.1;
-
-        if (r.status === 'completada') {
-          if (!Array.isArray(r.checkpoints) || r.checkpoints.length === 0) {
-            r.checkpoints = JSON.parse(JSON.stringify(defaultCheckpoints));
-          }
-          r.compliancePercentage = 100;
-          r.progress = 100;
-        }
-
-        const filledCount = Array.isArray(r.checkpoints) ? r.checkpoints.filter((c: any) => c && (c.currentValue !== undefined && c.currentValue !== '' || c.statusValue)).length : 0;
-        const isFull100 = isRoundFullyCompletedServer(r) || filledCount >= 20 || (Array.isArray(r.checkpoints) && r.checkpoints.length >= 22 && r.checkpoints.every((c: any) => isRoundCheckpointCompleteServer(c)));
-        
-        if (isFull100 || r.id === 'rnd-1793236464859' || r.id === 'rnd-1793041800000' || r.id === 'rnd-1793318700000' || r.id === 'rnd-1793014386856' || r.id === 'rnd-1793099951407' || r.id === 'rnd-1793187936014') {
-          r.compliancePercentage = 100;
-          r.progress = 100;
-          r.status = 'completada';
-          r.technicianSignature = r.technicianSignature || (r.id === 'rnd-1791890015719' ? 'Adrián Barrera/Tecnico' : (r.technicianName || 'Técnico'));
-          r.completedAt = r.completedAt || (r.date + 'T' + (r.time || '22:00') + ':00');
-        }
-      });
-
-      // Enforce true canonical attribution for recent real hotel rounds
-      memoryCache.rounds.forEach((r: any) => {
-        if (!r) return;
-        if (r.id === 'rnd-1793041800000') {
-          r.date = '2026-10-26';
-          r.time = '21:30';
-          r.shift = 'tarde';
-          r.technicianName = 'Ferney Alonso/Supervisor';
-          r.technicianSignature = 'Ferney Alonso';
-          r.completedAt = '2026-10-26T21:48:30.000Z';
-          r.status = 'completada';
-          r.compliancePercentage = 100;
-          r.progress = 100;
-        } else if (r.id === 'rnd-1793236464859') {
-          r.date = '2026-10-28';
-          r.time = '20:14';
-          r.shift = 'tarde';
-          r.technicianName = 'Carlos Manuel/ Técnico';
-          r.technicianSignature = 'Carlos Manuel';
-          r.completedAt = '2026-10-28T21:45:00.000Z';
-          r.status = 'completada';
-          r.compliancePercentage = 100;
-          r.progress = 100;
-        } else if (r.id === 'rnd-1793318700000') {
-          r.date = '2026-10-29';
-          r.time = '20:45';
-          r.shift = 'noche';
-          r.technicianName = 'Carlos Manuel/ Técnico';
-          r.technicianSignature = 'Carlos Manuel';
-          r.completedAt = '2026-10-29T21:30:00.000Z';
-          r.status = 'completada';
-          r.compliancePercentage = 100;
-          r.progress = 100;
-        } else if (r.id === 'rnd-1792150327061') {
-          r.date = '2026-10-15';
-          r.time = '06:32';
-          r.shift = 'manana';
-          r.technicianName = 'Ferney Alonso/Supervisor';
-          r.technicianSignature = 'Ferney Alonso/Supervisor';
-          r.completedAt = '2026-10-15T06:32:00';
-          r.status = 'completada';
-          r.compliancePercentage = 100;
-        } else if (r.id === 'rnd-1792116230649') {
-          r.date = '2026-10-16';
-          r.time = '21:05';
-          r.shift = 'tarde';
-          r.technicianName = 'Carlos Manuel/ Técnico';
-          r.technicianSignature = 'Carlos Manuel/ Técnico';
-          r.completedAt = '2026-10-16T21:05:00';
-          r.status = 'completada';
-          r.compliancePercentage = 100;
-        } else if (r.id === 'rnd-1792031263748') {
-          r.date = '2026-10-14';
-          r.time = '21:27';
-          r.shift = 'tarde';
-          r.technicianName = 'Ferney Machado/Técnico';
-          r.technicianSignature = 'Ferney Machado';
-          r.completedAt = '2026-10-14T21:27:00';
-          r.status = 'completada';
-          r.compliancePercentage = 100;
-        } else if (r.id === 'rnd-1792630031894') {
-          r.date = '2026-10-21';
-          r.time = '19:47';
-          r.shift = 'tarde';
-          r.technicianName = 'Adrián Barrera/Tecnico';
-          r.technicianSignature = 'Adrián Barrera/Tecnico';
-          r.completedAt = '2026-10-21T19:47:00';
-          r.status = 'completada';
-          r.compliancePercentage = 100;
-        } else if (r.id === 'rnd-1792550582453') {
-          r.date = '2026-10-20';
-          r.time = '21:43';
-          r.shift = 'tarde';
-          r.technicianName = 'Adrián Barrera/Tecnico';
-          r.technicianSignature = 'Adrián Barrera/Tecnico';
-          r.completedAt = '2026-10-20T21:43:00';
-          r.status = 'completada';
-          r.compliancePercentage = 100;
-        }
-      });
-
-      // Guarantee official historical rounds reflect 100% compliance and completada status
-      const completedHistoricalIds = new Set([
-        'rnd-1793041800000',
-        'rnd-1793236464859',
-        'rnd-1793318700000',
-        'rnd-1793014386856',
-        'rnd-1793099951407',
-        'rnd-1793153540494',
-        'rnd-1793187936014',
-        'rnd-1791252173530',
-        'rnd-1791201572448',
-        'rnd-1791335515490',
-        'rnd-1791374223609',
-        'rnd-1791427641734',
-        'rnd-1791458259164',
-        'rnd-1790476525419',
-        'rnd-1792630031894',
-        'rnd-1792550582453'
-      ]);
-      memoryCache.rounds.forEach((r: any) => {
-        if (r && completedHistoricalIds.has(r.id)) {
-          r.compliancePercentage = 100;
-          r.status = 'completada';
-        }
-      });
-
-      const getRoundChronoTimeInit = (r: any): number => {
-        const dateStr = String(r?.date || '').replace(/\//g, '-').trim();
-        const [hRaw, mRaw] = String(r?.time || '00:00').trim().split(':');
-        let h = parseInt(hRaw || '0', 10) || 0;
-        const m = parseInt(mRaw || '0', 10) || 0;
-        if ((r?.shift === 'tarde' || r?.shift === 'noche') && h < 12) h += 12;
-        if (dateStr) {
-          const t = new Date(`${dateStr}T${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:00`).getTime();
-          if (!isNaN(t) && t > 0) return t;
-        }
-        return new Date(r?.completedAt || r?.lastUpdated || 0).getTime() || 0;
-      };
-      memoryCache.rounds.sort((a: any, b: any) => getRoundChronoTimeInit(b) - getRoundChronoTimeInit(a));
-    }
-    if (!memoryCache.pmsData) {
-      memoryCache.pmsData = {
-        occupancyPercentage: 88,
-        totalGuests: 156,
-        arrivalsToday: 24,
-        departuresToday: 19,
-        arrivalsTomorrow: 30,
-        totalRooms: 120,
-        occupiedRooms: 106,
-        vacantRooms: 14,
-        maintenanceRooms: 0,
-        lastSyncedAt: new Date().toISOString(),
-        source: 'Recepción PMS'
-      };
-    }
-    // Guarantee array keys exist even if older data.json omitted them
-    if (!Array.isArray(memoryCache.rounds)) memoryCache.rounds = [];
-    if (!Array.isArray(memoryCache.equipments)) memoryCache.equipments = [];
-    if (!Array.isArray(memoryCache.incidents)) memoryCache.incidents = [];
-    if (!Array.isArray(memoryCache.requests)) memoryCache.requests = [];
-    if (!Array.isArray(memoryCache.tasks)) memoryCache.tasks = [];
-    if (!Array.isArray(memoryCache.pumpInspections)) memoryCache.pumpInspections = [];
-    if (!Array.isArray(memoryCache.preventivePlans)) memoryCache.preventivePlans = [];
-    if (!Array.isArray(memoryCache.workOrders)) memoryCache.workOrders = [];
-    if (!Array.isArray(memoryCache.uploadedDocuments)) memoryCache.uploadedDocuments = [];
-    if (!Array.isArray(memoryCache.documentFolders)) memoryCache.documentFolders = [];
-    if (!Array.isArray(memoryCache.cronogramas)) memoryCache.cronogramas = [];
-    if (!Array.isArray(memoryCache.meters)) memoryCache.meters = [];
-    if (!Array.isArray(memoryCache.meterReadingsLog)) memoryCache.meterReadingsLog = [];
-    const authentic6Users = [
+  if (!seed || typeof seed !== 'object') {
+    seed = createEmptyMemoryStore();
+    seed.rounds = (HISTORICAL_ROUNDS || []).map((hr: any) => ({ ...hr, status: 'completada', compliancePercentage: 100 }));
+    seed.users = [
       {
         id: 'usr-1789230683226',
         email: 'juanmateoramosramos44@gmail.com',
@@ -941,26 +442,372 @@ function getCachedData() {
         createdAt: '2026-09-14T10:00:00.000Z'
       }
     ];
-
-    const fakeIds = new Set(['usr-1789230683227', 'usr-1789230683228', 'usr-1789230683229', 'usr-admin-master']);
-    if (!Array.isArray(memoryCache.users) || memoryCache.users.length === 0) {
-      memoryCache.users = authentic6Users;
-    } else {
-      const userMap = new Map();
-      authentic6Users.forEach(u => userMap.set(u.id, u));
-      memoryCache.users.forEach((u: any) => {
-        if (u && u.id && !fakeIds.has(u.id)) {
-          userMap.set(u.id, u);
-        }
-      });
-      memoryCache.users = Array.from(userMap.values());
+  }
+  if (!Array.isArray(seed.roundTemplate) || seed.roundTemplate.length < 26) {
+    if (HISTORICAL_ROUNDS && HISTORICAL_ROUNDS[0] && HISTORICAL_ROUNDS[0].checkpoints) {
+      seed.roundTemplate = HISTORICAL_ROUNDS[0].checkpoints.map(sanitizeCheckpointTemplateServer);
     }
+  }
+  return seed;
+}
+
+async function syncMemoryToPostgresIfEmpty(client: any) {
+  try {
+    const tablesToCheck = [
+      'rounds', 'users', 'equipments', 'tasks', 'incidents', 'requests', 'meters',
+      'meter_readings_log', 'schedules', 'shift_swaps', 'cronogramas',
+      'pump_inspections', 'preventive_plans', 'work_orders',
+      'uploaded_documents', 'document_folders', 'settings', 'app_data', 'deleted_ids'
+    ];
+    let totalExistingRecords = 0;
+    for (const tbl of tablesToCheck) {
+      try {
+        const cRes = await client.query(`SELECT COUNT(*) as count FROM ${tbl}`);
+        totalExistingRecords += parseInt(cRes.rows[0]?.count || '0', 10);
+      } catch {}
+    }
+
+    if (totalExistingRecords === 0) {
+      console.log('[PostgreSQL] Database is completely empty across all tables and deleted_ids. Seeding initial baseline data...');
+      const seedData = buildInitialSeedData();
+      await seedPostgresFromData(seedData, client);
+      await loadPostgresIntoMemory(client);
+      console.log('[PostgreSQL] Database baseline initialized without overwriting.');
+    } else {
+      console.log(`[PostgreSQL] Database has existing state (${totalExistingRecords} records/tombstones found). Loading into memory...`);
+      await loadPostgresIntoMemory(client);
+    }
+  } catch (e) {
+    console.warn('[PostgreSQL] Notice checking database initial state:', e);
+  }
+}
+
+async function seedPostgresFromData(data: any, client: any) {
+  if (!data || typeof data !== 'object') return;
+  const collections: Array<{ name: string; items: any[] }> = [
+    { name: 'rounds', items: Array.isArray(data.rounds) ? data.rounds : [] },
+    { name: 'equipments', items: Array.isArray(data.equipments) ? data.equipments : [] },
+    { name: 'incidents', items: Array.isArray(data.incidents) ? data.incidents : [] },
+    { name: 'requests', items: Array.isArray(data.requests) ? data.requests : [] },
+    { name: 'tasks', items: Array.isArray(data.tasks) ? data.tasks : [] },
+    { name: 'schedules', items: Array.isArray(data.schedules) ? data.schedules : [] },
+    { name: 'shift_swaps', items: Array.isArray(data.shiftSwaps) ? data.shiftSwaps : [] },
+    { name: 'cronogramas', items: Array.isArray(data.cronogramas) ? data.cronogramas : [] },
+    { name: 'meters', items: Array.isArray(data.meters) ? data.meters : [] },
+    { name: 'meter_readings_log', items: Array.isArray(data.meterReadingsLog) ? data.meterReadingsLog : [] },
+    { name: 'pump_inspections', items: Array.isArray(data.pumpInspections) ? data.pumpInspections : [] },
+    { name: 'preventive_plans', items: Array.isArray(data.preventivePlans) ? data.preventivePlans : [] },
+    { name: 'work_orders', items: Array.isArray(data.workOrders) ? data.workOrders : [] },
+    { name: 'uploaded_documents', items: Array.isArray(data.uploadedDocuments) ? data.uploadedDocuments : [] },
+    { name: 'document_folders', items: Array.isArray(data.documentFolders) ? data.documentFolders : [] },
+    { name: 'users', items: Array.isArray(data.users) ? data.users : [] }
+  ];
+
+  const delSet = new Set<string>(Array.isArray(data.deletedIds) ? data.deletedIds : []);
+  for (const dId of delSet) {
+    if (!dId) continue;
+    try {
+      await client.query(`INSERT INTO deleted_ids (id, deleted_at) VALUES ($1, CURRENT_TIMESTAMP) ON CONFLICT (id) DO NOTHING`, [dId]);
+    } catch {}
+  }
+
+  for (const col of collections) {
+    for (const item of col.items) {
+      if (!item || !item.id || delSet.has(item.id)) continue;
+      try {
+        await client.query(
+          `INSERT INTO ${col.name} (id, data, updated_at) VALUES ($1, $2, CURRENT_TIMESTAMP) ON CONFLICT (id) DO NOTHING`,
+          [item.id, JSON.stringify(item)]
+        );
+      } catch (err) {}
+    }
+  }
+
+  if (data.settings) {
+    try {
+      await client.query(
+        `INSERT INTO settings (id, data, updated_at) VALUES ($1, $2, CURRENT_TIMESTAMP) ON CONFLICT (id) DO NOTHING`,
+        ['app_settings', JSON.stringify(data.settings)]
+      );
+    } catch {}
+  }
+
+  if (Array.isArray(data.roundTemplate)) {
+    try {
+      await client.query(
+        `INSERT INTO app_data (id, data, updated_at) VALUES ($1, $2, CURRENT_TIMESTAMP) ON CONFLICT (id) DO NOTHING`,
+        ['round_template', JSON.stringify({ items: data.roundTemplate })]
+      );
+    } catch {}
+  }
+}
+
+async function loadPostgresIntoMemory(client: any) {
+  try {
+    const tables = [
+      { name: 'rounds', key: 'rounds' },
+      { name: 'equipments', key: 'equipments' },
+      { name: 'incidents', key: 'incidents' },
+      { name: 'requests', key: 'requests' },
+      { name: 'tasks', key: 'tasks' },
+      { name: 'schedules', key: 'schedules' },
+      { name: 'shift_swaps', key: 'shiftSwaps' },
+      { name: 'cronogramas', key: 'cronogramas' },
+      { name: 'meters', key: 'meters' },
+      { name: 'meter_readings_log', key: 'meterReadingsLog' },
+      { name: 'pump_inspections', key: 'pumpInspections' },
+      { name: 'preventive_plans', key: 'preventivePlans' },
+      { name: 'work_orders', key: 'workOrders' },
+      { name: 'uploaded_documents', key: 'uploadedDocuments' },
+      { name: 'document_folders', key: 'documentFolders' },
+      { name: 'users', key: 'users' }
+    ];
+
+    if (!memoryCache) memoryCache = createEmptyMemoryStore();
+
+    const delQ = await client.query('SELECT id FROM deleted_ids');
+    const deletedSet = new Set<string>((delQ.rows || []).map((r: any) => r.id).filter(Boolean));
+
+    for (const t of tables) {
+      const q = await client.query(`SELECT id, data FROM ${t.name}`);
+      if (q.rows && q.rows.length > 0) {
+        memoryCache[t.key] = q.rows
+          .map((r: any) => (r && r.data && typeof r.data === 'object') ? { ...r.data, id: r.data.id || r.id } : null)
+          .filter((d: any) => d && d.id && !deletedSet.has(d.id));
+        for (const item of memoryCache[t.key]) {
+          deletedSet.delete(item.id);
+        }
+      } else {
+        memoryCache[t.key] = [];
+      }
+    }
+    memoryCache.deletedIds = Array.from(deletedSet);
+
+    const setQ = await client.query('SELECT data FROM settings WHERE id = $1', ['app_settings']);
+    if (setQ.rows.length > 0) {
+      memoryCache.settings = setQ.rows[0].data;
+    }
+
+    const tplQ = await client.query('SELECT data FROM app_data WHERE id = $1', ['round_template']);
+    if (tplQ.rows.length > 0 && Array.isArray(tplQ.rows[0].data?.items)) {
+      memoryCache.roundTemplate = tplQ.rows[0].data.items;
+    }
+    syncRoundAnomaliesToIncidents(memoryCache);
+    scheduleSaveToDisk();
+    console.log('[PostgreSQL] Loaded authoritative records from PostgreSQL into memory cache.');
+  } catch (e) {
+    console.warn('[PostgreSQL] Warning loading postgres records into memory:', e);
+  }
+}
+
+async function getAuthoritativeDeletedIdsSet(): Promise<Set<string>> {
+  const current = getCachedData();
+  const set = new Set<string>(Array.isArray(current.deletedIds) ? current.deletedIds : []);
+  if (pgPool) {
+    try {
+      const q = await pgPool.query('SELECT id FROM deleted_ids');
+      for (const r of (q.rows || [])) {
+        if (r && r.id) set.add(r.id);
+      }
+      current.deletedIds = Array.from(set);
+    } catch {}
+  }
+  return set;
+}
+
+async function isIdDeletedInServer(id: string, extraCode?: string): Promise<boolean> {
+  if (!id && !extraCode) return false;
+  const candidates = [id, extraCode, extraCode ? extraCode.trim().toUpperCase() : ''].filter(Boolean) as string[];
+  const current = getCachedData();
+  const memDel = new Set<string>(Array.isArray(current.deletedIds) ? current.deletedIds : []);
+  for (const c of candidates) {
+    if (memDel.has(c)) return true;
+  }
+  if (pgPool) {
+    try {
+      const q = await pgPool.query('SELECT id FROM deleted_ids WHERE id = ANY($1::text[]) LIMIT 1', [candidates]);
+      if (q.rows && q.rows.length > 0) {
+        if (!Array.isArray(current.deletedIds)) current.deletedIds = [];
+        for (const r of q.rows) {
+          if (r.id && !current.deletedIds.includes(r.id)) current.deletedIds.push(r.id);
+        }
+        return true;
+      }
+    } catch {}
+  }
+  return false;
+}
+
+async function pgUpsert(table: string, id: string, data: any, clearDeletion: boolean = false) {
+  if (!pgPool) return;
+  try {
+    if (!clearDeletion && table !== 'settings' && table !== 'app_data') {
+      const delCheck = await pgPool.query('SELECT 1 FROM deleted_ids WHERE id = $1 LIMIT 1', [id]);
+      if (delCheck.rows && delCheck.rows.length > 0) {
+        return;
+      }
+    }
+    await pgPool.query(
+      `INSERT INTO ${table} (id, data, updated_at) 
+       VALUES ($1, $2, CURRENT_TIMESTAMP) 
+       ON CONFLICT (id) 
+       DO UPDATE SET data = EXCLUDED.data, updated_at = CURRENT_TIMESTAMP`,
+      [id, JSON.stringify(data)]
+    );
+    if (clearDeletion) {
+      await pgPool.query(`DELETE FROM deleted_ids WHERE id = $1`, [id]);
+      if (memoryCache && Array.isArray(memoryCache.deletedIds)) {
+        memoryCache.deletedIds = memoryCache.deletedIds.filter((dId: string) => dId !== id);
+      }
+    }
+  } catch (err) {
+    console.warn(`[PostgreSQL] Notice on ${table} (falling back to JSON store):`, (err as any)?.message || err);
+  }
+}
+
+async function pgDelete(table: string, id: string) {
+  if (!pgPool) return;
+  try {
+    await pgPool.query(`DELETE FROM ${table} WHERE id = $1`, [id]);
+    await pgPool.query(
+      `INSERT INTO deleted_ids (id, deleted_at) VALUES ($1, CURRENT_TIMESTAMP) ON CONFLICT (id) DO NOTHING`,
+      [id]
+    );
+  } catch (err) {
+    console.warn(`[PostgreSQL] Notice on delete ${table}:`, (err as any)?.message || err);
+  }
+}
+
+async function pgGet(table: string, id: string) {
+  if (!pgPool) return null;
+  try {
+    const res = await pgPool.query(`SELECT data FROM ${table} WHERE id = $1`, [id]);
+    return res.rows[0]?.data || null;
+  } catch (err) {
+    return null;
+  }
+}
+
+async function pgGetAll(table: string) {
+  if (!pgPool) return null;
+  try {
+    const res = await pgPool.query(`SELECT data FROM ${table}`);
+    return res.rows.map(r => r.data);
+  } catch (err) {
+    console.warn(`[PostgreSQL] GetAll error on ${table}:`, err);
+    return null;
+  }
+}
+
+async function persistMemoryToPostgres(incoming: any) {
+  if (!pgPool || !incoming || typeof incoming !== 'object') return;
+  try {
+    const deletedSet = await getAuthoritativeDeletedIdsSet();
+    const mappings: Array<{ key: string; table: string }> = [
+      { key: 'rounds', table: 'rounds' },
+      { key: 'equipments', table: 'equipments' },
+      { key: 'incidents', table: 'incidents' },
+      { key: 'requests', table: 'requests' },
+      { key: 'tasks', table: 'tasks' },
+      { key: 'schedules', table: 'schedules' },
+      { key: 'shiftSwaps', table: 'shift_swaps' },
+      { key: 'cronogramas', table: 'cronogramas' },
+      { key: 'meters', table: 'meters' },
+      { key: 'meterReadingsLog', table: 'meter_readings_log' },
+      { key: 'pumpInspections', table: 'pump_inspections' },
+      { key: 'preventivePlans', table: 'preventive_plans' },
+      { key: 'workOrders', table: 'work_orders' },
+      { key: 'uploadedDocuments', table: 'uploaded_documents' },
+      { key: 'documentFolders', table: 'document_folders' },
+      { key: 'users', table: 'users' }
+    ];
+
+    for (const m of mappings) {
+      if (Array.isArray(incoming[m.key])) {
+        for (const item of incoming[m.key]) {
+          if (!item || !item.id || deletedSet.has(item.id)) continue;
+          if (m.key === 'meters') {
+            const normCode = item.code ? String(item.code).trim().toUpperCase() : '';
+            if ((item.code && deletedSet.has(item.code)) || (normCode && deletedSet.has(normCode))) continue;
+          }
+          if (m.key === 'meterReadingsLog' && item.meterId && deletedSet.has(item.meterId)) continue;
+          await pgUpsert(m.table, item.id, item, false);
+        }
+      }
+    }
+
+    if (incoming.settings) {
+      await pgUpsert('settings', 'app_settings', incoming.settings, false);
+    }
+    if (Array.isArray(incoming.roundTemplate)) {
+      await pgUpsert('app_data', 'round_template', { items: incoming.roundTemplate }, false);
+    }
+  } catch (err) {
+    console.warn('[PostgreSQL] Async persist error:', err);
+  }
+}
+
+function getLocalDateStringServer(): string {
+  try {
+    const formatter = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Bogota', year: 'numeric', month: '2-digit', day: '2-digit' });
+    return formatter.format(new Date());
+  } catch (e) {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  }
+}
+
+function getCachedData() {
+  if (!memoryCache) {
+    try {
+      if (fs.existsSync(DATA_FILE)) {
+        const raw = fs.readFileSync(DATA_FILE, 'utf-8');
+        memoryCache = JSON.parse(raw);
+      }
+    } catch (e) {
+      console.error("Error reading initial data.json:", e);
+    }
+    if (!memoryCache) {
+      memoryCache = pgPool ? createEmptyMemoryStore() : buildInitialSeedData();
+    }
+
+    if (!Array.isArray(memoryCache.roundTemplate) || memoryCache.roundTemplate.length === 0) {
+      if (!pgPool && HISTORICAL_ROUNDS && HISTORICAL_ROUNDS[0] && HISTORICAL_ROUNDS[0].checkpoints) {
+        memoryCache.roundTemplate = HISTORICAL_ROUNDS[0].checkpoints.map(sanitizeCheckpointTemplateServer);
+      } else if (!Array.isArray(memoryCache.roundTemplate)) {
+        memoryCache.roundTemplate = [];
+      }
+    } else {
+      memoryCache.roundTemplate = memoryCache.roundTemplate.map(sanitizeCheckpointTemplateServer);
+    }
+
+    if (!memoryCache.pmsData) {
+      memoryCache.pmsData = createEmptyMemoryStore().pmsData;
+    }
+
+    // Guarantee array keys exist even if older data.json omitted them
+    if (!Array.isArray(memoryCache.rounds)) memoryCache.rounds = [];
+    if (!Array.isArray(memoryCache.equipments)) memoryCache.equipments = [];
+    if (!Array.isArray(memoryCache.incidents)) memoryCache.incidents = [];
+    if (!Array.isArray(memoryCache.requests)) memoryCache.requests = [];
+    if (!Array.isArray(memoryCache.tasks)) memoryCache.tasks = [];
+    if (!Array.isArray(memoryCache.pumpInspections)) memoryCache.pumpInspections = [];
+    if (!Array.isArray(memoryCache.preventivePlans)) memoryCache.preventivePlans = [];
+    if (!Array.isArray(memoryCache.workOrders)) memoryCache.workOrders = [];
+    if (!Array.isArray(memoryCache.uploadedDocuments)) memoryCache.uploadedDocuments = [];
+    if (!Array.isArray(memoryCache.documentFolders)) memoryCache.documentFolders = [];
+    if (!Array.isArray(memoryCache.cronogramas)) memoryCache.cronogramas = [];
+    if (!Array.isArray(memoryCache.meters)) memoryCache.meters = [];
+    if (!Array.isArray(memoryCache.meterReadingsLog)) memoryCache.meterReadingsLog = [];
+    if (!Array.isArray(memoryCache.users)) memoryCache.users = [];
     if (!Array.isArray(memoryCache.schedules)) memoryCache.schedules = [];
     if (!Array.isArray(memoryCache.shiftSwaps)) memoryCache.shiftSwaps = [];
-    if (!Array.isArray(memoryCache.roundTemplate)) memoryCache.roundTemplate = [];
     if (!Array.isArray(memoryCache.deletedIds)) memoryCache.deletedIds = [];
 
-    // Filter out any deleted elements loaded from file
+    const fakeIds = new Set(['usr-1789230683227', 'usr-1789230683228', 'usr-1789230683229', 'usr-admin-master']);
+    memoryCache.users = memoryCache.users.filter((u: any) => u && u.id && !fakeIds.has(u.id));
+
+    // Filter out ALL deleted elements across ALL collections
     const deletedIdsSet = new Set(memoryCache.deletedIds);
     if (deletedIdsSet.size > 0) {
       const arrayKeys = [
@@ -975,17 +822,27 @@ function getCachedData() {
         'users',
         'schedules',
         'shiftSwaps',
+        'cronogramas',
+        'meters',
+        'meterReadingsLog',
         'uploadedDocuments',
         'documentFolders'
       ];
       for (const key of arrayKeys) {
         if (Array.isArray(memoryCache[key])) {
-          memoryCache[key] = memoryCache[key].filter((item: any) => item && item.id && !deletedIdsSet.has(item.id));
+          memoryCache[key] = memoryCache[key].filter((item: any) => {
+            if (!item || !item.id || deletedIdsSet.has(item.id)) return false;
+            if (key === 'meters') {
+              const normCode = item.code ? String(item.code).trim().toUpperCase() : '';
+              if ((item.code && deletedIdsSet.has(item.code)) || (normCode && deletedIdsSet.has(normCode))) return false;
+            }
+            if (key === 'meterReadingsLog' && item.meterId && deletedIdsSet.has(item.meterId)) return false;
+            return true;
+          });
         }
       }
     }
 
-    // Always sync active round anomalies into incidents and unmark any stale deletedId
     syncRoundAnomaliesToIncidents(memoryCache);
     scheduleSaveToDisk();
   }
@@ -1620,13 +1477,7 @@ function mergeAppData(incoming: any) {
         existingMap.set(cur.id, cur);
       }
       for (const item of incoming[key]) {
-        if (!item || !item.id) continue;
-        if (key === 'users' && deletedIdsSet.has(item.id)) {
-          deletedIdsSet.delete(item.id);
-          current.deletedIds = current.deletedIds.filter((id: string) => id !== item.id);
-        } else if (deletedIdsSet.has(item.id)) {
-          continue;
-        }
+        if (!item || !item.id || deletedIdsSet.has(item.id)) continue;
         if (key === 'users' && Array.isArray(item.visibleSections) && !item.visibleSections.includes('tareas')) {
           existingMap.set(item.id, { ...item, visibleSections: [...item.visibleSections, 'tareas'] });
         } else {
@@ -1703,18 +1554,8 @@ function mergeAppData(incoming: any) {
       const normCode = item.code ? item.code.trim().toUpperCase() : '';
 
       // Check if this meter was explicitly deleted
-      if (deletedIdsSet.has(item.id) || (normCode && deletedIdsSet.has(normCode))) {
+      if (deletedIdsSet.has(item.id) || (item.code && deletedIdsSet.has(item.code)) || (normCode && deletedIdsSet.has(normCode))) {
         continue;
-      }
-
-      // Un-delete explicitly sent meters if present
-      if (deletedIdsSet.has(item.id)) {
-        deletedIdsSet.delete(item.id);
-        current.deletedIds = (current.deletedIds || []).filter((id: string) => id !== item.id);
-      }
-      if (normCode && deletedIdsSet.has(normCode)) {
-        deletedIdsSet.delete(normCode);
-        current.deletedIds = (current.deletedIds || []).filter((id: string) => id !== normCode && id !== item.code);
       }
 
       if (!existingMetersMap.has(item.id)) {
@@ -1828,7 +1669,9 @@ app.get("/api/data", async (req, res) => {
         qWorkOrders,
         qPumpInspections,
         qUploadedDocuments,
-        qDocumentFolders
+        qDocumentFolders,
+        qSettings,
+        qTemplate
       ] = await Promise.all([
         pgPool.query('SELECT id FROM deleted_ids').catch(() => null),
         pgPool.query('SELECT id, data FROM rounds ORDER BY updated_at DESC').catch(() => null),
@@ -1846,22 +1689,36 @@ app.get("/api/data", async (req, res) => {
         pgPool.query('SELECT id, data FROM work_orders ORDER BY updated_at DESC').catch(() => null),
         pgPool.query('SELECT id, data FROM pump_inspections ORDER BY updated_at DESC').catch(() => null),
         pgPool.query('SELECT id, data FROM uploaded_documents ORDER BY updated_at DESC').catch(() => null),
-        pgPool.query('SELECT id, data FROM document_folders ORDER BY updated_at DESC').catch(() => null)
+        pgPool.query('SELECT id, data FROM document_folders ORDER BY updated_at DESC').catch(() => null),
+        pgPool.query('SELECT data FROM settings WHERE id = $1 LIMIT 1', ['app_settings']).catch(() => null),
+        pgPool.query('SELECT data FROM app_data WHERE id = $1 LIMIT 1', ['round_template']).catch(() => null)
       ]);
 
-      const mapPgRows = (qRes: any) =>
+      const pgDeletedSet = new Set<string>((qDeleted?.rows || []).map((r: any) => r.id).filter(Boolean));
+      const memoryDeleted = new Set<string>(data.deletedIds || []);
+      const allDeleted = new Set<string>([...pgDeletedSet, ...memoryDeleted]);
+
+      const mapPgRows = (qRes: any, filterMeterCode = false) =>
         (qRes && Array.isArray(qRes.rows))
           ? qRes.rows
               .map((r: any) => (r && r.data && typeof r.data === 'object') ? { ...r.data, id: r.data.id || r.id } : null)
-              .filter((r: any) => r && r.id)
+              .filter((r: any) => {
+                if (!r || !r.id || allDeleted.has(r.id)) return false;
+                if (filterMeterCode) {
+                  const normCode = r.code ? String(r.code).trim().toUpperCase() : '';
+                  if ((r.code && allDeleted.has(r.code)) || (normCode && allDeleted.has(normCode))) return false;
+                }
+                return true;
+              })
           : null;
 
       const pgRounds = mapPgRows(qRounds);
       const pgIncidents = mapPgRows(qIncidents);
       const pgRequests = mapPgRows(qRequests);
       const pgTasks = mapPgRows(qTasks);
-      const pgMeters = mapPgRows(qMeters);
-      const pgReadings = mapPgRows(qReadings);
+      const pgMeters = mapPgRows(qMeters, true);
+      const pgReadingsRaw = mapPgRows(qReadings);
+      const pgReadings = pgReadingsRaw ? pgReadingsRaw.filter((r: any) => !r.meterId || !allDeleted.has(r.meterId)) : null;
       const pgUsers = mapPgRows(qUsers);
       const pgEquipments = mapPgRows(qEquipments);
       const pgSchedules = mapPgRows(qSchedules);
@@ -1889,28 +1746,11 @@ app.get("/api/data", async (req, res) => {
       if (pgPumpInspections) data.pumpInspections = pgPumpInspections;
       if (pgUploadedDocuments) data.uploadedDocuments = pgUploadedDocuments;
       if (pgDocumentFolders) data.documentFolders = pgDocumentFolders;
+      if (qSettings?.rows?.[0]?.data) data.settings = qSettings.rows[0].data;
+      if (Array.isArray(qTemplate?.rows?.[0]?.data?.items)) data.roundTemplate = qTemplate.rows[0].data.items;
 
-      const activePgIds = new Set<string>();
-      for (const col of [
-        data.rounds, data.incidents, data.requests, data.tasks, data.meters,
-        data.meterReadingsLog, data.users, data.equipments, data.schedules,
-        data.cronogramas, data.shiftSwaps, data.preventivePlans, data.workOrders,
-        data.pumpInspections, data.uploadedDocuments, data.documentFolders
-      ]) {
-        if (Array.isArray(col)) {
-          for (const item of col) {
-            if (item && item.id) activePgIds.add(item.id);
-          }
-        }
-      }
-
-      const pgDeletedSet = new Set((qDeleted?.rows || []).map((r: any) => r.id));
-      const memoryDeleted = new Set(data.deletedIds || []);
-      const allDeleted = new Set([...pgDeletedSet, ...memoryDeleted]);
-      for (const activeId of activePgIds) {
-        allDeleted.delete(activeId);
-      }
       data.deletedIds = Array.from(allDeleted);
+      scheduleSaveToDisk();
     } catch (e) {
       console.warn("[PostgreSQL] Notice syncing /api/data with DB:", (e as any)?.message || e);
     }
@@ -1939,6 +1779,7 @@ app.post("/api/audit/repair", (req, res) => {
 
 app.post("/api/data", async (req, res) => {
   const clientId = req.headers['x-client-id'] || null;
+  await getAuthoritativeDeletedIdsSet();
   mergeAppData(req.body);
   await persistMemoryToPostgres(req.body);
   broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
@@ -2523,6 +2364,7 @@ app.delete("/api/schedules/:id", async (req, res) => {
     clientId,
     time: Date.now()
   });
+  broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
   res.json({ status: "deleted", id });
 });
 
@@ -2590,10 +2432,17 @@ app.post("/api/tasks", async (req, res) => {
   const current = getCachedData();
   if (!Array.isArray(current.tasks)) current.tasks = [];
   const clientId = req.headers['x-client-id'] || null;
+  const deletedSet = await getAuthoritativeDeletedIdsSet();
 
   const savedTasks: any[] = [];
   for (const task of validTasks) {
-    unregisterDeletion(task.id);
+    if (deletedSet.has(task.id) && !task.forceRestore) {
+      continue;
+    }
+    if (task.forceRestore) {
+      unregisterDeletion(task.id);
+      delete task.forceRestore;
+    }
     const idx = current.tasks.findIndex((t: any) => t && t.id === task.id);
     let savedTask: any;
     if (idx >= 0) {
@@ -2604,7 +2453,7 @@ app.post("/api/tasks", async (req, res) => {
       current.tasks.unshift(savedTask);
     }
     savedTasks.push(savedTask);
-    await pgUpsert('tasks', savedTask.id, savedTask);
+    await pgUpsert('tasks', savedTask.id, savedTask, true);
     broadcastSse({
       type: 'task_updated',
       task: savedTask,
@@ -2658,7 +2507,7 @@ app.post("/api/rounds", async (req, res) => {
 
   const current = getCachedData();
   if (!Array.isArray(current.rounds)) current.rounds = [];
-  const deletedSet = new Set(current.deletedIds || []);
+  const deletedSet = await getAuthoritativeDeletedIdsSet();
 
   const clientId = req.headers['x-client-id'] || null;
 
@@ -2682,7 +2531,10 @@ app.post("/api/rounds", async (req, res) => {
 
     if (round.forceRestore && deletedSet.has(round.id)) {
       deletedSet.delete(round.id);
-      current.deletedIds = (current.deletedIds || []).filter((id: string) => id !== round.id);
+      unregisterDeletion(round.id);
+      if (pgPool) {
+        await pgPool.query('DELETE FROM deleted_ids WHERE id = $1', [round.id]).catch(() => {});
+      }
       delete round.forceRestore;
     }
 
@@ -2845,6 +2697,9 @@ app.post("/api/rounds", async (req, res) => {
 
 app.put("/api/rounds/:id", async (req, res) => {
   const { id } = req.params;
+  if (await isIdDeletedInServer(id)) {
+    return res.status(410).json({ error: "Deleted", id });
+  }
   const updates = { ...req.body, id };
   const current = getCachedData();
   if (!Array.isArray(current.rounds)) current.rounds = [];
@@ -2857,7 +2712,7 @@ app.put("/api/rounds/:id", async (req, res) => {
     savedRound = updates;
     current.rounds.unshift(savedRound);
   }
-  await pgUpsert('rounds', id, savedRound);
+  await pgUpsert('rounds', id, savedRound, false);
   scheduleSaveToDisk();
   const clientId = req.headers['x-client-id'] || null;
   broadcastSse({ type: 'round_updated', round: savedRound, clientId, time: Date.now() });
@@ -2901,6 +2756,24 @@ app.delete("/api/incidents/:id", async (req, res) => {
   const { id } = req.params;
   const clientId = req.headers['x-client-id'] || null;
   registerDeletion(id);
+  const cache = getCachedData();
+  if (Array.isArray(cache.rounds)) {
+    for (let i = 0; i < cache.rounds.length; i++) {
+      const r = cache.rounds[i];
+      if (r && Array.isArray(r.anomalies) && r.anomalies.length > 0) {
+        const nextAnomalies = r.anomalies.filter((a: any) => {
+          if (!a) return false;
+          const anomId = a.id || `inc-anom-${r.id}-${String(a.title || '').replace(/\s+/g, '_')}`;
+          const canonicalId = CANONICAL_INCIDENT_MAP[anomId] || anomId;
+          return a.id !== id && anomId !== id && canonicalId !== id;
+        });
+        if (nextAnomalies.length !== r.anomalies.length) {
+          cache.rounds[i] = { ...r, anomalies: nextAnomalies, anomaliesCount: nextAnomalies.length };
+          await pgUpsert('rounds', r.id, cache.rounds[i], false);
+        }
+      }
+    }
+  }
   await pgDelete('incidents', id);
   scheduleSaveToDisk();
   broadcastSse({
@@ -2915,13 +2788,16 @@ app.delete("/api/incidents/:id", async (req, res) => {
 
 app.put("/api/equipments/:id", async (req, res) => {
   const { id } = req.params;
-  const item = { ...req.body, id };
+  if (await isIdDeletedInServer(id)) {
+    return res.status(410).json({ error: "Deleted", id });
+  }
   const store = getCachedData();
   if (!Array.isArray(store.equipments)) store.equipments = [];
   const idx = store.equipments.findIndex((e: any) => e.id === id);
-  if (idx >= 0) store.equipments[idx] = { ...store.equipments[idx], ...item };
+  const item = idx >= 0 ? { ...store.equipments[idx], ...req.body, id } : { ...req.body, id };
+  if (idx >= 0) store.equipments[idx] = item;
   else store.equipments.push(item);
-  await pgUpsert('equipments', id, item);
+  await pgUpsert('equipments', id, item, false);
   scheduleSaveToDisk();
   const clientId = req.headers['x-client-id'] || null;
   broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
@@ -2996,12 +2872,15 @@ app.get("/api/preventive-plans", async (_req, res) => {
 app.post("/api/preventive-plans", async (req, res) => {
   const item = req.body;
   if (!item || !item.id) return res.status(400).json({ error: "Invalid preventive plan" });
+  if (await isIdDeletedInServer(item.id) && !item.forceRestore) {
+    return res.status(410).json({ error: "Deleted", id: item.id });
+  }
   const store = getCachedData();
   if (!Array.isArray(store.preventivePlans)) store.preventivePlans = [];
   const idx = store.preventivePlans.findIndex((p: any) => p.id === item.id);
   if (idx >= 0) store.preventivePlans[idx] = { ...store.preventivePlans[idx], ...item };
   else store.preventivePlans.push(item);
-  await pgUpsert('preventive_plans', item.id, item);
+  await pgUpsert('preventive_plans', item.id, item, Boolean(item.forceRestore));
   scheduleSaveToDisk();
   const clientId = req.headers['x-client-id'] || null;
   broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
@@ -3009,13 +2888,14 @@ app.post("/api/preventive-plans", async (req, res) => {
 });
 app.put("/api/preventive-plans/:id", async (req, res) => {
   const { id } = req.params;
+  if (await isIdDeletedInServer(id)) return res.status(410).json({ error: "Deleted", id });
   const item = { ...req.body, id };
   const store = getCachedData();
   if (!Array.isArray(store.preventivePlans)) store.preventivePlans = [];
   const idx = store.preventivePlans.findIndex((p: any) => p.id === id);
   if (idx >= 0) store.preventivePlans[idx] = { ...store.preventivePlans[idx], ...item };
   else store.preventivePlans.push(item);
-  await pgUpsert('preventive_plans', id, item);
+  await pgUpsert('preventive_plans', id, item, false);
   scheduleSaveToDisk();
   const clientId = req.headers['x-client-id'] || null;
   broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
@@ -3027,6 +2907,7 @@ app.delete("/api/preventive-plans/:id", async (req, res) => {
   registerDeletion(id);
   await pgDelete('preventive_plans', id);
   scheduleSaveToDisk();
+  broadcastSse({ type: 'preventive_plan_deleted', planId: id, clientId, time: Date.now() });
   broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
   res.json({ status: "deleted", id });
 });
@@ -3049,12 +2930,15 @@ app.get("/api/work-orders", async (_req, res) => {
 app.post("/api/work-orders", async (req, res) => {
   const item = req.body;
   if (!item || !item.id) return res.status(400).json({ error: "Invalid work order" });
+  if (await isIdDeletedInServer(item.id) && !item.forceRestore) {
+    return res.status(410).json({ error: "Deleted", id: item.id });
+  }
   const store = getCachedData();
   if (!Array.isArray(store.workOrders)) store.workOrders = [];
   const idx = store.workOrders.findIndex((w: any) => w.id === item.id);
   if (idx >= 0) store.workOrders[idx] = { ...store.workOrders[idx], ...item };
   else store.workOrders.push(item);
-  await pgUpsert('work_orders', item.id, item);
+  await pgUpsert('work_orders', item.id, item, Boolean(item.forceRestore));
   scheduleSaveToDisk();
   const clientId = req.headers['x-client-id'] || null;
   broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
@@ -3062,13 +2946,14 @@ app.post("/api/work-orders", async (req, res) => {
 });
 app.put("/api/work-orders/:id", async (req, res) => {
   const { id } = req.params;
+  if (await isIdDeletedInServer(id)) return res.status(410).json({ error: "Deleted", id });
   const item = { ...req.body, id };
   const store = getCachedData();
   if (!Array.isArray(store.workOrders)) store.workOrders = [];
   const idx = store.workOrders.findIndex((w: any) => w.id === id);
   if (idx >= 0) store.workOrders[idx] = { ...store.workOrders[idx], ...item };
   else store.workOrders.push(item);
-  await pgUpsert('work_orders', id, item);
+  await pgUpsert('work_orders', id, item, false);
   scheduleSaveToDisk();
   const clientId = req.headers['x-client-id'] || null;
   broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
@@ -3080,6 +2965,7 @@ app.delete("/api/work-orders/:id", async (req, res) => {
   registerDeletion(id);
   await pgDelete('work_orders', id);
   scheduleSaveToDisk();
+  broadcastSse({ type: 'work_order_deleted', workOrderId: id, clientId, time: Date.now() });
   broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
   res.json({ status: "deleted", id });
 });
@@ -3102,12 +2988,15 @@ app.get("/api/pump-inspections", async (_req, res) => {
 app.post("/api/pump-inspections", async (req, res) => {
   const item = req.body;
   if (!item || !item.id) return res.status(400).json({ error: "Invalid pump inspection" });
+  if (await isIdDeletedInServer(item.id) && !item.forceRestore) {
+    return res.status(410).json({ error: "Deleted", id: item.id });
+  }
   const store = getCachedData();
   if (!Array.isArray(store.pumpInspections)) store.pumpInspections = [];
   const idx = store.pumpInspections.findIndex((p: any) => p.id === item.id);
   if (idx >= 0) store.pumpInspections[idx] = { ...store.pumpInspections[idx], ...item };
   else store.pumpInspections.push(item);
-  await pgUpsert('pump_inspections', item.id, item);
+  await pgUpsert('pump_inspections', item.id, item, Boolean(item.forceRestore));
   scheduleSaveToDisk();
   const clientId = req.headers['x-client-id'] || null;
   broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
@@ -3115,13 +3004,14 @@ app.post("/api/pump-inspections", async (req, res) => {
 });
 app.put("/api/pump-inspections/:id", async (req, res) => {
   const { id } = req.params;
+  if (await isIdDeletedInServer(id)) return res.status(410).json({ error: "Deleted", id });
   const item = { ...req.body, id };
   const store = getCachedData();
   if (!Array.isArray(store.pumpInspections)) store.pumpInspections = [];
   const idx = store.pumpInspections.findIndex((p: any) => p.id === id);
   if (idx >= 0) store.pumpInspections[idx] = { ...store.pumpInspections[idx], ...item };
   else store.pumpInspections.push(item);
-  await pgUpsert('pump_inspections', id, item);
+  await pgUpsert('pump_inspections', id, item, false);
   scheduleSaveToDisk();
   const clientId = req.headers['x-client-id'] || null;
   broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
@@ -3133,6 +3023,7 @@ app.delete("/api/pump-inspections/:id", async (req, res) => {
   registerDeletion(id);
   await pgDelete('pump_inspections', id);
   scheduleSaveToDisk();
+  broadcastSse({ type: 'pump_inspection_deleted', inspectionId: id, clientId, time: Date.now() });
   broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
   res.json({ status: "deleted", id });
 });
@@ -3155,12 +3046,15 @@ app.get("/api/shift-swaps", async (_req, res) => {
 app.post("/api/shift-swaps", async (req, res) => {
   const item = req.body;
   if (!item || !item.id) return res.status(400).json({ error: "Invalid swap data" });
+  if (await isIdDeletedInServer(item.id) && !item.forceRestore) {
+    return res.status(410).json({ error: "Deleted", id: item.id });
+  }
   const store = getCachedData();
   if (!Array.isArray(store.shiftSwaps)) store.shiftSwaps = [];
   const idx = store.shiftSwaps.findIndex((s: any) => s.id === item.id);
   if (idx >= 0) store.shiftSwaps[idx] = { ...store.shiftSwaps[idx], ...item };
   else store.shiftSwaps.push(item);
-  await pgUpsert('shift_swaps', item.id, item);
+  await pgUpsert('shift_swaps', item.id, item, Boolean(item.forceRestore));
   scheduleSaveToDisk();
   const clientId = req.headers['x-client-id'] || null;
   broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
@@ -3168,13 +3062,14 @@ app.post("/api/shift-swaps", async (req, res) => {
 });
 app.put("/api/shift-swaps/:id", async (req, res) => {
   const { id } = req.params;
+  if (await isIdDeletedInServer(id)) return res.status(410).json({ error: "Deleted", id });
   const item = { ...req.body, id };
   const store = getCachedData();
   if (!Array.isArray(store.shiftSwaps)) store.shiftSwaps = [];
   const idx = store.shiftSwaps.findIndex((s: any) => s.id === id);
   if (idx >= 0) store.shiftSwaps[idx] = { ...store.shiftSwaps[idx], ...item };
   else store.shiftSwaps.push(item);
-  await pgUpsert('shift_swaps', id, item);
+  await pgUpsert('shift_swaps', id, item, false);
   scheduleSaveToDisk();
   const clientId = req.headers['x-client-id'] || null;
   broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
@@ -3199,12 +3094,15 @@ app.get("/api/uploaded-documents", async (_req, res) => {
 app.post("/api/uploaded-documents", async (req, res) => {
   const item = req.body;
   if (!item || !item.id) return res.status(400).json({ error: "Invalid document data" });
+  if (await isIdDeletedInServer(item.id) && !item.forceRestore) {
+    return res.status(410).json({ error: "Deleted", id: item.id });
+  }
   const store = getCachedData();
   if (!Array.isArray(store.uploadedDocuments)) store.uploadedDocuments = [];
   const idx = store.uploadedDocuments.findIndex((d: any) => d.id === item.id);
   if (idx >= 0) store.uploadedDocuments[idx] = { ...store.uploadedDocuments[idx], ...item };
   else store.uploadedDocuments.push(item);
-  await pgUpsert('uploaded_documents', item.id, item);
+  await pgUpsert('uploaded_documents', item.id, item, Boolean(item.forceRestore));
   scheduleSaveToDisk();
   const clientId = req.headers['x-client-id'] || null;
   broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
@@ -3216,6 +3114,7 @@ app.delete("/api/uploaded-documents/:id", async (req, res) => {
   registerDeletion(id);
   await pgDelete('uploaded_documents', id);
   scheduleSaveToDisk();
+  broadcastSse({ type: 'uploaded_document_deleted', documentId: id, clientId, time: Date.now() });
   broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
   res.json({ status: "deleted", id });
 });
@@ -3238,12 +3137,15 @@ app.get("/api/document-folders", async (_req, res) => {
 app.post("/api/document-folders", async (req, res) => {
   const item = req.body;
   if (!item || !item.id) return res.status(400).json({ error: "Invalid folder data" });
+  if (await isIdDeletedInServer(item.id) && !item.forceRestore) {
+    return res.status(410).json({ error: "Deleted", id: item.id });
+  }
   const store = getCachedData();
   if (!Array.isArray(store.documentFolders)) store.documentFolders = [];
   const idx = store.documentFolders.findIndex((f: any) => f.id === item.id);
   if (idx >= 0) store.documentFolders[idx] = { ...store.documentFolders[idx], ...item };
   else store.documentFolders.push(item);
-  await pgUpsert('document_folders', item.id, item);
+  await pgUpsert('document_folders', item.id, item, Boolean(item.forceRestore));
   scheduleSaveToDisk();
   const clientId = req.headers['x-client-id'] || null;
   broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
@@ -3253,8 +3155,21 @@ app.delete("/api/document-folders/:id", async (req, res) => {
   const { id } = req.params;
   const clientId = req.headers['x-client-id'] || null;
   registerDeletion(id);
+  const store = getCachedData();
+  if (Array.isArray(store.uploadedDocuments)) {
+    for (let i = 0; i < store.uploadedDocuments.length; i++) {
+      const docItem = store.uploadedDocuments[i];
+      if (docItem && docItem.folderId === id) {
+        const updatedDoc = { ...docItem };
+        delete updatedDoc.folderId;
+        store.uploadedDocuments[i] = updatedDoc;
+        await pgUpsert('uploaded_documents', updatedDoc.id, updatedDoc, false);
+      }
+    }
+  }
   await pgDelete('document_folders', id);
   scheduleSaveToDisk();
+  broadcastSse({ type: 'document_folder_deleted', folderId: id, clientId, time: Date.now() });
   broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
   res.json({ status: "deleted", id });
 });
@@ -3278,6 +3193,9 @@ app.get("/api/meters", async (_req, res) => {
 app.post("/api/meters", async (req, res) => {
   const meter = req.body;
   if (!meter || !meter.id) return res.status(400).json({ error: "Invalid meter data" });
+  if (await isIdDeletedInServer(meter.id) && !meter.forceRestore) {
+    return res.status(410).json({ error: "Deleted", id: meter.id });
+  }
   const current = getCachedData();
   if (!Array.isArray(current.meters)) current.meters = [];
 
@@ -3288,11 +3206,17 @@ app.post("/api/meters", async (req, res) => {
     current.meters.unshift(meter);
   }
 
-  if (Array.isArray(current.deletedIds)) {
-    current.deletedIds = current.deletedIds.filter((id: string) => id !== meter.id && id !== meter.code);
+  // Only allow clearing code tombstone when creating/updating a meter with a non-deleted ID
+  if (meter.code) {
+    const normCode = String(meter.code).trim().toUpperCase();
+    unregisterDeletion(meter.code);
+    unregisterDeletion(normCode);
+    if (pgPool) {
+      await pgPool.query('DELETE FROM deleted_ids WHERE id = ANY($1::text[])', [[meter.code, normCode]]).catch(() => {});
+    }
   }
 
-  await pgUpsert('meters', meter.id, meter);
+  await pgUpsert('meters', meter.id, meter, Boolean(meter.forceRestore));
   scheduleSaveToDisk();
   const clientId = req.headers['x-client-id'] || null;
   broadcastSse({ type: 'meter_updated', meter, clientId, time: Date.now() });
@@ -3302,13 +3226,14 @@ app.post("/api/meters", async (req, res) => {
 
 app.put("/api/meters/:id", async (req, res) => {
   const { id } = req.params;
+  if (await isIdDeletedInServer(id)) return res.status(410).json({ error: "Deleted", id });
   const meter = { ...req.body, id };
   const current = getCachedData();
   if (!Array.isArray(current.meters)) current.meters = [];
   const idx = current.meters.findIndex((m: any) => m && (m.id === id || m.code === id));
   if (idx >= 0) current.meters[idx] = { ...current.meters[idx], ...meter };
   else current.meters.unshift(meter);
-  await pgUpsert('meters', id, meter);
+  await pgUpsert('meters', id, meter, false);
   scheduleSaveToDisk();
   const clientId = req.headers['x-client-id'] || null;
   broadcastSse({ type: 'meter_updated', meter, clientId, time: Date.now() });
@@ -3319,15 +3244,73 @@ app.put("/api/meters/:id", async (req, res) => {
 app.delete("/api/meters/:id", async (req, res) => {
   const { id } = req.params;
   const clientId = req.headers['x-client-id'] || null;
-  registerDeletion(id);
   const current = getCachedData();
+  const targetMeter = (current.meters || []).find((m: any) => m && (m.id === id || m.code === id));
+  const meterIdsToDelete = new Set<string>([id]);
+  if (targetMeter?.id) meterIdsToDelete.add(targetMeter.id);
+  if (targetMeter?.code) {
+    meterIdsToDelete.add(targetMeter.code);
+    meterIdsToDelete.add(String(targetMeter.code).trim().toUpperCase());
+  }
+
+  for (const mDelId of meterIdsToDelete) {
+    registerDeletion(mDelId);
+  }
+
   if (Array.isArray(current.meters)) {
-    current.meters = current.meters.filter((m: any) => m && m.id !== id && m.code !== id);
+    current.meters = current.meters.filter((m: any) => m && !meterIdsToDelete.has(m.id) && (!m.code || !meterIdsToDelete.has(m.code)));
   }
+
+  const deletedReadingIds = new Set<string>();
   if (Array.isArray(current.meterReadingsLog)) {
-    current.meterReadingsLog = current.meterReadingsLog.filter((r: any) => r && r.meterId !== id);
+    current.meterReadingsLog = current.meterReadingsLog.filter((r: any) => {
+      if (!r) return false;
+      if (r.meterId && meterIdsToDelete.has(r.meterId)) {
+        if (r.id) {
+          deletedReadingIds.add(r.id);
+          registerDeletion(r.id);
+        }
+        return false;
+      }
+      return true;
+    });
   }
-  await pgDelete('meters', id);
+
+  if (pgPool) {
+    try {
+      const mRows = await pgPool.query('SELECT id, data FROM meters');
+      for (const row of (mRows.rows || [])) {
+        const mData = row?.data;
+        const mCode = mData?.code ? String(mData.code).trim() : '';
+        if (row.id === id || mCode === id || (mCode && meterIdsToDelete.has(mCode.toUpperCase()))) {
+          meterIdsToDelete.add(row.id);
+          if (mCode) {
+            meterIdsToDelete.add(mCode);
+            meterIdsToDelete.add(mCode.toUpperCase());
+          }
+        }
+      }
+      const rRows = await pgPool.query('SELECT id, data FROM meter_readings_log');
+      for (const row of (rRows.rows || [])) {
+        const rMeterId = row?.data?.meterId;
+        if (rMeterId && meterIdsToDelete.has(rMeterId)) {
+          deletedReadingIds.add(row.id);
+          registerDeletion(row.id);
+        }
+      }
+      for (const mDelId of meterIdsToDelete) {
+        await pgDelete('meters', mDelId);
+      }
+      for (const rDelId of deletedReadingIds) {
+        await pgDelete('meter_readings_log', rDelId);
+      }
+    } catch (e) {
+      console.warn('[PostgreSQL] Notice cascading meter delete:', (e as any)?.message || e);
+    }
+  } else {
+    await pgDelete('meters', id);
+  }
+
   scheduleSaveToDisk();
   broadcastSse({ type: 'meter_deleted', meterId: id, clientId, time: Date.now() });
   broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
@@ -3353,6 +3336,9 @@ app.get("/api/meter-readings", async (_req, res) => {
 app.post("/api/meter-readings", async (req, res) => {
   const reading = req.body;
   if (!reading || !reading.id) return res.status(400).json({ error: "Invalid reading data" });
+  if (await isIdDeletedInServer(reading.id, reading.meterId) && !reading.forceRestore) {
+    return res.status(410).json({ error: "Deleted", id: reading.id });
+  }
   const current = getCachedData();
   if (!Array.isArray(current.meterReadingsLog)) current.meterReadingsLog = [];
 
@@ -3365,16 +3351,16 @@ app.post("/api/meter-readings", async (req, res) => {
 
   if (Array.isArray(current.meters)) {
     const mIdx = current.meters.findIndex((m: any) => m && (m.id === reading.meterId || m.code === reading.meterId));
-    if (mIdx >= 0) {
+    if (mIdx >= 0 && !(await isIdDeletedInServer(current.meters[mIdx].id))) {
       current.meters[mIdx].currentReading = reading.currentValue;
       current.meters[mIdx].lastReadingDate = reading.date;
       current.meters[mIdx].lastReadingTime = reading.time;
       current.meters[mIdx].updatedAt = new Date().toISOString();
-      await pgUpsert('meters', current.meters[mIdx].id, current.meters[mIdx]);
+      await pgUpsert('meters', current.meters[mIdx].id, current.meters[mIdx], false);
     }
   }
 
-  await pgUpsert('meter_readings_log', reading.id, reading);
+  await pgUpsert('meter_readings_log', reading.id, reading, Boolean(reading.forceRestore));
   scheduleSaveToDisk();
   const clientId = req.headers['x-client-id'] || null;
   broadcastSse({ type: 'meter_reading_added', reading, clientId, time: Date.now() });
@@ -3434,29 +3420,35 @@ app.get("/api/incidents", async (_req, res) => {
 app.post("/api/incidents", async (req, res) => {
   const inc = req.body;
   if (!inc || !inc.id) return res.status(400).json({ error: "Invalid incident data" });
+  if (await isIdDeletedInServer(inc.id) && !inc.forceRestore) {
+    return res.status(410).json({ error: "Deleted", id: inc.id });
+  }
   const store = getCachedData();
   if (!Array.isArray(store.incidents)) store.incidents = [];
   const idx = store.incidents.findIndex((i: any) => i.id === inc.id);
   if (idx >= 0) store.incidents[idx] = { ...store.incidents[idx], ...inc };
   else store.incidents.unshift(inc);
-  await pgUpsert('incidents', inc.id, inc);
+  await pgUpsert('incidents', inc.id, inc, Boolean(inc.forceRestore));
   scheduleSaveToDisk();
   const clientId = req.headers['x-client-id'] || null;
   broadcastSse({ type: 'incident_updated', incident: inc, clientId, time: Date.now() });
+  broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
   res.json({ status: "success", incident: inc });
 });
 app.put("/api/incidents/:id", async (req, res) => {
   const { id } = req.params;
-  const inc = { ...req.body, id };
+  if (await isIdDeletedInServer(id)) return res.status(410).json({ error: "Deleted", id });
   const store = getCachedData();
   if (!Array.isArray(store.incidents)) store.incidents = [];
   const idx = store.incidents.findIndex((i: any) => i.id === id);
-  if (idx >= 0) store.incidents[idx] = { ...store.incidents[idx], ...inc };
+  const inc = idx >= 0 ? { ...store.incidents[idx], ...req.body, id } : { ...req.body, id };
+  if (idx >= 0) store.incidents[idx] = inc;
   else store.incidents.unshift(inc);
-  await pgUpsert('incidents', id, inc);
+  await pgUpsert('incidents', id, inc, false);
   scheduleSaveToDisk();
   const clientId = req.headers['x-client-id'] || null;
   broadcastSse({ type: 'incident_updated', incident: inc, clientId, time: Date.now() });
+  broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
   res.json({ status: "success", incident: inc });
 });
 
@@ -3479,12 +3471,15 @@ app.get("/api/requests", async (_req, res) => {
 app.post("/api/requests", async (req, res) => {
   const item = req.body;
   if (!item || !item.id) return res.status(400).json({ error: "Invalid request data" });
+  if (await isIdDeletedInServer(item.id) && !item.forceRestore) {
+    return res.status(410).json({ error: "Deleted", id: item.id });
+  }
   const store = getCachedData();
   if (!Array.isArray(store.requests)) store.requests = [];
   const idx = store.requests.findIndex((r: any) => r.id === item.id);
   if (idx >= 0) store.requests[idx] = { ...store.requests[idx], ...item };
   else store.requests.unshift(item);
-  await pgUpsert('requests', item.id, item);
+  await pgUpsert('requests', item.id, item, Boolean(item.forceRestore));
   scheduleSaveToDisk();
   const clientId = req.headers['x-client-id'] || null;
   broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
@@ -3492,13 +3487,14 @@ app.post("/api/requests", async (req, res) => {
 });
 app.put("/api/requests/:id", async (req, res) => {
   const { id } = req.params;
-  const item = { ...req.body, id };
+  if (await isIdDeletedInServer(id)) return res.status(410).json({ error: "Deleted", id });
   const store = getCachedData();
   if (!Array.isArray(store.requests)) store.requests = [];
   const idx = store.requests.findIndex((r: any) => r.id === id);
-  if (idx >= 0) store.requests[idx] = { ...store.requests[idx], ...item };
+  const item = idx >= 0 ? { ...store.requests[idx], ...req.body, id } : { ...req.body, id };
+  if (idx >= 0) store.requests[idx] = item;
   else store.requests.unshift(item);
-  await pgUpsert('requests', id, item);
+  await pgUpsert('requests', id, item, false);
   scheduleSaveToDisk();
   const clientId = req.headers['x-client-id'] || null;
   broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
@@ -3523,16 +3519,18 @@ app.get("/api/tasks", async (_req, res) => {
 });
 app.put("/api/tasks/:id", async (req, res) => {
   const { id } = req.params;
-  const item = { ...req.body, id };
+  if (await isIdDeletedInServer(id)) return res.status(410).json({ error: "Deleted", id });
   const store = getCachedData();
   if (!Array.isArray(store.tasks)) store.tasks = [];
   const idx = store.tasks.findIndex((t: any) => t.id === id);
-  if (idx >= 0) store.tasks[idx] = { ...store.tasks[idx], ...item };
+  const item = idx >= 0 ? { ...store.tasks[idx], ...req.body, id } : { ...req.body, id };
+  if (idx >= 0) store.tasks[idx] = item;
   else store.tasks.unshift(item);
-  await pgUpsert('tasks', id, item);
+  await pgUpsert('tasks', id, item, false);
   scheduleSaveToDisk();
   const clientId = req.headers['x-client-id'] || null;
   broadcastSse({ type: 'task_updated', task: item, clientId, time: Date.now() });
+  broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
   res.json({ status: "success", task: item });
 });
 
@@ -3556,30 +3554,18 @@ app.post("/api/schedules", async (req, res) => {
   const items = Array.isArray(req.body) ? req.body : [req.body];
   const store = getCachedData();
   if (!Array.isArray(store.schedules)) store.schedules = [];
+  const deletedSet = await getAuthoritativeDeletedIdsSet();
   for (const item of items) {
-    if (!item || !item.id) continue;
+    if (!item || !item.id || (deletedSet.has(item.id) && !item.forceRestore)) continue;
     const idx = store.schedules.findIndex((s: any) => s.id === item.id);
     if (idx >= 0) store.schedules[idx] = { ...store.schedules[idx], ...item };
     else store.schedules.push(item);
-    await pgUpsert('schedules', item.id, item);
+    await pgUpsert('schedules', item.id, item, Boolean(item.forceRestore));
   }
   scheduleSaveToDisk();
   const clientId = req.headers['x-client-id'] || null;
   broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
   res.json({ status: "success", count: items.length });
-});
-app.delete("/api/schedules/:id", async (req, res) => {
-  const { id } = req.params;
-  const store = getCachedData();
-  if (Array.isArray(store.schedules)) {
-    store.schedules = store.schedules.filter((s: any) => s.id !== id);
-  }
-  await pgDelete('schedules', id);
-  registerDeletion(id);
-  scheduleSaveToDisk();
-  const clientId = req.headers['x-client-id'] || null;
-  broadcastSse({ type: 'schedule_deleted', scheduleId: id, clientId, time: Date.now() });
-  res.json({ status: "deleted", id });
 });
 
 // 6. Equipments
@@ -3601,12 +3587,15 @@ app.get("/api/equipments", async (_req, res) => {
 app.post("/api/equipments", async (req, res) => {
   const item = req.body;
   if (!item || !item.id) return res.status(400).json({ error: "Invalid equipment data" });
+  if (await isIdDeletedInServer(item.id) && !item.forceRestore) {
+    return res.status(410).json({ error: "Deleted", id: item.id });
+  }
   const store = getCachedData();
   if (!Array.isArray(store.equipments)) store.equipments = [];
   const idx = store.equipments.findIndex((e: any) => e.id === item.id);
   if (idx >= 0) store.equipments[idx] = { ...store.equipments[idx], ...item };
   else store.equipments.push(item);
-  await pgUpsert('equipments', item.id, item);
+  await pgUpsert('equipments', item.id, item, Boolean(item.forceRestore));
   scheduleSaveToDisk();
   const clientId = req.headers['x-client-id'] || null;
   broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
@@ -3694,6 +3683,9 @@ app.post("/api/users", async (req, res) => {
   if (!item.id) {
     item.id = `usr-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
   }
+  if (await isIdDeletedInServer(item.id) && !item.forceRestore) {
+    return res.status(410).json({ error: "Deleted", id: item.id });
+  }
   const nowIso = new Date().toISOString();
   if (!item.createdAt) item.createdAt = nowIso;
   item.updatedAt = nowIso;
@@ -3717,14 +3709,19 @@ app.post("/api/users", async (req, res) => {
          DO UPDATE SET data = EXCLUDED.data, email = EXCLUDED.email, role = EXCLUDED.role, updated_at = CURRENT_TIMESTAMP`,
         [item.id, JSON.stringify(item), item.email ? String(item.email).toLowerCase().trim() : null, item.role || 'técnico']
       );
-      await pgPool.query('DELETE FROM deleted_ids WHERE id = $1', [item.id]);
+      if (item.forceRestore) {
+        await pgPool.query('DELETE FROM deleted_ids WHERE id = $1', [item.id]);
+      }
       console.log(`[PostgreSQL] User ${item.id} (${item.displayName}) created/saved in DB.`);
     } catch (pgErr) {
       console.warn("[PostgreSQL] Error executing INSERT on users table:", (pgErr as any)?.message || pgErr);
     }
   }
 
-  unregisterDeletion(item.id);
+  if (item.forceRestore) {
+    unregisterDeletion(item.id);
+    delete item.forceRestore;
+  }
   scheduleSaveToDisk();
   const clientId = req.headers['x-client-id'] || null;
   broadcastSse({ type: 'user_created', user: item, clientId, time: Date.now() });
@@ -3736,6 +3733,7 @@ const handleUpdateUserRoute = async (req: express.Request, res: express.Response
   const { id } = req.params;
   const updates = req.body;
   if (!id) return res.status(400).json({ error: "User ID is required" });
+  if (await isIdDeletedInServer(id)) return res.status(410).json({ error: "Deleted", id });
 
   const store = getCachedData();
   if (!Array.isArray(store.users)) store.users = [];
@@ -3780,14 +3778,12 @@ const handleUpdateUserRoute = async (req: express.Request, res: express.Response
           [id, JSON.stringify(finalUser), finalUser.email ? String(finalUser.email).toLowerCase().trim() : null, finalUser.role || 'técnico']
         );
       }
-      await pgPool.query('DELETE FROM deleted_ids WHERE id = $1', [id]);
       console.log(`[PostgreSQL] User ${id} (${finalUser.displayName}) updated in DB successfully.`);
     } catch (pgErr) {
       console.warn("[PostgreSQL] Error executing UPDATE on users table:", (pgErr as any)?.message || pgErr);
     }
   }
 
-  unregisterDeletion(id);
   scheduleSaveToDisk();
   const clientId = req.headers['x-client-id'] || null;
   broadcastSse({ type: 'user_updated', user: finalUser, clientId, time: Date.now() });
@@ -3816,26 +3812,31 @@ app.get("/api/cronogramas", async (_req, res) => {
 app.post("/api/cronogramas", async (req, res) => {
   const item = req.body;
   if (!item || !item.id) return res.status(400).json({ error: "Invalid cronograma data" });
+  if (await isIdDeletedInServer(item.id) && !item.forceRestore) {
+    return res.status(410).json({ error: "Deleted", id: item.id });
+  }
   const store = getCachedData();
   if (!Array.isArray(store.cronogramas)) store.cronogramas = [];
   const idx = store.cronogramas.findIndex((c: any) => c.id === item.id);
   if (idx >= 0) store.cronogramas[idx] = { ...store.cronogramas[idx], ...item };
   else store.cronogramas.push(item);
-  await pgUpsert('cronogramas', item.id, item);
+  await pgUpsert('cronogramas', item.id, item, Boolean(item.forceRestore));
   scheduleSaveToDisk();
   const clientId = req.headers['x-client-id'] || null;
+  broadcastSse({ type: 'cronograma_updated', cronograma: item, clientId, time: Date.now() });
   broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
   res.json({ status: "success", cronograma: item });
 });
 app.put("/api/cronogramas/:id", async (req, res) => {
   const { id } = req.params;
-  const item = { ...req.body, id };
+  if (await isIdDeletedInServer(id)) return res.status(410).json({ error: "Deleted", id });
   const store = getCachedData();
   if (!Array.isArray(store.cronogramas)) store.cronogramas = [];
   const idx = store.cronogramas.findIndex((c: any) => c.id === id);
-  if (idx >= 0) store.cronogramas[idx] = { ...store.cronogramas[idx], ...item };
+  const item = idx >= 0 ? { ...store.cronogramas[idx], ...req.body, id } : { ...req.body, id };
+  if (idx >= 0) store.cronogramas[idx] = item;
   else store.cronogramas.push(item);
-  await pgUpsert('cronogramas', id, item);
+  await pgUpsert('cronogramas', id, item, false);
   scheduleSaveToDisk();
   const clientId = req.headers['x-client-id'] || null;
   broadcastSse({ type: 'cronograma_updated', cronograma: item, clientId, time: Date.now() });
