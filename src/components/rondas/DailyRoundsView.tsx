@@ -66,7 +66,18 @@ import { CustomSelect } from '../common/CustomSelect';
 import { CustomButtonBuilder, getButtonColorClass, getStatusBadgeClass, ButtonActionConfig } from '../common/CustomButtonBuilder';
 import { DecimalInput } from '../common/DecimalInput';
 import { getRoundItemIcon, WaterPumpIcon, ManometerIcon, CondenserIcon, SubstationIcon, TankIcon, SaunaColdPlungeIcon, CavaRefrigerationIcon } from '../../utils/roundIcons';
-import { getCheckpointButtonAction, getFieldButtonAction, isCheckpointAlarmActive, isCheckpointComplete, getIncompleteCheckpoints } from '../../utils/roundButtonUtils';
+import {
+  getCheckpointButtonAction,
+  getFieldButtonAction,
+  isCheckpointAlarmActive,
+  isCheckpointComplete,
+  getIncompleteCheckpoints,
+  getCheckpointAllPhotos,
+  isCheckpointPhotoRequired,
+  hasCheckpointRequiredPhoto,
+  isCheckpointMissingPhoto
+} from '../../utils/roundButtonUtils';
+import { compressImageFile, mergeUniquePhotos } from '../../utils/imageCompression';
 import { useDeviceDetection } from '../../hooks/useDeviceDetection';
 import { RoundShareModal } from './RoundShareModal';
 import { SmartMeterScannerModal, MeterScanResult } from './SmartMeterScannerModal';
@@ -129,6 +140,7 @@ export const DailyRoundsView: React.FC = () => {
     updateActiveRoundCheckpoint, 
     updateActiveRoundMeasurementField,
     updateActiveRoundMeterReadings,
+    removeActiveRoundPhoto,
     addRoundAnomaly, 
     completeActiveRound, 
     cancelActiveRound, 
@@ -533,6 +545,7 @@ export const DailyRoundsView: React.FC = () => {
     initialValue?: number | string;
     initialPhotoMode?: 'ai' | 'normal';
     allowedPhotoMode?: 'ai' | 'normal' | 'both' | 'none';
+    allowMultiple?: boolean;
   } | null>(null);
   const [previewPhotoUrl, setPreviewPhotoUrl] = useState<string | null>(null);
   const [previewPhotoTitle, setPreviewPhotoTitle] = useState<string>('Evidencia Fotográfica de la Ronda');
@@ -564,23 +577,28 @@ export const DailyRoundsView: React.FC = () => {
       }
       (c.measurementFields || []).forEach(f => {
         addPhoto(f.photoUrl);
-        if (Array.isArray((f as any).photos)) {
-          (f as any).photos.forEach((p: string) => addPhoto(p));
+        if (Array.isArray(f.photos)) {
+          f.photos.forEach((p: string) => addPhoto(p));
         }
       });
     });
-    addPhoto(round.meterReadings?.waterMeterPhotoUrl);
-    addPhoto(round.meterReadings?.electricMeterPhotoUrl);
-    addPhoto(round.meterReadings?.gasMeterPhotoUrl);
-    if (round.meterReadings?.customMeters) {
-      Object.values(round.meterReadings.customMeters).forEach((cm: any) => {
+    const mr: any = round.meterReadings;
+    addPhoto(mr?.waterMeterPhotoUrl);
+    if (Array.isArray(mr?.waterMeterPhotos)) mr.waterMeterPhotos.forEach((p: string) => addPhoto(p));
+    addPhoto(mr?.electricMeterPhotoUrl);
+    if (Array.isArray(mr?.electricMeterPhotos)) mr.electricMeterPhotos.forEach((p: string) => addPhoto(p));
+    addPhoto(mr?.gasMeterPhotoUrl);
+    if (Array.isArray(mr?.gasMeterPhotos)) mr.gasMeterPhotos.forEach((p: string) => addPhoto(p));
+    if (mr?.customMeters) {
+      Object.values(mr.customMeters).forEach((cm: any) => {
         addPhoto(cm?.photoUrl);
+        if (Array.isArray(cm?.photos)) cm.photos.forEach((p: string) => addPhoto(p));
       });
     }
     (round.anomalies || []).forEach(a => {
       addPhoto(a.photoUrl);
-      if (Array.isArray((a as any).photos)) {
-        (a as any).photos.forEach((p: string) => addPhoto(p));
+      if (Array.isArray(a.photos)) {
+        a.photos.forEach((p: string) => addPhoto(p));
       }
     });
     return seen.size;
@@ -636,6 +654,7 @@ export const DailyRoundsView: React.FC = () => {
     initialValue?: number | string;
     initialPhotoMode?: 'ai' | 'normal';
     allowedPhotoMode?: 'ai' | 'normal' | 'both' | 'none';
+    allowMultiple?: boolean;
   }) => {
     setScannerConfig(config);
     setIsScannerOpen(true);
@@ -644,34 +663,46 @@ export const DailyRoundsView: React.FC = () => {
   const handleApplyMeterReading = (result: MeterScanResult) => {
     if (!scannerConfig) return;
 
+    const capturedPhotos = mergeUniquePhotos(result.photoUrls, result.photoUrl ? [result.photoUrl] : []);
+    const latestPhoto = capturedPhotos[capturedPhotos.length - 1] || result.photoUrl;
+
     if (scannerConfig.targetType === 'generalWater') {
+      const mergedWaterPhotos = mergeUniquePhotos((meterReadings as any).waterMeterPhotos, meterReadings.waterMeterPhotoUrl ? [meterReadings.waterMeterPhotoUrl] : [], capturedPhotos);
       const updated = {
         waterCubicMeters: result.value,
-        waterMeterPhotoUrl: result.photoUrl
+        waterMeterPhotoUrl: latestPhoto || mergedWaterPhotos[mergedWaterPhotos.length - 1],
+        waterMeterPhotos: mergedWaterPhotos
       };
       setMeterReadings(p => ({ ...p, ...updated }));
-      updateActiveRoundMeterReadings(updated);
+      updateActiveRoundMeterReadings(updated as any);
     } else if (scannerConfig.targetType === 'generalElectric') {
+      const mergedElecPhotos = mergeUniquePhotos((meterReadings as any).electricMeterPhotos, meterReadings.electricMeterPhotoUrl ? [meterReadings.electricMeterPhotoUrl] : [], capturedPhotos);
       const updated = {
         electricKwh: result.value,
-        electricMeterPhotoUrl: result.photoUrl
+        electricMeterPhotoUrl: latestPhoto || mergedElecPhotos[mergedElecPhotos.length - 1],
+        electricMeterPhotos: mergedElecPhotos
       };
       setMeterReadings(p => ({ ...p, ...updated }));
-      updateActiveRoundMeterReadings(updated);
+      updateActiveRoundMeterReadings(updated as any);
     } else if (scannerConfig.targetType === 'generalGas') {
+      const mergedGasPhotos = mergeUniquePhotos((meterReadings as any).gasMeterPhotos, meterReadings.gasMeterPhotoUrl ? [meterReadings.gasMeterPhotoUrl] : [], capturedPhotos);
       const updated = {
         gasCubicMeters: result.value,
-        gasMeterPhotoUrl: result.photoUrl
+        gasMeterPhotoUrl: latestPhoto || mergedGasPhotos[mergedGasPhotos.length - 1],
+        gasMeterPhotos: mergedGasPhotos
       };
       setMeterReadings(p => ({ ...p, ...updated }));
-      updateActiveRoundMeterReadings(updated);
+      updateActiveRoundMeterReadings(updated as any);
     } else if (scannerConfig.targetType === 'customMeter' && scannerConfig.customMeterId) {
       const customId = scannerConfig.customMeterId;
       const current = { ...(meterReadings.customMeters || {}) };
+      const existingMeter = current[customId];
+      const mergedCustomPhotos = mergeUniquePhotos(existingMeter?.photos, existingMeter?.photoUrl ? [existingMeter.photoUrl] : [], capturedPhotos);
       current[customId] = {
-        ...(current[customId] || { id: customId, name: scannerConfig.meterName, unit: scannerConfig.unit }),
+        ...(existingMeter || { id: customId, name: scannerConfig.meterName, unit: scannerConfig.unit }),
         value: result.value,
-        photoUrl: result.photoUrl
+        photoUrl: latestPhoto || mergedCustomPhotos[mergedCustomPhotos.length - 1],
+        photos: mergedCustomPhotos
       };
       const updated = { customMeters: current };
       setMeterReadings(p => ({ ...p, ...updated }));
@@ -681,7 +712,7 @@ export const DailyRoundsView: React.FC = () => {
       if (chk) {
         let finalVal = chk.currentValue;
         if (chk.type === 'numeric') {
-          finalVal = result.value;
+          finalVal = (result.value !== undefined && String(result.value).trim() !== '') ? result.value : chk.currentValue;
         } else if (chk.type === 'text') {
           finalVal = result.rawText || (typeof chk.currentValue === 'string' && chk.currentValue ? chk.currentValue : 'Evidencia registrada');
         }
@@ -694,31 +725,30 @@ export const DailyRoundsView: React.FC = () => {
           chk.statusValue,
           chk.ampState || 'Encendido',
           true,
-          result.photoUrl
+          latestPhoto,
+          capturedPhotos,
+          'append'
         );
       }
     } else if (scannerConfig.targetType === 'field' && scannerConfig.checkpointId && scannerConfig.fieldIndex !== undefined) {
       const chk = activeRound?.checkpoints.find(c => c.id === scannerConfig.checkpointId);
       if (chk && chk.measurementFields) {
-        const updatedFields = chk.measurementFields.map((f, idx) => {
-          if (idx === scannerConfig.fieldIndex || f.id === scannerConfig.fieldId) {
-            return {
-              ...f,
-              value: result.value,
-              photoUrl: result.photoUrl
-            };
-          }
-          return f;
-        });
-        updateActiveRoundCheckpoint(
+        const targetIdx = chk.measurementFields.findIndex((f, idx) => idx === scannerConfig.fieldIndex || (scannerConfig.fieldId && f.id === scannerConfig.fieldId));
+        const resolvedIdx = targetIdx >= 0 ? targetIdx : scannerConfig.fieldIndex;
+        const targetField = chk.measurementFields[resolvedIdx];
+        const safeVal = (result.value !== undefined && String(result.value).trim() !== '')
+          ? result.value
+          : (targetField?.value ?? '');
+        updateActiveRoundMeasurementField(
           chk.id,
-          chk.currentValue,
-          chk.notes,
-          updatedFields,
-          chk.statusValue,
-          chk.ampState || 'Encendido',
+          resolvedIdx,
+          safeVal,
+          targetField?.ampState,
+          targetField?.statusValue,
           true,
-          undefined
+          latestPhoto,
+          capturedPhotos,
+          'append'
         );
       }
     }
@@ -783,60 +813,43 @@ export const DailyRoundsView: React.FC = () => {
     description: string;
     severity: 'baja' | 'media' | 'alta' | 'urgente';
     photoUrl?: string;
+    photos: string[];
   }>({
     area: 'Sótano 2 - Cuarto de Bombas',
     title: '',
     description: '',
     severity: 'media',
     photoUrl: '',
+    photos: [],
   });
 
   const anomalyCameraInputRef = useRef<HTMLInputElement | null>(null);
   const anomalyGalleryInputRef = useRef<HTMLInputElement | null>(null);
 
-  const handleAnomalyPhotoCapture = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  const handleAnomalyPhotoCapture = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files ? Array.from(e.target.files) : [];
+    if (files.length === 0) return;
 
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const rawDataUrl = event.target?.result as string;
-      if (!rawDataUrl) return;
+    const compressedList: string[] = [];
+    for (const file of files) {
+      try {
+        const compressed = await compressImageFile(file, 1080, 0.74);
+        if (compressed) compressedList.push(compressed);
+      } catch (err) {
+        console.warn('Error comprimiendo foto de incidencia:', err);
+      }
+    }
 
-      const img = new Image();
-      img.onload = () => {
-        const canvas = document.createElement('canvas');
-        const maxDim = 1000;
-        let width = img.width;
-        let height = img.height;
-
-        if (width > maxDim || height > maxDim) {
-          if (width > height) {
-            height = Math.round((height * maxDim) / width);
-            width = maxDim;
-          } else {
-            width = Math.round((width * maxDim) / height);
-            height = maxDim;
-          }
-        }
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext('2d');
-        if (ctx) {
-          ctx.drawImage(img, 0, 0, width, height);
-          const compressed = canvas.toDataURL('image/jpeg', 0.75);
-          setAnomalyForm(prev => ({ ...prev, photoUrl: compressed }));
-        } else {
-          setAnomalyForm(prev => ({ ...prev, photoUrl: rawDataUrl }));
-        }
-      };
-      img.onerror = () => {
-        setAnomalyForm(prev => ({ ...prev, photoUrl: rawDataUrl }));
-      };
-      img.src = rawDataUrl;
-    };
-    reader.readAsDataURL(file);
-    // Reset file input so user can retake if needed
+    if (compressedList.length > 0) {
+      setAnomalyForm(prev => {
+        const nextPhotos = mergeUniquePhotos(prev.photos, prev.photoUrl ? [prev.photoUrl] : [], compressedList);
+        return {
+          ...prev,
+          photos: nextPhotos,
+          photoUrl: nextPhotos[nextPhotos.length - 1] || prev.photoUrl || ''
+        };
+      });
+    }
     e.target.value = '';
   };
 
@@ -912,6 +925,7 @@ export const DailyRoundsView: React.FC = () => {
       notify('⚠️ Por favor completa el título y la descripción del inconveniente detectado.');
       return;
     }
+    const mergedAnomPhotos = mergeUniquePhotos(anomalyForm.photos, anomalyForm.photoUrl ? [anomalyForm.photoUrl] : []);
     addRoundAnomaly({
       area: anomalyForm.area,
       title: anomalyForm.title,
@@ -919,7 +933,8 @@ export const DailyRoundsView: React.FC = () => {
       severity: anomalyForm.severity,
       status: 'pendiente',
       registeredBy: activeRound?.technicianName || detectedTechnicianName,
-      photoUrl: anomalyForm.photoUrl || undefined,
+      photoUrl: mergedAnomPhotos[mergedAnomPhotos.length - 1] || anomalyForm.photoUrl || undefined,
+      photos: mergedAnomPhotos.length > 0 ? mergedAnomPhotos : undefined,
     });
     setAnomalyForm({
       area: 'Sótano 2 - Cuarto de Bombas',
@@ -927,6 +942,7 @@ export const DailyRoundsView: React.FC = () => {
       description: '',
       severity: 'media',
       photoUrl: '',
+      photos: [],
     });
     setShowAnomalyModal(false);
   };
@@ -938,8 +954,7 @@ export const DailyRoundsView: React.FC = () => {
     const chks = r.checkpoints || [];
     if (chks.length === 0) return false;
     const filledCount = chks.filter(c => isCheckpointComplete(c, roundTemplate)).length;
-    // Las rondas con sus puntos cargados quedan completamente creadas y visibles al 100%
-    return filledCount >= chks.length || filledCount >= 20;
+    return filledCount >= chks.length && getIncompleteCheckpoints(chks, roundTemplate).length === 0;
   }, [roundTemplate]);
 
   // Filtered rounds list (memoized to prevent expensive re-filtering while typing in checkpoints) - strictly completed history rounds (100% compliance)
@@ -1220,44 +1235,74 @@ export const DailyRoundsView: React.FC = () => {
                 <span>Incidencias registradas en este recorrido ({(activeRound.anomalies || []).length})</span>
               </h4>
               <div className="space-y-2">
-                {(activeRound.anomalies || []).map(anom => (
-                  <div key={anom.id} className="bg-white p-2.5 rounded-lg border border-amber-200 text-xs flex items-center justify-between gap-3">
-                    <div className="flex items-start space-x-2.5 min-w-0 flex-1">
-                      {anom.photoUrl && (
-                        <div 
-                          className="w-10 h-10 rounded-lg overflow-hidden bg-slate-100 border border-amber-300 shrink-0 cursor-pointer hover:opacity-80 transition-opacity"
-                          onClick={() => openPhotoPreview(anom.photoUrl, `Incidencia: ${anom.title} (${anom.area})`)}
-                          title="Clic para ver foto"
-                        >
-                          <img src={anom.photoUrl} alt="Foto anomalía" className="w-full h-full object-cover" />
+                {(activeRound.anomalies || []).map(anom => {
+                  const anomPhotos = mergeUniquePhotos(anom.photos, anom.photoUrl ? [anom.photoUrl] : []);
+                  return (
+                    <div key={anom.id} className="bg-white p-2.5 rounded-lg border border-amber-200 text-xs flex flex-col gap-2">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="flex items-start space-x-2.5 min-w-0 flex-1">
+                          {anomPhotos.length > 0 && (
+                            <div
+                              className="w-10 h-10 rounded-lg overflow-hidden bg-slate-100 border border-amber-300 shrink-0 cursor-pointer hover:opacity-80 transition-opacity relative"
+                              onClick={() => openPhotoPreview(anomPhotos[anomPhotos.length - 1], `Incidencia: ${anom.title} (${anom.area})`)}
+                              title="Clic para ver foto"
+                            >
+                              <img src={anomPhotos[anomPhotos.length - 1]} alt="Foto anomalía" className="w-full h-full object-cover" />
+                              {anomPhotos.length > 1 && (
+                                <span className="absolute bottom-0 right-0 px-1 bg-slate-900/80 text-white text-[9px] font-black rounded-tl">
+                                  +{anomPhotos.length - 1}
+                                </span>
+                              )}
+                            </div>
+                          )}
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center space-x-2">
+                              <span className="font-semibold text-slate-800">{anom.title}</span>
+                              <span className="text-slate-500 text-[11px]">({anom.area})</span>
+                            </div>
+                            <p className="text-slate-600 text-[11px] mt-0.5">{anom.description}</p>
+                          </div>
                         </div>
-                      )}
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center space-x-2">
-                          <span className="font-semibold text-slate-800">{anom.title}</span>
-                          <span className="text-slate-500 text-[11px]">({anom.area})</span>
+                        <div className="flex items-center space-x-2 shrink-0">
+                          {anomPhotos.length > 0 && (
+                            <span className="px-2 py-0.5 rounded-lg bg-emerald-100 text-emerald-800 border border-emerald-300 text-[10px] font-bold flex items-center space-x-1">
+                              <Camera className="w-3 h-3 text-emerald-700" />
+                              <span>{anomPhotos.length} foto{anomPhotos.length > 1 ? 's' : ''}</span>
+                            </span>
+                          )}
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 uppercase">
+                            {anom.severity}
+                          </span>
                         </div>
-                        <p className="text-slate-600 text-[11px] mt-0.5">{anom.description}</p>
                       </div>
-                    </div>
-                    <div className="flex items-center space-x-2 shrink-0">
-                      {anom.photoUrl && (
-                        <button
-                          type="button"
-                          onClick={() => openPhotoPreview(anom.photoUrl, `Incidencia: ${anom.title} (${anom.area})`)}
-                          className="p-1.5 rounded-lg bg-emerald-100 hover:bg-emerald-200 text-emerald-800 border border-emerald-300 text-[10px] font-bold flex items-center space-x-1 cursor-pointer transition-colors shadow-2xs"
-                          title="Ver foto de la anomalía"
-                        >
-                          <Camera className="w-3.5 h-3.5 text-emerald-700" />
-                          <span>Foto</span>
-                        </button>
+
+                      {anomPhotos.length > 0 && (
+                        <div className="flex flex-wrap gap-1.5 pt-1 border-t border-amber-100">
+                          {anomPhotos.map((pUrl, pIdx) => (
+                            <div key={`${anom.id}-photo-${pIdx}`} className="relative group">
+                              <button
+                                type="button"
+                                onClick={() => openPhotoPreview(pUrl, `Incidencia: ${anom.title} — Foto ${pIdx + 1}`)}
+                                className="w-12 h-12 rounded-lg overflow-hidden border border-emerald-300 bg-slate-100 cursor-pointer hover:ring-2 hover:ring-emerald-400 transition-all block"
+                                title={`Ver foto ${pIdx + 1}`}
+                              >
+                                <img src={pUrl} alt={`Evidencia ${pIdx + 1}`} className="w-full h-full object-cover" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => removeActiveRoundPhoto({ targetType: 'anomaly', anomalyId: anom.id, photoUrl: pUrl })}
+                                className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-rose-600 text-white flex items-center justify-center shadow-xs hover:bg-rose-700 cursor-pointer"
+                                title="Eliminar esta foto"
+                              >
+                                <X className="w-2.5 h-2.5" />
+                              </button>
+                            </div>
+                          ))}
+                        </div>
                       )}
-                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 uppercase">
-                        {anom.severity}
-                      </span>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           )}
@@ -1349,10 +1394,28 @@ export const DailyRoundsView: React.FC = () => {
                                     TAG: {chk.equipmentRef}
                                   </span>
                                 )}
+                                {isCheckpointPhotoRequired(chk, roundTemplate) && (
+                                  hasCheckpointRequiredPhoto(chk) ? (
+                                    <span className="text-[10px] bg-emerald-50 text-emerald-800 border border-emerald-300 px-2 py-0.5 rounded-md font-bold flex items-center gap-1">
+                                      <Camera className="w-3 h-3 text-emerald-600" />
+                                      <span>Foto obligatoria ✓</span>
+                                    </span>
+                                  ) : (
+                                    <span className="text-[10px] bg-rose-100 text-rose-800 border border-rose-300 px-2 py-0.5 rounded-md font-extrabold flex items-center gap-1 animate-pulse">
+                                      <Camera className="w-3 h-3 text-rose-600" />
+                                      <span>Foto obligatoria</span>
+                                    </span>
+                                  )
+                                )}
                                 {isCheckpointComplete(chk, roundTemplate) ? (
                                   <span className="text-[10px] bg-emerald-100 text-emerald-800 border border-emerald-300 px-2 py-0.5 rounded-md font-bold flex items-center gap-0.5">
                                     <Check className="w-3 h-3 text-emerald-600" />
                                     <span>OK ✓</span>
+                                  </span>
+                                ) : isCheckpointMissingPhoto(chk, roundTemplate) ? (
+                                  <span className="text-[10px] bg-rose-100 text-rose-900 border border-rose-300 px-2 py-0.5 rounded-md font-bold flex items-center gap-0.5">
+                                    <Camera className="w-3 h-3 text-rose-600" />
+                                    <span>Falta foto obligatoria</span>
                                   </span>
                                 ) : (
                                   <span className="text-[10px] bg-amber-100 text-amber-900 border border-amber-300 px-2 py-0.5 rounded-md font-bold flex items-center gap-0.5">
@@ -1482,17 +1545,38 @@ export const DailyRoundsView: React.FC = () => {
                                   </div>
                                 )}
 
-                                {chk.photoUrl && (
-                                  <button
-                                    type="button"
-                                    onClick={() => openPhotoPreview(chk.photoUrl, `${chk.title} (${chk.area})`)}
-                                    className="px-2 py-1 rounded-xl bg-emerald-100 hover:bg-emerald-200 text-emerald-800 border border-emerald-300 text-[11px] font-bold flex items-center space-x-1 cursor-pointer transition-colors shadow-2xs shrink-0"
-                                    title="Ver foto capturada"
-                                  >
-                                    <ImageIcon className="w-3.5 h-3.5 text-emerald-700" />
-                                    <span>Foto ✓</span>
-                                  </button>
-                                )}
+                                {(() => {
+                                  const chkPhotos = getCheckpointAllPhotos(chk);
+                                  if (chkPhotos.length === 0) return null;
+                                  return (
+                                    <div className="flex flex-wrap items-center gap-1.5">
+                                      <span className="px-2 py-1 rounded-xl bg-emerald-100 text-emerald-800 border border-emerald-300 text-[11px] font-bold flex items-center space-x-1 shadow-2xs shrink-0">
+                                        <ImageIcon className="w-3.5 h-3.5 text-emerald-700" />
+                                        <span>{chkPhotos.length} foto{chkPhotos.length > 1 ? 's' : ''} ✓</span>
+                                      </span>
+                                      {chkPhotos.map((pUrl, pIdx) => (
+                                        <div key={`${chk.id}-okphoto-${pIdx}`} className="relative group">
+                                          <button
+                                            type="button"
+                                            onClick={() => openPhotoPreview(pUrl, `${chk.title} (${chk.area}) — Foto ${pIdx + 1}`)}
+                                            className="w-9 h-9 rounded-lg overflow-hidden border-2 border-emerald-300 bg-slate-100 cursor-pointer hover:ring-2 hover:ring-emerald-400 transition-all block"
+                                            title={`Ver foto ${pIdx + 1}`}
+                                          >
+                                            <img src={pUrl} alt={`Foto ${pIdx + 1}`} className="w-full h-full object-cover" />
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={() => removeActiveRoundPhoto({ targetType: 'checkpoint', checkpointId: chk.id, photoUrl: pUrl })}
+                                            className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-rose-600 text-white flex items-center justify-center shadow-xs hover:bg-rose-700 cursor-pointer"
+                                            title="Quitar foto"
+                                          >
+                                            <X className="w-2.5 h-2.5" />
+                                          </button>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  );
+                                })()}
                               </div>
                             ) : chk.type === 'numeric' ? (
                               <div className="flex flex-col space-y-3 w-full">
@@ -1605,17 +1689,38 @@ export const DailyRoundsView: React.FC = () => {
                                                 </div>
                                               )}
 
-                                              {field.photoUrl && (
-                                                <button
-                                                  type="button"
-                                                  onClick={() => openPhotoPreview(field.photoUrl, `${chk.title} — ${field.name || 'Medición'} (${chk.area})`)}
-                                                  className="px-1.5 py-1 rounded-md bg-emerald-100 hover:bg-emerald-200 text-emerald-800 border border-emerald-300 text-[10px] font-bold flex items-center space-x-1 cursor-pointer transition-colors shadow-2xs"
-                                                  title="Ver foto capturada del contador"
-                                                >
-                                                  <ImageIcon className="w-3 h-3 text-emerald-700" />
-                                                  <span>Foto ✓</span>
-                                                </button>
-                                              )}
+                                              {(() => {
+                                                const fieldPhotos = mergeUniquePhotos(field.photos, field.photoUrl ? [field.photoUrl] : []);
+                                                if (fieldPhotos.length === 0) return null;
+                                                return (
+                                                  <div className="flex flex-wrap items-center gap-1.5">
+                                                    <span className="px-1.5 py-1 rounded-md bg-emerald-100 text-emerald-800 border border-emerald-300 text-[10px] font-bold flex items-center space-x-1 shadow-2xs">
+                                                      <ImageIcon className="w-3 h-3 text-emerald-700" />
+                                                      <span>{fieldPhotos.length} foto{fieldPhotos.length > 1 ? 's' : ''} ✓</span>
+                                                    </span>
+                                                    {fieldPhotos.map((pUrl, pIdx) => (
+                                                      <div key={`${chk.id}-f-${fIdx}-p-${pIdx}`} className="relative group">
+                                                        <button
+                                                          type="button"
+                                                          onClick={() => openPhotoPreview(pUrl, `${chk.title} — ${field.name || 'Medición'} (${chk.area}) — Foto ${pIdx + 1}`)}
+                                                          className="w-8 h-8 rounded-lg overflow-hidden border border-emerald-400 bg-slate-100 cursor-pointer hover:ring-2 hover:ring-emerald-400 transition-all block"
+                                                          title={`Ver foto ${pIdx + 1}`}
+                                                        >
+                                                          <img src={pUrl} alt={`Foto ${pIdx + 1}`} className="w-full h-full object-cover" />
+                                                        </button>
+                                                        <button
+                                                          type="button"
+                                                          onClick={() => removeActiveRoundPhoto({ targetType: 'field', checkpointId: chk.id, fieldIndex: fIdx, photoUrl: pUrl })}
+                                                          className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-rose-600 text-white flex items-center justify-center shadow-xs hover:bg-rose-700 cursor-pointer"
+                                                          title="Quitar foto"
+                                                        >
+                                                          <X className="w-2.5 h-2.5" />
+                                                        </button>
+                                                      </div>
+                                                    ))}
+                                                  </div>
+                                                );
+                                              })()}
                                             </div>
                                             {isThisFieldOff ? (
                                               <span className="text-[10px] font-bold text-slate-600 bg-slate-200 border border-slate-300 px-2 py-0.5 rounded-md flex items-center space-x-1">
@@ -1755,17 +1860,38 @@ export const DailyRoundsView: React.FC = () => {
                                         </div>
                                       )}
 
-                                      {chk.photoUrl && (
-                                        <button
-                                          type="button"
-                                          onClick={() => openPhotoPreview(chk.photoUrl, `${chk.title} (${chk.area})`)}
-                                          className="px-2 py-1 rounded-xl bg-emerald-100 hover:bg-emerald-200 text-emerald-800 border border-emerald-300 text-[11px] font-bold flex items-center space-x-1 cursor-pointer transition-colors shadow-2xs"
-                                          title="Ver foto capturada del contador"
-                                        >
-                                          <ImageIcon className="w-3.5 h-3.5 text-emerald-700" />
-                                          <span>Foto ✓</span>
-                                        </button>
-                                      )}
+                                      {(() => {
+                                        const chkPhotos = getCheckpointAllPhotos(chk);
+                                        if (chkPhotos.length === 0) return null;
+                                        return (
+                                          <div className="flex flex-wrap items-center gap-1.5">
+                                            <span className="px-2 py-1 rounded-xl bg-emerald-100 text-emerald-800 border border-emerald-300 text-[11px] font-bold flex items-center space-x-1 shadow-2xs">
+                                              <ImageIcon className="w-3.5 h-3.5 text-emerald-700" />
+                                              <span>{chkPhotos.length} foto{chkPhotos.length > 1 ? 's' : ''} ✓</span>
+                                            </span>
+                                            {chkPhotos.map((pUrl, pIdx) => (
+                                              <div key={`${chk.id}-numphoto-${pIdx}`} className="relative group">
+                                                <button
+                                                  type="button"
+                                                  onClick={() => openPhotoPreview(pUrl, `${chk.title} (${chk.area}) — Foto ${pIdx + 1}`)}
+                                                  className="w-9 h-9 rounded-lg overflow-hidden border-2 border-emerald-300 bg-slate-100 cursor-pointer hover:ring-2 hover:ring-emerald-400 transition-all block"
+                                                  title={`Ver foto ${pIdx + 1}`}
+                                                >
+                                                  <img src={pUrl} alt={`Foto ${pIdx + 1}`} className="w-full h-full object-cover" />
+                                                </button>
+                                                <button
+                                                  type="button"
+                                                  onClick={() => removeActiveRoundPhoto({ targetType: 'checkpoint', checkpointId: chk.id, photoUrl: pUrl })}
+                                                  className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-rose-600 text-white flex items-center justify-center shadow-xs hover:bg-rose-700 cursor-pointer"
+                                                  title="Quitar foto"
+                                                >
+                                                  <X className="w-2.5 h-2.5" />
+                                                </button>
+                                              </div>
+                                            ))}
+                                          </div>
+                                        );
+                                      })()}
 
                                       {isOff ? (
                                         <span className="text-[10px] font-bold text-slate-600 bg-slate-200 border border-slate-300 px-2 py-0.5 rounded-md flex items-center space-x-1">
@@ -1885,17 +2011,38 @@ export const DailyRoundsView: React.FC = () => {
                                     )}
                                   </div>
                                 )}
-                                {chk.photoUrl && (
-                                  <button
-                                    type="button"
-                                    onClick={() => openPhotoPreview(chk.photoUrl, `${chk.title} (${chk.area})`)}
-                                    className="px-2 py-1 rounded-xl bg-emerald-100 hover:bg-emerald-200 text-emerald-800 border border-emerald-300 text-[11px] font-bold flex items-center space-x-1 cursor-pointer transition-colors shadow-2xs shrink-0"
-                                    title="Ver foto capturada"
-                                  >
-                                    <ImageIcon className="w-3.5 h-3.5 text-emerald-700" />
-                                    <span>Foto ✓</span>
-                                  </button>
-                                )}
+                                {(() => {
+                                  const chkPhotos = getCheckpointAllPhotos(chk);
+                                  if (chkPhotos.length === 0) return null;
+                                  return (
+                                    <div className="flex flex-wrap items-center gap-1.5">
+                                      <span className="px-2 py-1 rounded-xl bg-emerald-100 text-emerald-800 border border-emerald-300 text-[11px] font-bold flex items-center space-x-1 shadow-2xs shrink-0">
+                                        <ImageIcon className="w-3.5 h-3.5 text-emerald-700" />
+                                        <span>{chkPhotos.length} foto{chkPhotos.length > 1 ? 's' : ''} ✓</span>
+                                      </span>
+                                      {chkPhotos.map((pUrl, pIdx) => (
+                                        <div key={`${chk.id}-txtphoto-${pIdx}`} className="relative group">
+                                          <button
+                                            type="button"
+                                            onClick={() => openPhotoPreview(pUrl, `${chk.title} (${chk.area}) — Foto ${pIdx + 1}`)}
+                                            className="w-9 h-9 rounded-lg overflow-hidden border-2 border-emerald-300 bg-slate-100 cursor-pointer hover:ring-2 hover:ring-emerald-400 transition-all block"
+                                            title={`Ver foto ${pIdx + 1}`}
+                                          >
+                                            <img src={pUrl} alt={`Foto ${pIdx + 1}`} className="w-full h-full object-cover" />
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={() => removeActiveRoundPhoto({ targetType: 'checkpoint', checkpointId: chk.id, photoUrl: pUrl })}
+                                            className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-rose-600 text-white flex items-center justify-center shadow-xs hover:bg-rose-700 cursor-pointer"
+                                            title="Quitar foto"
+                                          >
+                                            <X className="w-2.5 h-2.5" />
+                                          </button>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  );
+                                })()}
                               </div>
                             ) : (
                               <button
@@ -2290,10 +2437,10 @@ export const DailyRoundsView: React.FC = () => {
                 />
               </div>
 
-              {/* Evidencia Fotográfica / Foto de la Anomalía */}
+              {/* Evidencia Fotográfica / Múltiples Fotos de la Anomalía */}
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Foto de Evidencia (Opcional)
+                  Fotos de Evidencia (Múltiples fotos permitidas — Opcional)
                 </label>
 
                 {/* Hidden File Inputs */}
@@ -2309,68 +2456,70 @@ export const DailyRoundsView: React.FC = () => {
                   ref={anomalyGalleryInputRef}
                   type="file"
                   accept="image/*"
+                  multiple
                   onChange={handleAnomalyPhotoCapture}
                   className="hidden"
                 />
 
-                {anomalyForm.photoUrl ? (
-                  <div className="relative rounded-2xl overflow-hidden border-2 border-emerald-300 bg-emerald-50/50 p-2.5 flex items-center justify-between gap-3">
-                    <div className="flex items-center space-x-3 min-w-0 flex-1">
-                      <div className="w-14 h-14 rounded-xl overflow-hidden bg-slate-900 border border-slate-700 shrink-0">
-                        <img
-                          src={anomalyForm.photoUrl}
-                          alt="Foto capturada"
-                          className="w-full h-full object-cover cursor-pointer hover:opacity-90 transition-opacity"
-                          onClick={() => openPhotoPreview(anomalyForm.photoUrl, `Foto de novedad: ${anomalyForm.title || 'Nueva incidencia'}`)}
-                        />
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <span className="text-xs font-bold text-emerald-800 flex items-center space-x-1">
-                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                          <span className="truncate">Foto lista para adjuntar</span>
-                        </span>
-                        <p className="text-[10px] text-slate-500 mt-0.5">Se guardará junto a la novedad en la ronda.</p>
-                      </div>
-                    </div>
-                    <div className="flex items-center space-x-1.5 shrink-0">
+                {anomalyForm.photos.length > 0 && (
+                  <div className="mb-2.5 rounded-2xl border-2 border-emerald-300 bg-emerald-50/50 p-2.5 space-y-2">
+                    <div className="flex items-center justify-between text-xs font-bold text-emerald-800">
+                      <span className="flex items-center gap-1">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                        <span>{anomalyForm.photos.length} foto{anomalyForm.photos.length > 1 ? 's' : ''} lista{anomalyForm.photos.length > 1 ? 's' : ''} para adjuntar</span>
+                      </span>
                       <button
                         type="button"
-                        onClick={() => openPhotoPreview(anomalyForm.photoUrl, `Foto de novedad: ${anomalyForm.title || 'Nueva incidencia'}`)}
-                        className="px-2.5 py-1.5 rounded-lg bg-emerald-100 hover:bg-emerald-200 text-emerald-800 text-[11px] font-bold transition-colors cursor-pointer"
-                        title="Ver foto en grande"
+                        onClick={() => setAnomalyForm(p => ({ ...p, photos: [], photoUrl: '' }))}
+                        className="text-[11px] text-rose-600 hover:text-rose-800 font-bold cursor-pointer"
                       >
-                        Ver
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setAnomalyForm(p => ({ ...p, photoUrl: '' }))}
-                        className="p-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-600 transition-colors cursor-pointer border border-rose-200"
-                        title="Eliminar foto"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
+                        Limpiar todas
                       </button>
                     </div>
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-2 gap-2">
-                    <button
-                      type="button"
-                      onClick={() => anomalyCameraInputRef.current?.click()}
-                      className="py-2.5 px-3 rounded-xl border-2 border-dashed border-emerald-300 hover:border-emerald-500 bg-emerald-50/40 hover:bg-emerald-50 text-emerald-800 text-xs font-bold flex items-center justify-center space-x-2 transition-all cursor-pointer shadow-2xs"
-                    >
-                      <Camera className="w-4 h-4 text-emerald-600" />
-                      <span>Tomar Foto (Cámara)</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => anomalyGalleryInputRef.current?.click()}
-                      className="py-2.5 px-3 rounded-xl border border-slate-200 hover:border-slate-300 bg-slate-50 hover:bg-slate-100 text-slate-700 text-xs font-semibold flex items-center justify-center space-x-2 transition-all cursor-pointer shadow-2xs"
-                    >
-                      <ImageIcon className="w-4 h-4 text-slate-500" />
-                      <span>Galería / Archivo</span>
-                    </button>
+                    <div className="flex flex-wrap gap-2">
+                      {anomalyForm.photos.map((pUrl, idx) => (
+                        <div key={`anom-form-photo-${idx}`} className="relative">
+                          <img
+                            src={pUrl}
+                            alt={`Evidencia ${idx + 1}`}
+                            className="w-14 h-14 rounded-xl object-cover border border-emerald-400 bg-slate-900 cursor-pointer"
+                            onClick={() => openPhotoPreview(pUrl, `Foto de novedad ${idx + 1}: ${anomalyForm.title || 'Nueva incidencia'}`)}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setAnomalyForm(p => {
+                              const next = p.photos.filter((_, i) => i !== idx);
+                              return { ...p, photos: next, photoUrl: next[next.length - 1] || '' };
+                            })}
+                            className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-rose-600 text-white flex items-center justify-center shadow-xs hover:bg-rose-700 cursor-pointer"
+                            title="Quitar foto"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 )}
+
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => anomalyCameraInputRef.current?.click()}
+                    className="py-2.5 px-3 rounded-xl border-2 border-dashed border-emerald-300 hover:border-emerald-500 bg-emerald-50/40 hover:bg-emerald-50 text-emerald-800 text-xs font-bold flex items-center justify-center space-x-2 transition-all cursor-pointer shadow-2xs"
+                  >
+                    <Camera className="w-4 h-4 text-emerald-600" />
+                    <span>{anomalyForm.photos.length > 0 ? '+ Tomar otra foto' : 'Tomar Foto (Cámara)'}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => anomalyGalleryInputRef.current?.click()}
+                    className="py-2.5 px-3 rounded-xl border border-slate-200 hover:border-slate-300 bg-slate-50 hover:bg-slate-100 text-slate-700 text-xs font-semibold flex items-center justify-center space-x-2 transition-all cursor-pointer shadow-2xs"
+                  >
+                    <ImageIcon className="w-4 h-4 text-slate-500" />
+                    <span>{anomalyForm.photos.length > 0 ? '+ Agregar de Galería' : 'Galería / Archivo'}</span>
+                  </button>
+                </div>
               </div>
 
               <div className="flex items-center justify-end space-x-2 pt-2">
@@ -2704,42 +2853,59 @@ export const DailyRoundsView: React.FC = () => {
           });
         });
 
-        if (isValidPhoto(liveSelectedRoundDetail.meterReadings?.waterMeterPhotoUrl)) {
+        const mrDetail: any = liveSelectedRoundDetail.meterReadings || {};
+        mergeUniquePhotos(mrDetail.waterMeterPhotos, mrDetail.waterMeterPhotoUrl ? [mrDetail.waterMeterPhotoUrl] : []).forEach((pUrl, idx) => {
           addRoundPhoto({
-            id: 'meter-water',
-            url: liveSelectedRoundDetail.meterReadings!.waterMeterPhotoUrl!,
+            id: `meter-water-${idx}`,
+            url: pUrl,
             title: 'Contador General de Agua Potable',
             area: 'Cuarto de Contadores / Acometida Principal',
             sourceType: 'Contador General',
-            details: liveSelectedRoundDetail.meterReadings?.waterCubicMeters !== undefined 
-              ? `${liveSelectedRoundDetail.meterReadings.waterCubicMeters.toLocaleString()} m³` 
+            details: mrDetail.waterCubicMeters !== undefined
+              ? `${Number(mrDetail.waterCubicMeters).toLocaleString()} m³`
               : undefined
           });
-        }
+        });
 
-        if (isValidPhoto(liveSelectedRoundDetail.meterReadings?.electricMeterPhotoUrl)) {
+        mergeUniquePhotos(mrDetail.electricMeterPhotos, mrDetail.electricMeterPhotoUrl ? [mrDetail.electricMeterPhotoUrl] : []).forEach((pUrl, idx) => {
           addRoundPhoto({
-            id: 'meter-electric',
-            url: liveSelectedRoundDetail.meterReadings!.electricMeterPhotoUrl!,
+            id: `meter-electric-${idx}`,
+            url: pUrl,
             title: 'Contador de Energía Eléctrica Total',
             area: 'Subestación Eléctrica / TTA Sótano',
             sourceType: 'Contador General',
-            details: liveSelectedRoundDetail.meterReadings?.electricKwh !== undefined 
-              ? `${liveSelectedRoundDetail.meterReadings.electricKwh.toLocaleString()} kWh` 
+            details: mrDetail.electricKwh !== undefined
+              ? `${Number(mrDetail.electricKwh).toLocaleString()} kWh`
               : undefined
           });
-        }
+        });
 
-        if (isValidPhoto(liveSelectedRoundDetail.meterReadings?.gasMeterPhotoUrl)) {
+        mergeUniquePhotos(mrDetail.gasMeterPhotos, mrDetail.gasMeterPhotoUrl ? [mrDetail.gasMeterPhotoUrl] : []).forEach((pUrl, idx) => {
           addRoundPhoto({
-            id: 'meter-gas',
-            url: liveSelectedRoundDetail.meterReadings!.gasMeterPhotoUrl!,
+            id: `meter-gas-${idx}`,
+            url: pUrl,
             title: 'Contador de Gas Natural',
             area: 'Caseta de Gas / Acometida',
             sourceType: 'Contador General',
-            details: liveSelectedRoundDetail.meterReadings?.gasCubicMeters !== undefined 
-              ? `${liveSelectedRoundDetail.meterReadings.gasCubicMeters.toLocaleString()} m³` 
+            details: mrDetail.gasCubicMeters !== undefined
+              ? `${Number(mrDetail.gasCubicMeters).toLocaleString()} m³`
               : undefined
+          });
+        });
+
+        if (mrDetail.customMeters) {
+          Object.entries(mrDetail.customMeters).forEach(([cmKey, cmVal]: [string, any]) => {
+            if (!cmVal) return;
+            mergeUniquePhotos(cmVal.photos, cmVal.photoUrl ? [cmVal.photoUrl] : []).forEach((pUrl, idx) => {
+              addRoundPhoto({
+                id: `meter-custom-${cmKey}-${idx}`,
+                url: pUrl,
+                title: cmVal.name || 'Contador Adicional',
+                area: 'Cuarto de Contadores',
+                sourceType: 'Contador General',
+                details: cmVal.value !== undefined ? `${cmVal.value} ${cmVal.unit || ''}` : undefined
+              });
+            });
           });
         }
 
@@ -2769,7 +2935,9 @@ export const DailyRoundsView: React.FC = () => {
           if (modalFilterTab === 'cargados') return isFilled(c);
           if (modalFilterTab === 'pendientes') return !isFilled(c);
           if (modalFilterTab === 'novedades') return isAlarm(c) || !!c.notes;
-          if (modalFilterTab === 'fotos') return isValidPhoto(c.photoUrl) || (c.measurementFields && c.measurementFields.some(f => isValidPhoto(f.photoUrl)));
+          if (modalFilterTab === 'fotos') {
+            return getCheckpointAllPhotos(c).length > 0 || (c.measurementFields && c.measurementFields.some(f => mergeUniquePhotos(f.photos, f.photoUrl ? [f.photoUrl] : []).length > 0));
+          }
           return true;
         });
 
@@ -2868,7 +3036,7 @@ export const DailyRoundsView: React.FC = () => {
                       </span>
                       <div>
                         <p className="text-xs font-bold text-amber-950">
-                          Sincronización bidireccional inmediata en la nube Firestore
+                          Sincronización bidireccional inmediata en PostgreSQL
                         </p>
                         <p className="text-[11px] text-amber-900/80">
                           A medida que <strong>{liveSelectedRoundDetail.technicianName}</strong> registra cada valor o punto en su dispositivo, se reflejará aquí al instante sin recargar la pantalla.
@@ -2920,15 +3088,17 @@ export const DailyRoundsView: React.FC = () => {
                         >
                           ✓ Cargados ({filledCount})
                         </button>
-                        <button
-                          type="button"
-                          onClick={() => setModalFilterTab('pendientes')}
-                          className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
-                            modalFilterTab === 'pendientes' ? 'bg-amber-500 text-slate-950 shadow-2xs font-black' : 'text-amber-700 hover:text-amber-900'
-                          }`}
-                        >
-                          ⏳ Pendientes ({pendingCount})
-                        </button>
+                        {(isLive || pendingCount > 0) && (
+                          <button
+                            type="button"
+                            onClick={() => setModalFilterTab('pendientes')}
+                            className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
+                              modalFilterTab === 'pendientes' ? 'bg-amber-500 text-slate-950 shadow-2xs font-black' : 'text-amber-700 hover:text-amber-900'
+                            }`}
+                          >
+                            ⏳ Pendientes ({pendingCount})
+                          </button>
+                        )}
                         {alarmCount > 0 && (
                           <button
                             type="button"
@@ -3100,9 +3270,13 @@ export const DailyRoundsView: React.FC = () => {
                                         <span className="text-[10px] font-black uppercase px-2 py-0.2 rounded bg-emerald-100 text-emerald-800 border border-emerald-300">
                                           ✓ Cargado
                                         </span>
-                                      ) : (
+                                      ) : isLive ? (
                                         <span className="text-[10px] font-bold uppercase px-2 py-0.2 rounded bg-amber-100 text-amber-800 border border-amber-300">
                                           ⏳ Pendiente
+                                        </span>
+                                      ) : (
+                                        <span className="text-[10px] font-bold uppercase px-2 py-0.2 rounded bg-slate-100 text-slate-700 border border-slate-300">
+                                          ✓ Auditado
                                         </span>
                                       )}
                                     </div>
@@ -3112,34 +3286,38 @@ export const DailyRoundsView: React.FC = () => {
 
                                 <div className="font-mono font-bold text-right">
                                   {!filled ? (
-                                    <span className="text-[11px] text-amber-700/80 italic font-medium">
-                                      Esperando registro del compañero...
+                                    <span className="text-[11px] text-slate-500 italic font-medium">
+                                      {isLive ? 'Esperando registro en vivo...' : (c.notes ? 'Nota registrada' : 'Sin lectura numérica adicional')}
                                     </span>
                                   ) : c.measurementFields && c.measurementFields.length > 0 ? (
                                     <div className="flex flex-col items-end gap-1">
                                       <div className="flex flex-wrap gap-1.5 w-full sm:w-auto justify-start sm:justify-end">
-                                        {c.measurementFields.map((f, fIdx) => (
-                                          <span key={f.id || fIdx} className="text-blue-900 bg-blue-50 px-2.5 py-1 rounded-lg border-2 border-blue-200 text-xs font-bold flex items-center gap-1.5">
-                                            <span>{f.name ? `${f.name}: ` : `Med. ${fIdx+1}: `}</span>
-                                            <strong className="text-blue-950 font-black">{f.value !== undefined && f.value !== '' ? String(f.value) : (f.lastNonZeroValue !== undefined ? String(f.lastNonZeroValue) : (typeof c.currentValue === 'string' || typeof c.currentValue === 'number' ? String(c.currentValue) : '0'))} {f.unit || ''}</strong>
-                                            {f.statusValue && (
-                                              <span className={`text-[10px] px-1.5 py-0.5 rounded border ${getStatusBadgeClass(f.statusValue, f.buttonActions?.[f.statusValue]?.color)}`}>
-                                                {f.statusValue}
-                                              </span>
-                                            )}
-                                            {isValidPhoto(f.photoUrl) && (
-                                              <button
-                                                type="button"
-                                                onClick={() => openPhotoPreview(f.photoUrl, `${c.title} - ${f.name || 'Medición'} (${c.area})`)}
-                                                className="px-1.5 py-0.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-[10px] font-bold flex items-center gap-1 shadow-2xs cursor-pointer ml-1 transition-colors"
-                                                title="Ver foto de esta medición"
-                                              >
-                                                <Camera className="w-3 h-3" />
-                                                <span>Foto</span>
-                                              </button>
-                                            )}
-                                          </span>
-                                        ))}
+                                        {c.measurementFields.map((f, fIdx) => {
+                                          const fPhotos = mergeUniquePhotos(f.photos, f.photoUrl ? [f.photoUrl] : []);
+                                          return (
+                                            <span key={f.id || fIdx} className="text-blue-900 bg-blue-50 px-2.5 py-1 rounded-lg border-2 border-blue-200 text-xs font-bold flex flex-wrap items-center gap-1.5">
+                                              <span>{f.name ? `${f.name}: ` : `Med. ${fIdx+1}: `}</span>
+                                              <strong className="text-blue-950 font-black">{f.value !== undefined && f.value !== '' ? String(f.value) : (f.lastNonZeroValue !== undefined ? String(f.lastNonZeroValue) : (typeof c.currentValue === 'string' || typeof c.currentValue === 'number' ? String(c.currentValue) : '0'))} {f.unit || ''}</strong>
+                                              {f.statusValue && (
+                                                <span className={`text-[10px] px-1.5 py-0.5 rounded border ${getStatusBadgeClass(f.statusValue, f.buttonActions?.[f.statusValue]?.color)}`}>
+                                                  {f.statusValue}
+                                                </span>
+                                              )}
+                                              {fPhotos.map((pUrl, fpIdx) => (
+                                                <button
+                                                  key={`${f.id || fIdx}-fp-${fpIdx}`}
+                                                  type="button"
+                                                  onClick={() => openPhotoPreview(pUrl, `${c.title} - ${f.name || 'Medición'} (${c.area}) — Foto ${fpIdx + 1}`)}
+                                                  className="px-1.5 py-0.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-[10px] font-bold flex items-center gap-1 shadow-2xs cursor-pointer ml-0.5 transition-colors"
+                                                  title={`Ver foto ${fpIdx + 1} de esta medición`}
+                                                >
+                                                  <Camera className="w-3 h-3" />
+                                                  <span>{fPhotos.length > 1 ? `Foto ${fpIdx + 1}` : 'Foto'}</span>
+                                                </button>
+                                              ))}
+                                            </span>
+                                          );
+                                        })}
                                       </div>
                                       {c.statusValue && (
                                         <span className={`text-[10px] px-2 py-0.5 rounded-md border ${getStatusBadgeClass(c.statusValue, c.buttonActions?.[c.statusValue]?.color)}`}>
@@ -3149,7 +3327,7 @@ export const DailyRoundsView: React.FC = () => {
                                     </div>
                                   ) : c.type === 'ok_nok' || c.type === 'options' || c.type === 'boolean' ? (
                                     <span className={`px-2.5 py-1 rounded-lg text-xs border shadow-2xs ${getStatusBadgeClass(valStr, c.buttonActions?.[valStr]?.color)}`}>
-                                      {valStr === 'true' ? '✓ Conforme' : valStr === 'false' ? '✗ Pendiente' : (isOk ? `✓ ${valStr}` : valStr)}
+                                      {valStr === 'true' ? '✓ Conforme' : valStr === 'false' ? '✗ Revisar' : (isOk ? `✓ ${valStr}` : valStr)}
                                     </span>
                                   ) : (
                                     <div className="flex flex-col items-end gap-0.5">
@@ -3180,33 +3358,35 @@ export const DailyRoundsView: React.FC = () => {
                                 </div>
                               )}
 
-                              {/* Checkpoint Attached Photo */}
-                              {isValidPhoto(c.photoUrl) && (
-                                <div className="pt-2 border-t border-emerald-100 flex items-center justify-between text-[11px] bg-emerald-50/70 p-2.5 rounded-xl border border-emerald-200 shadow-2xs">
-                                  <div className="flex items-center space-x-2.5">
-                                    <div 
-                                      className="w-10 h-10 rounded-lg overflow-hidden bg-emerald-200 shrink-0 border-2 border-emerald-400 cursor-pointer hover:opacity-85 transition-opacity shadow-xs"
-                                      onClick={() => openPhotoPreview(c.photoUrl, `${c.title} (${c.area})`)}
-                                      title="Clic para ampliar foto en alta resolución"
-                                    >
-                                      <img src={c.photoUrl} alt="Foto de punto" className="w-full h-full object-cover" />
+                              {/* Checkpoint Attached Photos (All preserved) */}
+                              {(() => {
+                                const chkPhotos = getCheckpointAllPhotos(c);
+                                if (chkPhotos.length === 0) return null;
+                                return (
+                                  <div className="pt-2 border-t border-emerald-100 bg-emerald-50/70 p-2.5 rounded-xl border border-emerald-200 shadow-2xs space-y-2 text-[11px]">
+                                    <div className="flex items-center justify-between">
+                                      <span className="text-emerald-950 font-bold flex items-center gap-1.5">
+                                        <Camera className="w-3.5 h-3.5 text-emerald-700" />
+                                        <span>Evidencias fotográficas adjuntas ({chkPhotos.length})</span>
+                                      </span>
+                                      <span className="text-[10px] text-emerald-800 font-semibold">Clic para ampliar</span>
                                     </div>
-                                    <div>
-                                      <span className="text-emerald-950 font-bold block">Evidencia fotográfica adjunta</span>
-                                      <span className="text-[10px] text-emerald-800">Punto inspeccionado con registro visual</span>
+                                    <div className="flex flex-wrap gap-2">
+                                      {chkPhotos.map((pUrl, pIdx) => (
+                                        <button
+                                          key={`${c.id}-detail-photo-${pIdx}`}
+                                          type="button"
+                                          onClick={() => openPhotoPreview(pUrl, `${c.title} (${c.area}) — Foto ${pIdx + 1}`)}
+                                          className="w-14 h-14 rounded-lg overflow-hidden bg-emerald-200 shrink-0 border-2 border-emerald-400 cursor-pointer hover:opacity-90 hover:ring-2 hover:ring-emerald-500 transition-all shadow-xs"
+                                          title={`Ampliar foto ${pIdx + 1}`}
+                                        >
+                                          <img src={pUrl} alt={`Foto ${pIdx + 1}`} className="w-full h-full object-cover" />
+                                        </button>
+                                      ))}
                                     </div>
                                   </div>
-                                  <button
-                                    type="button"
-                                    onClick={() => openPhotoPreview(c.photoUrl, `${c.title} (${c.area})`)}
-                                    className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-extrabold flex items-center space-x-1.5 shadow-2xs cursor-pointer transition-colors"
-                                    title="Ver foto en tamaño completo"
-                                  >
-                                    <Camera className="w-3.5 h-3.5" />
-                                    <span>Ver Foto</span>
-                                  </button>
-                                </div>
-                              )}
+                                );
+                              })()}
                             </div>
                           );
                         })
@@ -3224,52 +3404,57 @@ export const DailyRoundsView: React.FC = () => {
                         <span>Incidencias y Averías Reportadas en la Ronda ({(liveSelectedRoundDetail.anomalies || []).length})</span>
                       </h4>
                       <div className="space-y-2.5">
-                        {liveSelectedRoundDetail.anomalies.map(a => (
-                          <div key={a.id} className="p-3.5 bg-rose-50/80 border border-rose-200 rounded-2xl text-xs space-y-2.5">
-                            <div className="flex justify-between items-start gap-2 font-bold text-rose-950">
-                              <div className="space-y-0.5">
-                                <span className="text-xs font-black text-rose-950">{a.title}</span>
-                                <span className="text-[11px] text-rose-700 block font-semibold">📍 {a.area}</span>
+                        {liveSelectedRoundDetail.anomalies.map(a => {
+                          const anomPhotos = mergeUniquePhotos(a.photos, a.photoUrl ? [a.photoUrl] : []);
+                          return (
+                            <div key={a.id} className="p-3.5 bg-rose-50/80 border border-rose-200 rounded-2xl text-xs space-y-2.5">
+                              <div className="flex justify-between items-start gap-2 font-bold text-rose-950">
+                                <div className="space-y-0.5">
+                                  <span className="text-xs font-black text-rose-950">{a.title}</span>
+                                  <span className="text-[11px] text-rose-700 block font-semibold">📍 {a.area}</span>
+                                </div>
+                                <span className="uppercase text-[10px] bg-rose-200 text-rose-900 border border-rose-300 px-2 py-0.5 rounded-full font-black shrink-0">
+                                  {a.severity}
+                                </span>
                               </div>
-                              <span className="uppercase text-[10px] bg-rose-200 text-rose-900 border border-rose-300 px-2 py-0.5 rounded-full font-black shrink-0">
-                                {a.severity}
-                              </span>
-                            </div>
 
-                            <p className="text-slate-800 text-[11px] leading-relaxed">{a.description}</p>
+                              <p className="text-slate-800 text-[11px] leading-relaxed">{a.description}</p>
 
-                            {/* Anomaly Photo Preview Button and Card */}
-                            {isValidPhoto(a.photoUrl) && (
-                              <div className="pt-2.5 border-t border-rose-200/80 flex items-center justify-between">
-                                <button
-                                  type="button"
-                                  onClick={() => openPhotoPreview(a.photoUrl, `Incidencia: ${a.title} (${a.area})`)}
-                                  className="inline-flex items-center space-x-2.5 px-3 py-1.5 rounded-xl bg-white hover:bg-rose-100/70 border border-rose-300 text-rose-950 font-bold text-[11px] shadow-2xs transition-colors cursor-pointer group"
-                                >
-                                  <div className="w-10 h-10 rounded-lg overflow-hidden bg-rose-200 shrink-0 border border-rose-300">
-                                    <img 
-                                      src={a.photoUrl} 
-                                      alt="Foto de anomalía" 
-                                      className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-200" 
-                                    />
-                                  </div>
-                                  <div className="text-left">
-                                    <span className="flex items-center space-x-1 text-rose-700 font-extrabold">
-                                      <Camera className="w-3.5 h-3.5" />
-                                      <span>Ver Fotografía de la Falla</span>
-                                    </span>
-                                    <span className="text-[9px] text-slate-500 block">Clic para ampliar en alta resolución</span>
-                                  </div>
-                                </button>
-                              </div>
-                            )}
+                              {/* Anomaly Photos */}
+                              {anomPhotos.length > 0 && (
+                                <div className="pt-2.5 border-t border-rose-200/80 flex flex-wrap gap-2">
+                                  {anomPhotos.map((pUrl, pIdx) => (
+                                    <button
+                                      key={`${a.id}-anom-detail-photo-${pIdx}`}
+                                      type="button"
+                                      onClick={() => openPhotoPreview(pUrl, `Incidencia: ${a.title} (${a.area}) — Foto ${pIdx + 1}`)}
+                                      className="inline-flex items-center space-x-2 px-2.5 py-1.5 rounded-xl bg-white hover:bg-rose-100/70 border border-rose-300 text-rose-950 font-bold text-[11px] shadow-2xs transition-colors cursor-pointer group"
+                                    >
+                                      <div className="w-10 h-10 rounded-lg overflow-hidden bg-rose-200 shrink-0 border border-rose-300">
+                                        <img
+                                          src={pUrl}
+                                          alt={`Foto anomalía ${pIdx + 1}`}
+                                          className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-200"
+                                        />
+                                      </div>
+                                      <div className="text-left">
+                                        <span className="flex items-center space-x-1 text-rose-700 font-extrabold">
+                                          <Camera className="w-3.5 h-3.5" />
+                                          <span>Foto {pIdx + 1}</span>
+                                        </span>
+                                      </div>
+                                    </button>
+                                  ))}
+                                </div>
+                              )}
 
                             <div className="flex items-center justify-between text-[10px] text-rose-800/80 pt-1">
                               <span>Reportado por: <strong>{a.registeredBy}</strong></span>
                               <span>Estado: <strong className="uppercase">{a.status}</strong></span>
                             </div>
                           </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     </div>
                   )}
@@ -4833,6 +5018,7 @@ export const DailyRoundsView: React.FC = () => {
           initialValue={scannerConfig.initialValue}
           initialPhotoMode={scannerConfig.initialPhotoMode}
           allowedPhotoMode={scannerConfig.allowedPhotoMode}
+          allowMultiple={scannerConfig.allowMultiple ?? true}
           onApplyReading={handleApplyMeterReading}
         />
       )}
@@ -5037,17 +5223,21 @@ export const DailyRoundsView: React.FC = () => {
                           <p className="text-xs sm:text-sm font-bold text-white mt-1 truncate group-hover:text-amber-300 transition-colors">
                             {chk.title}
                           </p>
-                          {chk.measurementFields && chk.measurementFields.length > 0 && (
-                            <div className="flex flex-wrap gap-1 mt-1">
-                              {chk.measurementFields
-                                .filter(f => f && (f.value === undefined || f.value === null || String(f.value).trim() === '') && f.ampState !== 'Apagado' && f.statusValue !== 'Apagado')
-                                .map((f, fIdx) => (
-                                  <span key={f.name || fIdx} className="text-[10px] font-semibold text-amber-300 bg-amber-950/70 border border-amber-500/40 px-1.5 py-0.2 rounded">
-                                    Falta cifra: {f.name || `Medición ${fIdx + 1}`}
-                                  </span>
-                                ))}
-                            </div>
-                          )}
+                          <div className="flex flex-wrap gap-1 mt-1">
+                            {isCheckpointMissingPhoto(chk, roundTemplate) && (
+                              <span className="text-[10px] font-bold text-rose-200 bg-rose-900/70 border border-rose-500/50 px-1.5 py-0.2 rounded flex items-center gap-1">
+                                <Camera className="w-3 h-3 text-rose-300" />
+                                <span>Falta fotografía obligatoria</span>
+                              </span>
+                            )}
+                            {chk.measurementFields && chk.measurementFields.length > 0 && chk.measurementFields
+                              .filter(f => f && (f.value === undefined || f.value === null || String(f.value).trim() === '') && f.ampState !== 'Apagado' && f.statusValue !== 'Apagado')
+                              .map((f, fIdx) => (
+                                <span key={f.name || fIdx} className="text-[10px] font-semibold text-amber-300 bg-amber-950/70 border border-amber-500/40 px-1.5 py-0.2 rounded">
+                                  Falta cifra: {f.name || `Medición ${fIdx + 1}`}
+                                </span>
+                              ))}
+                          </div>
                         </div>
                       </div>
 

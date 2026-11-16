@@ -186,22 +186,105 @@ export function isCheckpointAlarmActive(
 }
 
 /**
- * Checks whether an active round checkpoint is fully registered/completed.
+ * Validates whether a photo URL is an actual captured/uploaded image (not a placeholder).
  */
-export function isCheckpointComplete(
+export function isValidPhotoUrl(url: any): url is string {
+  return (
+    typeof url === 'string' &&
+    url.trim().length > 25 &&
+    !url.includes('cached_in_db') &&
+    (url.startsWith('data:image/') || url.startsWith('http://') || url.startsWith('https://'))
+  );
+}
+
+/**
+ * Returns all valid deduplicated photos belonging to a checkpoint (checkpoint photos + sub-field photos).
+ */
+export function getCheckpointAllPhotos(chk?: Partial<RoundCheckpoint> | null): string[] {
+  if (!chk) return [];
+  const photos: string[] = [];
+  const seen = new Set<string>();
+
+  const pushPhoto = (u: any) => {
+    if (!isValidPhotoUrl(u)) return;
+    const trimmed = u.trim();
+    if (!seen.has(trimmed)) {
+      seen.add(trimmed);
+      photos.push(trimmed);
+    }
+  };
+
+  if (Array.isArray(chk.photos)) {
+    chk.photos.forEach(pushPhoto);
+  }
+  pushPhoto(chk.photoUrl);
+
+  if (Array.isArray(chk.measurementFields)) {
+    chk.measurementFields.forEach((f) => {
+      if (Array.isArray(f?.photos)) f.photos.forEach(pushPhoto);
+      pushPhoto(f?.photoUrl);
+    });
+  }
+
+  return photos;
+}
+
+/**
+ * Checks whether a checkpoint has the existing "Foto Obligatoria" setting active.
+ */
+export function isCheckpointPhotoRequired(
+  chk?: Partial<RoundCheckpoint> | null,
+  roundTemplate?: RoundCheckpoint[],
+  tplMatch?: RoundCheckpoint | null
+): boolean {
+  if (!chk && !tplMatch) return false;
+  const tpl =
+    tplMatch !== undefined
+      ? tplMatch
+      : roundTemplate?.find(
+          (t) =>
+            (chk?.id && t.id === chk.id) ||
+            (chk?.title && t.title === chk.title && (!chk?.area || t.area === chk.area)) ||
+            (chk?.title && t.title === chk.title)
+        );
+  if (typeof chk?.photoRequired === 'boolean') {
+    return chk.photoRequired;
+  }
+  return Boolean(tpl?.photoRequired);
+}
+
+/**
+ * Checks if a checkpoint has at least one valid captured/uploaded photo.
+ */
+export function hasCheckpointRequiredPhoto(chk?: Partial<RoundCheckpoint> | null): boolean {
+  return getCheckpointAllPhotos(chk).length > 0;
+}
+
+/**
+ * Returns true if the checkpoint requires a photo and does not have one yet.
+ */
+export function isCheckpointMissingPhoto(
   chk?: Partial<RoundCheckpoint> | null,
   roundTemplate?: RoundCheckpoint[]
 ): boolean {
   if (!chk) return false;
+  if (!isCheckpointPhotoRequired(chk, roundTemplate)) return false;
+  return !hasCheckpointRequiredPhoto(chk);
+}
 
+/**
+ * Evaluates only the numeric/button/status fields of a checkpoint (excluding photo requirement).
+ */
+function hasCheckpointMeasurementsFilled(
+  chk: Partial<RoundCheckpoint>,
+  tpl?: RoundCheckpoint,
+  roundTemplate?: RoundCheckpoint[]
+): boolean {
   const directVal = chk.currentValue !== undefined && chk.currentValue !== null && String(chk.currentValue).trim() !== '';
   const statusVal = chk.statusValue !== undefined && chk.statusValue !== null && String(chk.statusValue).trim() !== '';
 
-  // Find corresponding template if available to verify if the checkpoint requires subfields
-  const tpl = roundTemplate?.find(t => (t.id && t.id === chk.id) || (chk.title && t.title === chk.title));
-
-  const chkAction = chk.statusValue 
-    ? getCheckpointButtonAction(chk, chk.statusValue, roundTemplate) 
+  const chkAction = chk.statusValue
+    ? getCheckpointButtonAction(chk, chk.statusValue, roundTemplate)
     : 'default';
   const isGlobalOff = chkAction === 'turn_off' || chk.ampState === 'Apagado' || chk.statusValue === 'Apagado';
   if (isGlobalOff) return true;
@@ -212,13 +295,11 @@ export function isCheckpointComplete(
 
   if (hasFieldsOnChk || hasFieldsOnTpl) {
     const fields = (chk.measurementFields && chk.measurementFields.length > 0) ? chk.measurementFields : tpl!.measurementFields!;
-    
-    // If the checkpoint has a single field and direct value or status is provided on the checkpoint
+
     if (fields.length <= 1 && (directVal || statusVal)) {
       return true;
     }
 
-    // If template has fields but checkpoint was filled as a direct numeric/status value
     if (hasFieldsOnTpl && (!hasFieldsOnChk || chk.measurementFields!.length < tpl!.measurementFields!.length)) {
       if (directVal || statusVal) return true;
       return false;
@@ -227,14 +308,14 @@ export function isCheckpointComplete(
     return fields.every((f, fIdx) => {
       if (!f) return false;
       const tplF = tpl?.measurementFields?.[fIdx];
-      const fieldAction = f.statusValue 
-        ? getFieldButtonAction(f, f.statusValue, chk, roundTemplate, fIdx) 
+      const fieldAction = f.statusValue
+        ? getFieldButtonAction(f, f.statusValue, chk, roundTemplate, fIdx)
         : 'default';
       const isFieldOff = isGlobalOff || fieldAction === 'turn_off' || f.ampState === 'Apagado' || f.statusValue === 'Apagado' || (typeof f.statusValue === 'string' && f.statusValue.toLowerCase().includes('apagado')) || f.value === 0;
-      if (isFieldOff) return true; // Off equipment is counted as filled/completed
+      if (isFieldOff) return true;
 
-      const effVal = (f.value !== undefined && f.value !== null && String(f.value).trim() !== '') 
-        ? f.value 
+      const effVal = (f.value !== undefined && f.value !== null && String(f.value).trim() !== '')
+        ? f.value
         : (fields.length === 1 ? chk.currentValue : undefined);
 
       const hasUnit = Boolean(f.unit || tplF?.unit || f.name || tplF?.name);
@@ -263,7 +344,7 @@ export function isCheckpointComplete(
     });
   }
 
-  // 2. Numeric single checkpoint (e.g. Nevera, Temperatura, Presión, etc.)
+  // 2. Numeric single checkpoint
   if (chk.type === 'numeric' || tpl?.type === 'numeric') {
     if (directVal) {
       const num = typeof chk.currentValue === 'number' ? chk.currentValue : parseFloat(String(chk.currentValue).replace(',', '.'));
@@ -291,12 +372,36 @@ export function isCheckpointComplete(
     return chk.currentValue !== undefined && chk.currentValue !== null && chk.currentValue !== '';
   }
 
-  // 6. Generic fallback
   return directVal || statusVal;
 }
 
 /**
- * Rigorously validates whether a complete round has all mandatory checkpoints and fields filled.
+ * Checks whether an active round checkpoint is fully registered/completed
+ * INCLUDING the mandatory photo check when photoRequired is enabled.
+ */
+export function isCheckpointComplete(
+  chk?: Partial<RoundCheckpoint> | null,
+  roundTemplate?: RoundCheckpoint[]
+): boolean {
+  if (!chk) return false;
+
+  const tpl = roundTemplate?.find(
+    (t) =>
+      (t.id && t.id === chk.id) ||
+      (chk.title && t.title === chk.title && (!chk.area || t.area === chk.area)) ||
+      (chk.title && t.title === chk.title)
+  );
+
+  // Enforce mandatory photo rule first: if photoRequired is enabled, block completion until photo exists
+  if (isCheckpointPhotoRequired(chk, roundTemplate, tpl || null) && !hasCheckpointRequiredPhoto(chk)) {
+    return false;
+  }
+
+  return hasCheckpointMeasurementsFilled(chk, tpl, roundTemplate);
+}
+
+/**
+ * Rigorously validates whether a complete round has all mandatory checkpoints, fields and required photos filled.
  * Returns an object with isValid, missingCount, and missingDetails.
  */
 export function validateRoundCompletion(
@@ -309,10 +414,24 @@ export function validateRoundCompletion(
 
   const missingDetails: string[] = [];
   round.checkpoints.forEach((chk, idx) => {
-    if (!isCheckpointComplete(chk, roundTemplate)) {
+    const tpl = roundTemplate?.find(
+      (t) =>
+        (t.id && t.id === chk.id) ||
+        (chk.title && t.title === chk.title && (!chk.area || t.area === chk.area)) ||
+        (chk.title && t.title === chk.title)
+    );
+    const measurementsOk = hasCheckpointMeasurementsFilled(chk, tpl, roundTemplate);
+    const missingPhoto = isCheckpointPhotoRequired(chk, roundTemplate, tpl || null) && !hasCheckpointRequiredPhoto(chk);
+
+    if (!measurementsOk || missingPhoto) {
       const name = chk.title || `Punto #${idx + 1}`;
       const area = chk.area ? ` (${chk.area})` : '';
-      missingDetails.push(`${name}${area}`);
+      const reason = missingPhoto && measurementsOk
+        ? ' — Falta foto obligatoria'
+        : missingPhoto
+          ? ' — Falta registro y foto obligatoria'
+          : '';
+      missingDetails.push(`${name}${area}${reason}`);
     }
   });
 

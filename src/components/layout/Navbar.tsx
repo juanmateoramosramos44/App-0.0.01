@@ -37,7 +37,8 @@ import {
   Check,
   LogOut,
   User as UserIcon,
-  CalendarRange
+  CalendarRange,
+  BookOpen
 } from 'lucide-react';
 import { getHotelCurrentDateIso } from '../../utils/dateUtils';
 
@@ -56,6 +57,7 @@ export const Navbar: React.FC = () => {
     tasks,
     schedules,
     cronogramas,
+    bitacora,
     users,
     isCloudSynced,
     setIsIncidentModalOpen,
@@ -185,6 +187,15 @@ export const Navbar: React.FC = () => {
         : null,
       color: 'text-cyan-400',
       badgeColor: 'bg-amber-400 text-slate-950'
+    },
+    {
+      id: 'bitacora',
+      label: 'Bitácora Técnica',
+      drawerLabel: 'Bitácora Técnica de Turno',
+      icon: BookOpen,
+      badge: (bitacora && bitacora.length > 0) ? bitacora.length : null,
+      color: 'text-teal-400',
+      badgeColor: 'bg-teal-500/30 text-teal-200'
     },
     {
       id: 'contadores',

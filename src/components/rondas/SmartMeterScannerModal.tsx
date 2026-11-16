@@ -1,7 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { 
   Camera, 
-  Upload, 
   X, 
   RotateCw, 
   Zap, 
@@ -12,12 +11,14 @@ import {
   RefreshCw, 
   Image as ImageIcon, 
   Gauge, 
-  Info,
-  CheckCircle2,
-  Sliders,
   Smartphone,
-  FolderOpen
+  FolderOpen,
+  Maximize2,
+  Focus,
+  Plus,
+  Trash2
 } from 'lucide-react';
+import { compressImageDataUrl, compressImageFile } from '../../utils/imageCompression';
 
 export interface MeterScanResult {
   value: number;
@@ -27,6 +28,7 @@ export interface MeterScanResult {
   meterType?: string;
   notes?: string;
   photoUrl: string;
+  photoUrls?: string[];
 }
 
 interface SmartMeterScannerModalProps {
@@ -39,6 +41,7 @@ interface SmartMeterScannerModalProps {
   initialValue?: number | string;
   initialPhotoMode?: 'ai' | 'normal';
   allowedPhotoMode?: 'ai' | 'normal' | 'both' | 'none';
+  allowMultiple?: boolean;
   onApplyReading: (result: MeterScanResult) => void;
 }
 
@@ -52,6 +55,7 @@ export const SmartMeterScannerModal: React.FC<SmartMeterScannerModalProps> = ({
   initialValue,
   initialPhotoMode = 'ai',
   allowedPhotoMode = 'both',
+  allowMultiple = false,
   onApplyReading,
 }) => {
   const getResolvedMode = () => {
@@ -61,6 +65,13 @@ export const SmartMeterScannerModal: React.FC<SmartMeterScannerModalProps> = ({
   };
 
   const [photoScanMode, setPhotoScanMode] = useState<'ai' | 'normal'>(getResolvedMode);
+  const [captureFrameMode, setCaptureFrameMode] = useState<'blue_box' | 'full'>(() => {
+    try {
+      const saved = localStorage.getItem('hotel_maint_capture_frame_pref');
+      if (saved === 'blue_box' || saved === 'full') return saved;
+    } catch {}
+    return getResolvedMode() === 'ai' ? 'blue_box' : 'full';
+  });
   const [mode, setMode] = useState<'camera' | 'upload'>(() => {
     try {
       const saved = localStorage.getItem('hotel_maint_photo_source_pref');
@@ -70,6 +81,7 @@ export const SmartMeterScannerModal: React.FC<SmartMeterScannerModalProps> = ({
   });
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
+  const [capturedQueue, setCapturedQueue] = useState<string[]>([]);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [scanResult, setScanResult] = useState<{
     value: number | null;
@@ -85,110 +97,91 @@ export const SmartMeterScannerModal: React.FC<SmartMeterScannerModalProps> = ({
   const [facingMode, setFacingMode] = useState<'environment' | 'user'>('environment');
   const [torchOn, setTorchOn] = useState(false);
   const [hasTorch, setHasTorch] = useState(false);
-  const [cameraAvailable, setCameraAvailable] = useState<boolean | null>(null);
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [isStartingCamera, setIsStartingCamera] = useState(false);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const reticleRef = useRef<HTMLDivElement | null>(null);
   const galleryInputRef = useRef<HTMLInputElement | null>(null);
   const cameraAppInputRef = useRef<HTMLInputElement | null>(null);
   const cameraStartingRef = useRef(false);
+  const streamRef = useRef<MediaStream | null>(null);
+  const torchOnRef = useRef(false);
 
-  const switchSourceMode = (newMode: 'camera' | 'upload') => {
-    setMode(newMode);
-    try {
-      localStorage.setItem('hotel_maint_photo_source_pref', newMode);
-    } catch {}
-    if (newMode === 'camera') {
-      startCamera();
-    } else {
-      stopCamera();
-    }
-  };
-
-  // Start camera when modal opens in camera mode
   useEffect(() => {
-    if (!isOpen) {
-      stopCamera();
-      setCapturedImage(null);
-      setScanResult(null);
-      setCameraError(null);
-      setErrorMsg(null);
-      return;
+    torchOnRef.current = torchOn;
+  }, [torchOn]);
+
+  const stopCamera = useCallback(async () => {
+    cameraStartingRef.current = false;
+    setIsStartingCamera(false);
+
+    const activeStreams = new Set<MediaStream>();
+    if (streamRef.current) activeStreams.add(streamRef.current);
+    const videoSrc = videoRef.current?.srcObject as MediaStream | null;
+    if (videoSrc && typeof videoSrc.getTracks === 'function') activeStreams.add(videoSrc);
+
+    const hadTorchOn = torchOnRef.current;
+    torchOnRef.current = false;
+    setTorchOn(false);
+
+    for (const activeStream of activeStreams) {
+      const videoTracks = activeStream.getVideoTracks ? activeStream.getVideoTracks() : [];
+      for (const track of videoTracks) {
+        try {
+          if (track.readyState === 'live' && typeof (track as any).applyConstraints === 'function') {
+            await (track as any).applyConstraints({ advanced: [{ torch: false }] }).catch(() => {});
+          }
+        } catch {
+          // ignore
+        }
+      }
     }
 
-    const resolved = allowedPhotoMode === 'normal' ? 'normal' : allowedPhotoMode === 'ai' ? 'ai' : (initialPhotoMode || 'ai');
-    setPhotoScanMode(resolved);
-
-    if (initialValue !== undefined && initialValue !== null && initialValue !== '') {
-      setEditedValue(String(initialValue));
-    } else {
-      setEditedValue('');
-    }
-    setEditedUnit(expectedUnit);
-
-    if (mode === 'camera') {
-      startCamera();
-    } else {
-      stopCamera();
+    if (hadTorchOn && activeStreams.size > 0) {
+      await new Promise((r) => setTimeout(r, 70));
     }
 
-    return () => {
-      stopCamera();
-    };
-  }, [isOpen, mode, facingMode]);
-
-  // Dedicated effect to attach stream to video element whenever stream changes
-  useEffect(() => {
-    const video = videoRef.current;
-    if (!video || !stream) return;
-
-    video.srcObject = stream;
-    video.setAttribute('playsinline', 'true');
-    video.setAttribute('webkit-playsinline', 'true');
-    video.muted = true;
-
-    const playPromise = video.play();
-    if (playPromise !== undefined) {
-      playPromise.catch(e => {
-        console.warn('Video play warning:', e);
-      });
+    for (const activeStream of activeStreams) {
+      const tracks = activeStream.getTracks ? activeStream.getTracks() : [];
+      for (const track of tracks) {
+        try {
+          track.stop();
+        } catch {
+          // ignore
+        }
+      }
     }
-  }, [stream]);
 
-  const setVideoRef = useCallback((node: HTMLVideoElement | null) => {
-    videoRef.current = node;
-    if (node && stream) {
-      node.srcObject = stream;
-      node.setAttribute('playsinline', 'true');
-      node.setAttribute('webkit-playsinline', 'true');
-      node.muted = true;
-      node.play().catch(e => console.warn('Video play warning on ref mount:', e));
+    if (videoRef.current) {
+      try {
+        videoRef.current.srcObject = null;
+      } catch {}
     }
-  }, [stream]);
 
-  const startCamera = async () => {
+    streamRef.current = null;
+    setStream(null);
+    setHasTorch(false);
+  }, []);
+
+  const startCamera = useCallback(async () => {
     if (cameraStartingRef.current) return;
     cameraStartingRef.current = true;
     setIsStartingCamera(true);
     setCameraError(null);
 
-    // Stop existing stream tracks safely
-    if (stream) {
-      stream.getTracks().forEach(track => {
-        try { track.stop(); } catch {}
-      });
-    }
+    // Ensure previous stream and hardware flash are completely shut off first
+    await stopCamera();
+    cameraStartingRef.current = true;
+    setIsStartingCamera(true);
 
     if (typeof navigator === 'undefined' || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
       setCameraError('Tu navegador o entorno no tiene soporte de cámara web directa. Usa el botón verde para abrir la cámara de tu teléfono.');
-      setCameraAvailable(false);
       cameraStartingRef.current = false;
       setIsStartingCamera(false);
       return;
     }
 
-    // Flexible fallback constraint sets: from 720p down to simplest video constraint
     const constraintSets: MediaStreamConstraints[] = [
       {
         video: {
@@ -234,15 +227,16 @@ export const SmartMeterScannerModal: React.FC<SmartMeterScannerModalProps> = ({
         errMsg = 'La cámara está ocupada por otra aplicación o pestaña.';
       }
       setCameraError(errMsg);
-      setCameraAvailable(false);
       cameraStartingRef.current = false;
       setIsStartingCamera(false);
       return;
     }
 
+    streamRef.current = mediaStream;
     setStream(mediaStream);
-    setCameraAvailable(true);
     setCameraError(null);
+    torchOnRef.current = false;
+    setTorchOn(false);
 
     if (videoRef.current) {
       videoRef.current.srcObject = mediaStream;
@@ -252,10 +246,9 @@ export const SmartMeterScannerModal: React.FC<SmartMeterScannerModalProps> = ({
       videoRef.current.play().catch(e => console.warn('Video play warning in startCamera:', e));
     }
 
-    // Check torch capabilities
     try {
       const track = mediaStream.getVideoTracks()[0];
-      const capabilities = track.getCapabilities ? (track.getCapabilities() as any) : {};
+      const capabilities = track?.getCapabilities ? (track.getCapabilities() as any) : {};
       setHasTorch(Boolean(capabilities && capabilities.torch));
     } catch {
       setHasTorch(false);
@@ -263,123 +256,217 @@ export const SmartMeterScannerModal: React.FC<SmartMeterScannerModalProps> = ({
 
     cameraStartingRef.current = false;
     setIsStartingCamera(false);
-  };
+  }, [facingMode, stopCamera]);
 
-  const stopCamera = () => {
-    cameraStartingRef.current = false;
-    setIsStartingCamera(false);
-    if (stream) {
-      stream.getTracks().forEach(track => {
-        try {
-          track.stop();
-        } catch {
-          // ignore
-        }
-      });
-      setStream(null);
+  const handleCloseModal = useCallback(async () => {
+    await stopCamera();
+    onClose();
+  }, [stopCamera, onClose]);
+
+  const switchSourceMode = (newMode: 'camera' | 'upload') => {
+    setMode(newMode);
+    try {
+      localStorage.setItem('hotel_maint_photo_source_pref', newMode);
+    } catch {}
+    if (newMode === 'camera') {
+      void startCamera();
+    } else {
+      void stopCamera();
     }
   };
 
-  const toggleTorch = async () => {
-    if (!stream) return;
-    const track = stream.getVideoTracks()[0];
-    if (!track) return;
+  const handleFrameModeChange = (nextFrameMode: 'blue_box' | 'full') => {
+    setCaptureFrameMode(nextFrameMode);
     try {
-      const nextTorch = !torchOn;
+      localStorage.setItem('hotel_maint_capture_frame_pref', nextFrameMode);
+    } catch {}
+  };
+
+  // Start camera when modal opens in camera mode, and ALWAYS cleanup torch/stream on close or unmount
+  useEffect(() => {
+    if (!isOpen) {
+      void stopCamera();
+      setCapturedImage(null);
+      setCapturedQueue([]);
+      setScanResult(null);
+      setCameraError(null);
+      setErrorMsg(null);
+      return;
+    }
+
+    const resolved = allowedPhotoMode === 'normal' ? 'normal' : allowedPhotoMode === 'ai' ? 'ai' : (initialPhotoMode || 'ai');
+    setPhotoScanMode(resolved);
+
+    if (initialValue !== undefined && initialValue !== null && initialValue !== '') {
+      setEditedValue(String(initialValue));
+    } else {
+      setEditedValue('');
+    }
+    setEditedUnit(expectedUnit);
+
+    if (mode === 'camera') {
+      void startCamera();
+    } else {
+      void stopCamera();
+    }
+
+    return () => {
+      void stopCamera();
+    };
+  }, [isOpen, mode, facingMode, allowedPhotoMode, initialPhotoMode, initialValue, expectedUnit, startCamera, stopCamera]);
+
+  // Safety net on full unmount
+  useEffect(() => {
+    return () => {
+      void stopCamera();
+    };
+  }, [stopCamera]);
+
+  // Dedicated effect to attach stream to video element whenever stream changes
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || !stream) return;
+
+    video.srcObject = stream;
+    video.setAttribute('playsinline', 'true');
+    video.setAttribute('webkit-playsinline', 'true');
+    video.muted = true;
+
+    const playPromise = video.play();
+    if (playPromise !== undefined) {
+      playPromise.catch(e => {
+        console.warn('Video play warning:', e);
+      });
+    }
+  }, [stream]);
+
+  const setVideoRef = useCallback((node: HTMLVideoElement | null) => {
+    videoRef.current = node;
+    if (node && stream) {
+      node.srcObject = stream;
+      node.setAttribute('playsinline', 'true');
+      node.setAttribute('webkit-playsinline', 'true');
+      node.muted = true;
+      node.play().catch(e => console.warn('Video play warning on ref mount:', e));
+    }
+  }, [stream]);
+
+  const toggleTorch = async () => {
+    const activeStream = streamRef.current || stream;
+    if (!activeStream) return;
+    const track = activeStream.getVideoTracks()[0];
+    if (!track) return;
+    const nextTorch = !torchOnRef.current;
+    try {
       await (track as any).applyConstraints({
         advanced: [{ torch: nextTorch }]
       });
+      torchOnRef.current = nextTorch;
       setTorchOn(nextTorch);
     } catch (e) {
       console.warn("Could not toggle torch:", e);
+      torchOnRef.current = false;
+      setTorchOn(false);
     }
   };
 
-  const switchFacingMode = () => {
+  const switchFacingMode = async () => {
+    await stopCamera();
     const nextFacing = facingMode === 'environment' ? 'user' : 'environment';
     setFacingMode(nextFacing);
   };
 
-  const handleCapturePhoto = () => {
+  const handleCapturePhoto = async () => {
     if (!videoRef.current) return;
     const video = videoRef.current;
-    const canvas = document.createElement('canvas');
-    let width = video.videoWidth || 1280;
-    let height = video.videoHeight || 720;
-    const maxDim = 1024;
-    if (width > maxDim || height > maxDim) {
-      if (width > height) {
-        height = Math.round((height * maxDim) / width);
-        width = maxDim;
-      } else {
-        width = Math.round((width * maxDim) / height);
-        height = maxDim;
+    const vw = video.videoWidth || 1280;
+    const vh = video.videoHeight || 720;
+
+    let sx = 0;
+    let sy = 0;
+    let sw = vw;
+    let sh = vh;
+
+    // Exact canvas crop for "Solo cuadro azul" accounting for object-cover scaling
+    if (captureFrameMode === 'blue_box' && reticleRef.current) {
+      const videoRect = video.getBoundingClientRect();
+      const reticleRect = reticleRef.current.getBoundingClientRect();
+
+      if (videoRect.width > 0 && videoRect.height > 0 && reticleRect.width > 0 && reticleRect.height > 0) {
+        const scale = Math.max(videoRect.width / vw, videoRect.height / vh);
+        const dispW = vw * scale;
+        const dispH = vh * scale;
+        const offsetX = (dispW - videoRect.width) / 2;
+        const offsetY = (dispH - videoRect.height) / 2;
+
+        const rawSx = ((reticleRect.left - videoRect.left) + offsetX) / scale;
+        const rawSy = ((reticleRect.top - videoRect.top) + offsetY) / scale;
+        const rawSw = reticleRect.width / scale;
+        const rawSh = reticleRect.height / scale;
+
+        sx = Math.max(0, Math.min(vw - 20, Math.round(rawSx)));
+        sy = Math.max(0, Math.min(vh - 20, Math.round(rawSy)));
+        sw = Math.max(20, Math.min(vw - sx, Math.round(rawSw)));
+        sh = Math.max(20, Math.min(vh - sy, Math.round(rawSh)));
       }
     }
-    canvas.width = width;
-    canvas.height = height;
+
+    const canvas = document.createElement('canvas');
+    const maxDim = 1080;
+    let outW = sw;
+    let outH = sh;
+    if (outW > maxDim || outH > maxDim) {
+      const ratio = Math.min(maxDim / outW, maxDim / outH);
+      outW = Math.max(1, Math.round(outW * ratio));
+      outH = Math.max(1, Math.round(outH * ratio));
+    }
+    canvas.width = outW;
+    canvas.height = outH;
+
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-    const dataUrl = canvas.toDataURL('image/jpeg', 0.75);
-    setCapturedImage(dataUrl);
-    stopCamera();
+    ctx.drawImage(video, sx, sy, sw, sh, 0, 0, outW, outH);
+    const rawDataUrl = canvas.toDataURL('image/jpeg', 0.8);
+    const compressedUrl = await compressImageDataUrl(rawDataUrl, { maxDimension: 1080, quality: 0.74 });
+
+    // Force torch OFF and release camera immediately after snap
+    await stopCamera();
+
+    setCapturedImage(compressedUrl);
+    setCapturedQueue(prev => [...prev, compressedUrl]);
+
     if (photoScanMode === 'ai') {
-      analyzeImage(dataUrl);
+      analyzeImage(compressedUrl);
     }
   };
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files ? Array.from(e.target.files) : [];
+    if (files.length === 0) return;
 
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const rawDataUrl = event.target?.result as string;
-      if (!rawDataUrl) return;
+    await stopCamera();
 
-      const img = new Image();
-      img.onload = () => {
-        const canvas = document.createElement('canvas');
-        let width = img.width;
-        let height = img.height;
-        const maxDim = 1024;
-        if (width > maxDim || height > maxDim) {
-          if (width > height) {
-            height = Math.round((height * maxDim) / width);
-            width = maxDim;
-          } else {
-            width = Math.round((width * maxDim) / height);
-            height = maxDim;
-          }
-        }
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext('2d');
-        if (ctx) {
-          ctx.drawImage(img, 0, 0, width, height);
-          const compressed = canvas.toDataURL('image/jpeg', 0.75);
-          setCapturedImage(compressed);
-          if (photoScanMode === 'ai') {
-            analyzeImage(compressed);
-          }
-        } else {
-          setCapturedImage(rawDataUrl);
-          if (photoScanMode === 'ai') {
-            analyzeImage(rawDataUrl);
-          }
-        }
-      };
-      img.onerror = () => {
-        setCapturedImage(rawDataUrl);
-        if (photoScanMode === 'ai') {
-          analyzeImage(rawDataUrl);
-        }
-      };
-      img.src = rawDataUrl;
-    };
-    reader.readAsDataURL(file);
+    const compressedList: string[] = [];
+    for (const file of files) {
+      try {
+        const compressed = await compressImageFile(file, { maxDimension: 1080, quality: 0.74 });
+        if (compressed) compressedList.push(compressed);
+      } catch (err) {
+        console.warn('Error compressing uploaded photo:', err);
+      }
+    }
+
+    e.target.value = '';
+    if (compressedList.length === 0) return;
+
+    const primaryImg = compressedList[compressedList.length - 1];
+    setCapturedImage(primaryImg);
+    setCapturedQueue(prev => allowMultiple ? [...prev, ...compressedList] : [primaryImg]);
+
+    if (photoScanMode === 'ai') {
+      analyzeImage(primaryImg);
+    }
   };
 
   const analyzeImage = async (dataUrl: string) => {
@@ -413,7 +500,6 @@ export const SmartMeterScannerModal: React.FC<SmartMeterScannerModalProps> = ({
         if (r.value !== undefined && r.value !== null) {
           setEditedValue(String(r.value));
         } else if (r.rawText) {
-          // Extract numeric parts if value was null
           const match = r.rawText.replace(/,/g, '.').match(/[-+]?[0-9]*\.?[0-9]+/);
           if (match) {
             setEditedValue(match[0]);
@@ -433,16 +519,31 @@ export const SmartMeterScannerModal: React.FC<SmartMeterScannerModalProps> = ({
     }
   };
 
-  const handleRetake = () => {
+  const handleCaptureAnother = () => {
     setCapturedImage(null);
     setScanResult(null);
     setErrorMsg(null);
     if (mode === 'camera') {
-      startCamera();
+      void startCamera();
     }
   };
 
-  const handleApply = () => {
+  const handleRemoveQueuedPhoto = (idx: number) => {
+    setCapturedQueue(prev => {
+      const next = prev.filter((_, i) => i !== idx);
+      if (next.length === 0) {
+        setCapturedImage(null);
+        if (mode === 'camera') void startCamera();
+      } else {
+        setCapturedImage(next[next.length - 1]);
+      }
+      return next;
+    });
+  };
+
+  const handleApply = async () => {
+    await stopCamera();
+
     let num: number = 0;
     if (editedValue !== '') {
       const parsed = parseFloat(editedValue.replace(',', '.'));
@@ -456,6 +557,10 @@ export const SmartMeterScannerModal: React.FC<SmartMeterScannerModalProps> = ({
       }
     }
 
+    const allPhotos = capturedQueue.length > 0
+      ? capturedQueue
+      : (capturedImage ? [capturedImage] : []);
+
     onApplyReading({
       value: num,
       rawText: scanResult?.rawText || editedValue || String(num),
@@ -463,7 +568,8 @@ export const SmartMeterScannerModal: React.FC<SmartMeterScannerModalProps> = ({
       confidence: photoScanMode === 'ai' ? (scanResult?.confidence || 'high') : 'high',
       meterType: scanResult?.meterType || meterName,
       notes: scanResult?.notes || (photoScanMode === 'normal' ? 'Foto de evidencia capturada' : ''),
-      photoUrl: capturedImage || ''
+      photoUrl: allPhotos[allPhotos.length - 1] || capturedImage || '',
+      photoUrls: allPhotos
     });
 
     onClose();
@@ -494,8 +600,9 @@ export const SmartMeterScannerModal: React.FC<SmartMeterScannerModalProps> = ({
             </div>
           </div>
           <button
-            onClick={onClose}
-            className="p-1.5 text-blue-100 hover:text-white hover:bg-white/10 rounded-full transition-colors"
+            type="button"
+            onClick={() => void handleCloseModal()}
+            className="p-1.5 text-blue-100 hover:text-white hover:bg-white/10 rounded-full transition-colors cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
@@ -549,7 +656,7 @@ export const SmartMeterScannerModal: React.FC<SmartMeterScannerModalProps> = ({
         </div>
 
         {/* Content Body */}
-        <div className="p-4 sm:p-5 overflow-y-auto space-y-4 flex-1">
+        <div className="p-4 sm:p-5 overflow-y-auto space-y-3.5 flex-1">
           {/* Source Selector: Cámara en Vivo vs Foto de mi Teléfono (Galería) */}
           {!capturedImage && (
             <div className="bg-slate-100/90 p-1.5 rounded-2xl border border-slate-200 shadow-xs">
@@ -593,11 +700,67 @@ export const SmartMeterScannerModal: React.FC<SmartMeterScannerModalProps> = ({
             </div>
           )}
 
+          {/* Queued photos strip if taking multiple */}
+          {capturedQueue.length > 0 && !capturedImage && (
+            <div className="bg-blue-50 border border-blue-200 rounded-xl p-2.5 flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2 overflow-x-auto">
+                <span className="text-[11px] font-bold text-blue-900 shrink-0">
+                  {capturedQueue.length} foto(s) lista(s):
+                </span>
+                {capturedQueue.map((imgUrl, idx) => (
+                  <img
+                    key={idx}
+                    src={imgUrl}
+                    alt={`Foto ${idx + 1}`}
+                    className="w-10 h-10 rounded-lg object-cover border border-blue-300 shrink-0"
+                  />
+                ))}
+              </div>
+              <button
+                type="button"
+                onClick={() => setCapturedImage(capturedQueue[capturedQueue.length - 1])}
+                className="px-2.5 py-1 bg-blue-600 text-white text-[11px] font-bold rounded-lg shrink-0 cursor-pointer"
+              >
+                Ver / Guardar
+              </button>
+            </div>
+          )}
+
           {/* Camera / Capture Section */}
           {!capturedImage ? (
-            <div>
+            <div className="space-y-2.5">
               {mode === 'camera' ? (
-                <div>
+                <div className="space-y-2.5">
+                  {/* Blue Box vs Full Frame Selector */}
+                  {!cameraError && (
+                    <div className="bg-slate-100 p-1 rounded-xl border border-slate-200 grid grid-cols-2 gap-1">
+                      <button
+                        type="button"
+                        onClick={() => handleFrameModeChange('blue_box')}
+                        className={`py-2 px-2.5 rounded-lg text-[11px] font-extrabold transition-all flex items-center justify-center gap-1.5 cursor-pointer border ${
+                          captureFrameMode === 'blue_box'
+                            ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
+                            : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                        }`}
+                      >
+                        <Focus className="w-3.5 h-3.5" />
+                        <span>Solo Cuadro Azul</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleFrameModeChange('full')}
+                        className={`py-2 px-2.5 rounded-lg text-[11px] font-extrabold transition-all flex items-center justify-center gap-1.5 cursor-pointer border ${
+                          captureFrameMode === 'full'
+                            ? 'bg-slate-900 text-white border-slate-900 shadow-xs'
+                            : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                        }`}
+                      >
+                        <Maximize2 className="w-3.5 h-3.5" />
+                        <span>Foto Completa</span>
+                      </button>
+                    </div>
+                  )}
+
                   {cameraError ? (
                     <div className="flex flex-col items-center justify-center p-6 text-center text-white bg-slate-900 rounded-2xl aspect-4/3 sm:aspect-16/10 border border-slate-800 space-y-4 shadow-inner animate-in fade-in duration-200">
                       <div className="w-14 h-14 rounded-2xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center border border-emerald-500/30 shadow-lg">
@@ -615,8 +778,8 @@ export const SmartMeterScannerModal: React.FC<SmartMeterScannerModalProps> = ({
                       <div className="flex flex-col sm:flex-row gap-2.5 w-full max-w-sm pt-1">
                         <button
                           type="button"
-                          onClick={() => {
-                            stopCamera();
+                          onClick={async () => {
+                            await stopCamera();
                             cameraAppInputRef.current?.click();
                           }}
                           className="flex-1 py-3 px-3.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-extrabold text-xs rounded-xl shadow-lg flex items-center justify-center space-x-2 transition-all cursor-pointer transform active:scale-95 border border-emerald-400/30"
@@ -627,8 +790,8 @@ export const SmartMeterScannerModal: React.FC<SmartMeterScannerModalProps> = ({
 
                         <button
                           type="button"
-                          onClick={() => {
-                            stopCamera();
+                          onClick={async () => {
+                            await stopCamera();
                             galleryInputRef.current?.click();
                           }}
                           className="flex-1 py-3 px-3.5 bg-blue-600 hover:bg-blue-700 text-white font-extrabold text-xs rounded-xl shadow-md flex items-center justify-center space-x-2 transition-all cursor-pointer transform active:scale-95 border border-blue-400/30"
@@ -640,10 +803,10 @@ export const SmartMeterScannerModal: React.FC<SmartMeterScannerModalProps> = ({
 
                       <button
                         type="button"
-                        onClick={() => startCamera()}
+                        onClick={() => void startCamera()}
                         className="text-[11px] text-slate-400 hover:text-white underline transition-colors cursor-pointer pt-1"
                       >
-                        🔄 Reintentar visor en vivo
+                        Reintentar visor en vivo
                       </button>
                     </div>
                   ) : (
@@ -666,24 +829,37 @@ export const SmartMeterScannerModal: React.FC<SmartMeterScannerModalProps> = ({
 
                       {/* Optical Reticle / Target Guide */}
                       <div className="absolute inset-0 pointer-events-none flex flex-col items-center justify-center p-6">
-                        {photoScanMode === 'ai' ? (
-                          <div className="w-4/5 h-32 border-2 border-dashed border-amber-400/90 rounded-2xl relative shadow-2xl flex items-center justify-center bg-blue-500/5">
-                            <div className="absolute -top-3 px-2 py-0.5 bg-amber-500 text-slate-950 font-black text-[10px] tracking-wide uppercase rounded-md shadow-xs flex items-center space-x-1">
-                              <Gauge className="w-3 h-3" />
-                              <span>Enfoque los dígitos o dial</span>
+                        {captureFrameMode === 'blue_box' ? (
+                          <div
+                            ref={reticleRef}
+                            className={`w-4/5 ${photoScanMode === 'ai' ? 'h-32' : 'h-44'} border-2 border-blue-400 rounded-2xl relative shadow-[0_0_0_9999px_rgba(2,6,23,0.45)] flex items-center justify-center bg-blue-500/5`}
+                          >
+                            {/* Crisp blue corner guides */}
+                            <span className="absolute -top-0.5 -left-0.5 w-4 h-4 border-t-4 border-l-4 border-blue-300 rounded-tl-xl" />
+                            <span className="absolute -top-0.5 -right-0.5 w-4 h-4 border-t-4 border-r-4 border-blue-300 rounded-tr-xl" />
+                            <span className="absolute -bottom-0.5 -left-0.5 w-4 h-4 border-b-4 border-l-4 border-blue-300 rounded-bl-xl" />
+                            <span className="absolute -bottom-0.5 -right-0.5 w-4 h-4 border-b-4 border-r-4 border-blue-300 rounded-br-xl" />
+
+                            <div className="absolute -top-3 px-2.5 py-0.5 bg-blue-600 text-white font-black text-[10px] tracking-wide uppercase rounded-md shadow-xs flex items-center space-x-1">
+                              {photoScanMode === 'ai' ? <Gauge className="w-3 h-3" /> : <Focus className="w-3 h-3" />}
+                              <span>{photoScanMode === 'ai' ? 'Solo cuadro azul (dígitos)' : 'Recorte: Solo cuadro azul'}</span>
                             </div>
-                            <div className="w-full h-0.5 bg-amber-400/40 animate-pulse"></div>
+                            {photoScanMode === 'ai' && (
+                              <div className="w-full h-0.5 bg-blue-400/50 animate-pulse" />
+                            )}
                           </div>
                         ) : (
-                          <div className="w-4/5 h-44 border-2 border-emerald-400/70 rounded-2xl relative shadow-2xl flex items-center justify-center bg-emerald-500/5">
-                            <div className="absolute -top-3 px-2 py-0.5 bg-emerald-600 text-white font-black text-[10px] tracking-wide uppercase rounded-md shadow-xs flex items-center space-x-1">
-                              <Camera className="w-3 h-3" />
-                              <span>Encuadre la foto de evidencia</span>
+                          <div className="w-[92%] h-[82%] border border-dashed border-white/45 rounded-2xl relative flex items-start justify-center">
+                            <div className="mt-2 px-2.5 py-0.5 bg-slate-900/80 text-white font-bold text-[10px] tracking-wide uppercase rounded-md border border-white/20 flex items-center space-x-1">
+                              <Maximize2 className="w-3 h-3 text-emerald-300" />
+                              <span>Foto Completa (Entorno completo)</span>
                             </div>
                           </div>
                         )}
-                        <p className="mt-4 text-[11px] text-white/80 text-center font-medium bg-slate-950/70 px-3 py-1 rounded-full backdrop-blur-xs shadow-xs">
-                          {photoScanMode === 'ai' ? 'Mantenga la cámara firme e iluminada frente al contador' : 'Capture la foto con buena iluminación'}
+                        <p className="mt-3 text-[11px] text-white/90 text-center font-medium bg-slate-950/75 px-3 py-1 rounded-full backdrop-blur-xs shadow-xs">
+                          {captureFrameMode === 'blue_box'
+                            ? 'Se guardará únicamente el área dentro del cuadro azul'
+                            : 'Se guardará la toma completa visible en la pantalla'}
                         </p>
                       </div>
 
@@ -692,19 +868,19 @@ export const SmartMeterScannerModal: React.FC<SmartMeterScannerModalProps> = ({
                         {hasTorch && (
                           <button
                             type="button"
-                            onClick={toggleTorch}
-                            className={`p-2 rounded-full backdrop-blur-md transition-all shadow-md ${
+                            onClick={() => void toggleTorch()}
+                            className={`p-2 rounded-full backdrop-blur-md transition-all shadow-md cursor-pointer ${
                               torchOn ? 'bg-amber-400 text-slate-950' : 'bg-slate-900/80 text-white hover:bg-slate-800'
                             }`}
-                            title="Linterna"
+                            title={torchOn ? 'Apagar linterna / flash' : 'Encender linterna / flash'}
                           >
                             {torchOn ? <Zap className="w-4 h-4 fill-current" /> : <ZapOff className="w-4 h-4" />}
                           </button>
                         )}
                         <button
                           type="button"
-                          onClick={switchFacingMode}
-                          className="p-2 rounded-full bg-slate-900/80 text-white hover:bg-slate-800 backdrop-blur-md transition-all shadow-md"
+                          onClick={() => void switchFacingMode()}
+                          className="p-2 rounded-full bg-slate-900/80 text-white hover:bg-slate-800 backdrop-blur-md transition-all shadow-md cursor-pointer"
                           title="Girar cámara"
                         >
                           <RotateCw className="w-4 h-4" />
@@ -715,7 +891,7 @@ export const SmartMeterScannerModal: React.FC<SmartMeterScannerModalProps> = ({
                       <div className="absolute bottom-3 inset-x-0 flex items-center justify-center z-10">
                         <button
                           type="button"
-                          onClick={handleCapturePhoto}
+                          onClick={() => void handleCapturePhoto()}
                           disabled={!stream}
                           className={`group flex items-center space-x-2 text-white px-6 py-3 rounded-full font-extrabold text-sm shadow-xl hover:shadow-2xl transition-all transform active:scale-95 cursor-pointer border-2 border-white/80 ${
                             !stream
@@ -728,12 +904,12 @@ export const SmartMeterScannerModal: React.FC<SmartMeterScannerModalProps> = ({
                           {photoScanMode === 'ai' ? (
                             <>
                               <Sparkles className="w-5 h-5 group-hover:scale-110 transition-transform text-amber-300" />
-                              <span>Capturar y Leer con IA</span>
+                              <span>{captureFrameMode === 'blue_box' ? 'Capturar Cuadro y Leer IA' : 'Capturar Completa y Leer IA'}</span>
                             </>
                           ) : (
                             <>
                               <Camera className="w-5 h-5 group-hover:scale-110 transition-transform" />
-                              <span>Capturar Foto</span>
+                              <span>{captureFrameMode === 'blue_box' ? 'Capturar Cuadro Azul' : 'Capturar Foto Completa'}</span>
                             </>
                           )}
                         </button>
@@ -742,7 +918,7 @@ export const SmartMeterScannerModal: React.FC<SmartMeterScannerModalProps> = ({
                   )}
 
                   {/* Switch to phone gallery shortcut below live camera */}
-                  <div className="flex items-center justify-center mt-2.5">
+                  <div className="flex items-center justify-center mt-1.5">
                     <button
                       type="button"
                       onClick={() => {
@@ -767,7 +943,7 @@ export const SmartMeterScannerModal: React.FC<SmartMeterScannerModalProps> = ({
                       Subir foto desde la galería de tu teléfono
                     </h4>
                     <p className="text-xs text-slate-600 mt-1 max-w-sm mx-auto leading-relaxed">
-                      Selecciona una foto de contador o evidencia que ya tengas guardada en tu teléfono móvil o computador.
+                      Selecciona {allowMultiple ? 'una o varias fotos' : 'una foto'} de contador o evidencia guardada en tu dispositivo.
                     </p>
                   </div>
 
@@ -782,8 +958,8 @@ export const SmartMeterScannerModal: React.FC<SmartMeterScannerModalProps> = ({
                     </button>
                     <button
                       type="button"
-                      onClick={() => {
-                        stopCamera();
+                      onClick={async () => {
+                        await stopCamera();
                         cameraAppInputRef.current?.click();
                       }}
                       className="py-3.5 px-4 bg-white hover:bg-slate-100 text-slate-800 border border-slate-300 font-bold text-xs rounded-xl shadow-xs flex items-center justify-center space-x-2 transition-all cursor-pointer transform active:scale-98"
@@ -794,19 +970,19 @@ export const SmartMeterScannerModal: React.FC<SmartMeterScannerModalProps> = ({
                   </div>
 
                   <p className="text-[11px] text-slate-500 font-medium">
-                    ⚡ Se comprime y optimiza automáticamente para no saturar memoria.
+                    Se comprime automáticamente para envío rápido incluso con baja señal.
                   </p>
                 </div>
               )}
             </div>
           ) : (
             /* Result & Preview Section */
-            <div className="space-y-4">
+            <div className="space-y-3.5">
               {/* Photo Preview & Scanning Status */}
               <div className="relative rounded-2xl overflow-hidden bg-slate-900 border border-slate-200 aspect-16/10 flex items-center justify-center shadow-md">
                 <img
                   src={capturedImage}
-                  alt="Contador capturado"
+                  alt="Evidencia capturada"
                   className="w-full h-full object-contain"
                 />
 
@@ -828,35 +1004,70 @@ export const SmartMeterScannerModal: React.FC<SmartMeterScannerModalProps> = ({
                     <button
                       type="button"
                       onClick={() => {
-                        setCapturedImage(null);
-                        setScanResult(null);
-                        setErrorMsg(null);
-                        switchSourceMode('camera');
+                        if (!allowMultiple) {
+                          setCapturedQueue([]);
+                        }
+                        handleCaptureAnother();
                       }}
                       className="px-2.5 py-1.5 rounded-xl bg-slate-900/85 hover:bg-slate-900 text-white font-bold text-[11px] backdrop-blur-md border border-white/20 shadow-md flex items-center space-x-1.5 transition-all cursor-pointer"
-                      title="Tomar otra con cámara en vivo"
+                      title={allowMultiple ? 'Tomar otra foto adicional' : 'Volver a tomar con cámara en vivo'}
                     >
-                      <Camera className="w-3.5 h-3.5 text-blue-300" />
-                      <span>Cámara en Vivo</span>
+                      {allowMultiple ? <Plus className="w-3.5 h-3.5 text-emerald-300" /> : <Camera className="w-3.5 h-3.5 text-blue-300" />}
+                      <span>{allowMultiple ? 'Agregar otra foto' : 'Repetir Cámara'}</span>
                     </button>
                     <button
                       type="button"
                       onClick={() => {
-                        setCapturedImage(null);
+                        if (!allowMultiple) {
+                          setCapturedImage(null);
+                          setCapturedQueue([]);
+                        }
                         setScanResult(null);
                         setErrorMsg(null);
                         switchSourceMode('upload');
                         setTimeout(() => galleryInputRef.current?.click(), 80);
                       }}
                       className="px-2.5 py-1.5 rounded-xl bg-slate-900/85 hover:bg-slate-900 text-white font-bold text-[11px] backdrop-blur-md border border-white/20 shadow-md flex items-center space-x-1.5 transition-all cursor-pointer"
-                      title="Elegir otra foto de la galería del teléfono"
+                      title="Elegir foto desde la galería del teléfono"
                     >
                       <ImageIcon className="w-3.5 h-3.5 text-amber-300" />
-                      <span>Galería Teléfono</span>
+                      <span>Galería</span>
                     </button>
                   </div>
                 )}
               </div>
+
+              {/* Multi-photo strip in preview */}
+              {capturedQueue.length > 1 && (
+                <div className="bg-slate-50 border border-slate-200 rounded-xl p-2.5">
+                  <div className="text-[11px] font-bold text-slate-700 mb-2 flex items-center justify-between">
+                    <span>Fotos capturadas ({capturedQueue.length})</span>
+                    <span className="text-[10px] text-slate-500 font-normal">Se guardarán todas sin reemplazar ninguna</span>
+                  </div>
+                  <div className="flex items-center gap-2 overflow-x-auto pb-1">
+                    {capturedQueue.map((imgUrl, idx) => (
+                      <div key={idx} className="relative shrink-0 group">
+                        <img
+                          src={imgUrl}
+                          alt={`Evidencia ${idx + 1}`}
+                          onClick={() => setCapturedImage(imgUrl)}
+                          className={`w-14 h-14 rounded-lg object-cover border-2 cursor-pointer ${
+                            capturedImage === imgUrl ? 'border-blue-600' : 'border-slate-200'
+                          }`}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveQueuedPhoto(idx)}
+                          className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-rose-600 text-white rounded-full flex items-center justify-center shadow-xs hover:bg-rose-700 cursor-pointer"
+                          title="Quitar foto"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {/* Analysis / Evidence Result Card */}
               {!isAnalyzing && (
@@ -871,7 +1082,7 @@ export const SmartMeterScannerModal: React.FC<SmartMeterScannerModalProps> = ({
                       <span className="text-xs font-bold text-slate-800">
                         {photoScanMode === 'ai'
                           ? (scanResult?.meterType || "Lectura Reconocida por IA")
-                          : "Foto de Evidencia Lista"}
+                          : `Foto de Evidencia Lista (${capturedQueue.length || 1})`}
                       </span>
                     </div>
                     <span className={`text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full border ${
@@ -928,7 +1139,7 @@ export const SmartMeterScannerModal: React.FC<SmartMeterScannerModalProps> = ({
                       <span>Lectura óptica cruda: <strong className="font-mono text-slate-700">{scanResult.rawText}</strong></span>
                       {scanResult.notes && (
                         <span className="text-slate-600 truncate max-w-[200px]" title={scanResult.notes}>
-                          ℹ️ {scanResult.notes}
+                          {scanResult.notes}
                         </span>
                       )}
                     </div>
@@ -951,8 +1162,8 @@ export const SmartMeterScannerModal: React.FC<SmartMeterScannerModalProps> = ({
         <div className="px-5 py-3.5 bg-slate-100 border-t border-slate-200 flex items-center justify-between gap-3">
           <button
             type="button"
-            onClick={onClose}
-            className="px-4 py-2.5 rounded-xl border border-slate-300 text-slate-700 hover:bg-slate-200/70 font-semibold text-xs transition-colors"
+            onClick={() => void handleCloseModal()}
+            className="px-4 py-2.5 rounded-xl border border-slate-300 text-slate-700 hover:bg-slate-200/70 font-semibold text-xs transition-colors cursor-pointer"
           >
             Cancelar
           </button>
@@ -960,11 +1171,15 @@ export const SmartMeterScannerModal: React.FC<SmartMeterScannerModalProps> = ({
           {capturedImage && !isAnalyzing && (
             <button
               type="button"
-              onClick={handleApply}
+              onClick={() => void handleApply()}
               className="flex-1 sm:flex-initial px-6 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-extrabold text-xs rounded-xl shadow-md transition-all flex items-center justify-center space-x-2 cursor-pointer"
             >
               <Check className="w-4 h-4" />
-              <span>Cargar al Sistema</span>
+              <span>
+                {capturedQueue.length > 1
+                  ? `Cargar ${capturedQueue.length} Fotos al Sistema`
+                  : 'Cargar al Sistema'}
+              </span>
             </button>
           )}
         </div>
@@ -974,6 +1189,7 @@ export const SmartMeterScannerModal: React.FC<SmartMeterScannerModalProps> = ({
           ref={galleryInputRef}
           type="file"
           accept="image/*"
+          multiple={allowMultiple}
           onChange={handleFileUpload}
           className="hidden"
         />

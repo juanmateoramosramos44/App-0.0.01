@@ -60,6 +60,7 @@ const SERVER_BUILD_TIME = Date.now();
 
 app.use(compression());
 app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
 // Enterprise Security Headers Middleware (Zero-Trust Hardening)
 app.use((req, res, next) => {
@@ -296,6 +297,11 @@ async function initPostgresSchema() {
           target_user_id VARCHAR(255),
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
+        CREATE TABLE IF NOT EXISTS bitacora_tecnica (
+          id VARCHAR(255) PRIMARY KEY,
+          data JSONB NOT NULL,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
       `);
       pgAvailable = true;
       console.log("[PostgreSQL] All tables verified / created successfully.");
@@ -324,6 +330,7 @@ function createEmptyMemoryStore() {
     schedules: [],
     shiftSwaps: [],
     cronogramas: [],
+    bitacora: [],
     meters: [],
     meterReadingsLog: [],
     settings: {},
@@ -455,7 +462,7 @@ async function syncMemoryToPostgresIfEmpty(client: any) {
   try {
     const tablesToCheck = [
       'rounds', 'users', 'equipments', 'tasks', 'incidents', 'requests', 'meters',
-      'meter_readings_log', 'schedules', 'shift_swaps', 'cronogramas',
+      'meter_readings_log', 'schedules', 'shift_swaps', 'cronogramas', 'bitacora_tecnica',
       'pump_inspections', 'preventive_plans', 'work_orders',
       'uploaded_documents', 'document_folders', 'settings', 'app_data', 'deleted_ids'
     ];
@@ -493,6 +500,7 @@ async function seedPostgresFromData(data: any, client: any) {
     { name: 'schedules', items: Array.isArray(data.schedules) ? data.schedules : [] },
     { name: 'shift_swaps', items: Array.isArray(data.shiftSwaps) ? data.shiftSwaps : [] },
     { name: 'cronogramas', items: Array.isArray(data.cronogramas) ? data.cronogramas : [] },
+    { name: 'bitacora_tecnica', items: Array.isArray(data.bitacora) ? data.bitacora : [] },
     { name: 'meters', items: Array.isArray(data.meters) ? data.meters : [] },
     { name: 'meter_readings_log', items: Array.isArray(data.meterReadingsLog) ? data.meterReadingsLog : [] },
     { name: 'pump_inspections', items: Array.isArray(data.pumpInspections) ? data.pumpInspections : [] },
@@ -553,6 +561,7 @@ async function loadPostgresIntoMemory(client: any) {
       { name: 'schedules', key: 'schedules' },
       { name: 'shift_swaps', key: 'shiftSwaps' },
       { name: 'cronogramas', key: 'cronogramas' },
+      { name: 'bitacora_tecnica', key: 'bitacora' },
       { name: 'meters', key: 'meters' },
       { name: 'meter_readings_log', key: 'meterReadingsLog' },
       { name: 'pump_inspections', key: 'pumpInspections' },
@@ -712,6 +721,7 @@ async function persistMemoryToPostgres(incoming: any) {
       { key: 'schedules', table: 'schedules' },
       { key: 'shiftSwaps', table: 'shift_swaps' },
       { key: 'cronogramas', table: 'cronogramas' },
+      { key: 'bitacora', table: 'bitacora_tecnica' },
       { key: 'meters', table: 'meters' },
       { key: 'meterReadingsLog', table: 'meter_readings_log' },
       { key: 'pumpInspections', table: 'pump_inspections' },
@@ -797,6 +807,7 @@ function getCachedData() {
     if (!Array.isArray(memoryCache.uploadedDocuments)) memoryCache.uploadedDocuments = [];
     if (!Array.isArray(memoryCache.documentFolders)) memoryCache.documentFolders = [];
     if (!Array.isArray(memoryCache.cronogramas)) memoryCache.cronogramas = [];
+    if (!Array.isArray(memoryCache.bitacora)) memoryCache.bitacora = [];
     if (!Array.isArray(memoryCache.meters)) memoryCache.meters = [];
     if (!Array.isArray(memoryCache.meterReadingsLog)) memoryCache.meterReadingsLog = [];
     if (!Array.isArray(memoryCache.users)) memoryCache.users = [];
@@ -823,6 +834,7 @@ function getCachedData() {
         'schedules',
         'shiftSwaps',
         'cronogramas',
+        'bitacora',
         'meters',
         'meterReadingsLog',
         'uploadedDocuments',
@@ -899,8 +911,59 @@ function isCheckpointFieldCompleteServer(f: any, isGlobalOff: boolean = false, c
   return false;
 }
 
+function isValidPhotoUrlServer(u: any): boolean {
+  return (
+    typeof u === 'string' &&
+    u.trim().length > 25 &&
+    !u.includes('cached_in_db') &&
+    (u.startsWith('data:image/') || u.startsWith('http://') || u.startsWith('https://'))
+  );
+}
+
+function mergeUniquePhotosServer(...sources: Array<string[] | string | undefined | null>): string[] {
+  const result: string[] = [];
+  const seen = new Set<string>();
+  for (const src of sources) {
+    if (Array.isArray(src)) {
+      for (const item of src) {
+        if (isValidPhotoUrlServer(item)) {
+          const trimmed = item.trim();
+          if (!seen.has(trimmed)) {
+            seen.add(trimmed);
+            result.push(trimmed);
+          }
+        }
+      }
+    } else if (isValidPhotoUrlServer(src)) {
+      const trimmed = (src as string).trim();
+      if (!seen.has(trimmed)) {
+        seen.add(trimmed);
+        result.push(trimmed);
+      }
+    }
+  }
+  return result;
+}
+
+function checkpointHasValidPhotoServer(chk: any): boolean {
+  if (!chk) return false;
+  if (isValidPhotoUrlServer(chk.photoUrl)) return true;
+  if (Array.isArray(chk.photos) && chk.photos.some(isValidPhotoUrlServer)) return true;
+  if (Array.isArray(chk.measurementFields)) {
+    for (const f of chk.measurementFields) {
+      if (isValidPhotoUrlServer(f?.photoUrl)) return true;
+      if (Array.isArray(f?.photos) && f.photos.some(isValidPhotoUrlServer)) return true;
+    }
+  }
+  return false;
+}
+
 function isRoundCheckpointCompleteServer(chk: any): boolean {
   if (!chk) return false;
+  if (chk.photoRequired === true && !checkpointHasValidPhotoServer(chk)) {
+    return false;
+  }
+
   const isGlobalOff = chk.statusValue === 'Apagado' || chk.ampState === 'Apagado';
   if (isGlobalOff) return true;
 
@@ -1323,29 +1386,39 @@ function mergeAppData(incoming: any) {
           const mergedCheckpoints = (primary.checkpoints || []).map((pc: any, cIdx: number) => {
             const sc = (secondary.checkpoints || [])[cIdx] || (secondary.checkpoints || []).find((c: any) => c && (c.id === pc.id || c.title === pc.title));
             if (!sc) return pc;
-            const isValidPhoto = (u: any) => typeof u === 'string' && u.length > 20 && !u.includes('cached_in_db');
-            const photoUrl = isValidPhoto(pc.photoUrl) ? pc.photoUrl : (isValidPhoto(sc.photoUrl) ? sc.photoUrl : (pc.photoUrl || sc.photoUrl));
+            const mergedPhotos = mergeUniquePhotosServer(sc.photos, sc.photoUrl, pc.photos, pc.photoUrl);
+            const photoUrl = mergedPhotos[mergedPhotos.length - 1] || pc.photoUrl || sc.photoUrl;
             const measurementFields = Array.isArray(pc.measurementFields)
               ? pc.measurementFields.map((pf: any, fIdx: number) => {
                   const sf = sc.measurementFields?.[fIdx] || sc.measurementFields?.find((f: any) => f && (f.id === pf.id || f.name === pf.name));
                   if (!sf) return pf;
                   const hasPfVal = pf.value !== undefined && pf.value !== null && String(pf.value).trim() !== '';
                   const hasSfVal = sf.value !== undefined && sf.value !== null && String(sf.value).trim() !== '';
+                  const fPhotos = mergeUniquePhotosServer(sf.photos, sf.photoUrl, pf.photos, pf.photoUrl);
                   return {
                     ...pf,
                     value: hasPfVal ? pf.value : (hasSfVal ? sf.value : pf.value),
-                    photoUrl: isValidPhoto(pf.photoUrl) ? pf.photoUrl : (isValidPhoto(sf.photoUrl) ? sf.photoUrl : (pf.photoUrl || sf.photoUrl))
+                    photos: fPhotos.length > 0 ? fPhotos : pf.photos,
+                    photoUrl: fPhotos[fPhotos.length - 1] || pf.photoUrl || sf.photoUrl
                   };
                 })
               : sc.measurementFields;
             return {
               ...pc,
               currentValue: pc.currentValue !== undefined && pc.currentValue !== '' ? pc.currentValue : sc.currentValue,
+              photos: mergedPhotos.length > 0 ? mergedPhotos : pc.photos,
               photoUrl,
+              photoRequired: pc.photoRequired ?? sc.photoRequired,
               measurementFields
             };
           });
-          const winner = { ...secondary, ...primary, checkpoints: mergedCheckpoints.length > 0 ? mergedCheckpoints : (primary.checkpoints || secondary.checkpoints) };
+          const mergedRootPhotos = mergeUniquePhotosServer(secondary.photos, primary.photos);
+          const winner = {
+            ...secondary,
+            ...primary,
+            photos: mergedRootPhotos.length > 0 ? mergedRootPhotos : (primary.photos || secondary.photos),
+            checkpoints: mergedCheckpoints.length > 0 ? mergedCheckpoints : (primary.checkpoints || secondary.checkpoints)
+          };
           existingRoundsMap.set(rndItem.id, {
             ...winner,
             status: 'completada',
@@ -1540,6 +1613,35 @@ function mergeAppData(incoming: any) {
     current.cronogramas = Array.from(existingCronMap.values());
   }
 
+  // Bitácora Técnica (Permanent union merge by ID)
+  if (Array.isArray(incoming.bitacora)) {
+    const existingBitMap = new Map<string, any>();
+    for (const cur of (current.bitacora || [])) {
+      if (!cur || !cur.id) continue;
+      existingBitMap.set(cur.id, cur);
+    }
+    for (const item of incoming.bitacora) {
+      if (!item || !item.id) continue;
+      const existing = existingBitMap.get(item.id);
+      if (!existing) {
+        existingBitMap.set(item.id, item);
+      } else {
+        const tExisting = new Date(existing.updatedAt || existing.createdAt || 0).getTime();
+        const tIncoming = new Date(item.updatedAt || item.createdAt || 0).getTime();
+        const mergedPhotos = mergeUniquePhotosServer(existing.photos, existing.photoUrl, item.photos, item.photoUrl);
+        const merged = tIncoming >= tExisting ? { ...existing, ...item } : { ...item, ...existing };
+        if (mergedPhotos.length > 0) {
+          merged.photos = mergedPhotos;
+          merged.photoUrl = mergedPhotos[mergedPhotos.length - 1];
+        }
+        existingBitMap.set(item.id, merged);
+      }
+    }
+    const mergedBit = Array.from(existingBitMap.values());
+    mergedBit.sort((a: any, b: any) => new Date(b.createdAt || b.date || 0).getTime() - new Date(a.createdAt || a.date || 0).getTime());
+    current.bitacora = mergedBit;
+  }
+
   // 12. Meters (Strict authoritative sync, robust deduplication by id, code, and type+name, zero resurrection)
   // 12. Meters (Union merge so created meters are never erased)
   if (Array.isArray(incoming.meters) || Array.isArray(current.meters)) {
@@ -1670,6 +1772,7 @@ app.get("/api/data", async (req, res) => {
         qPumpInspections,
         qUploadedDocuments,
         qDocumentFolders,
+        qBitacora,
         qSettings,
         qTemplate
       ] = await Promise.all([
@@ -1690,6 +1793,7 @@ app.get("/api/data", async (req, res) => {
         pgPool.query('SELECT id, data FROM pump_inspections ORDER BY updated_at DESC').catch(() => null),
         pgPool.query('SELECT id, data FROM uploaded_documents ORDER BY updated_at DESC').catch(() => null),
         pgPool.query('SELECT id, data FROM document_folders ORDER BY updated_at DESC').catch(() => null),
+        pgPool.query('SELECT id, data FROM bitacora_tecnica ORDER BY updated_at DESC').catch(() => null),
         pgPool.query('SELECT data FROM settings WHERE id = $1 LIMIT 1', ['app_settings']).catch(() => null),
         pgPool.query('SELECT data FROM app_data WHERE id = $1 LIMIT 1', ['round_template']).catch(() => null)
       ]);
@@ -1729,6 +1833,9 @@ app.get("/api/data", async (req, res) => {
       const pgPumpInspections = mapPgRows(qPumpInspections);
       const pgUploadedDocuments = mapPgRows(qUploadedDocuments);
       const pgDocumentFolders = mapPgRows(qDocumentFolders);
+      const pgBitacora = (qBitacora && Array.isArray(qBitacora.rows))
+        ? qBitacora.rows.map((r: any) => (r && r.data && typeof r.data === 'object') ? { ...r.data, id: r.data.id || r.id } : null).filter(Boolean)
+        : null;
 
       if (pgRounds) data.rounds = pgRounds;
       if (pgIncidents) data.incidents = pgIncidents;
@@ -1746,6 +1853,7 @@ app.get("/api/data", async (req, res) => {
       if (pgPumpInspections) data.pumpInspections = pgPumpInspections;
       if (pgUploadedDocuments) data.uploadedDocuments = pgUploadedDocuments;
       if (pgDocumentFolders) data.documentFolders = pgDocumentFolders;
+      if (pgBitacora) data.bitacora = pgBitacora;
       if (qSettings?.rows?.[0]?.data) data.settings = qSettings.rows[0].data;
       if (Array.isArray(qTemplate?.rows?.[0]?.data?.items)) data.roundTemplate = qTemplate.rows[0].data.items;
 
@@ -2511,6 +2619,8 @@ app.post("/api/rounds", async (req, res) => {
 
   const clientId = req.headers['x-client-id'] || null;
 
+  const savedRoundsList: any[] = [];
+
   for (let round of validRounds) {
     // Si una ronda fue eliminada o descartada, NUNCA resucitarla por paquetes en tránsito
     if (deletedSet.has(round.id) && !round.forceRestore) {
@@ -2520,7 +2630,7 @@ app.post("/api/rounds", async (req, res) => {
     const isFull100 = isRoundFullyCompletedServer(round) || (Array.isArray(round.checkpoints) && round.checkpoints.length >= 22 && round.checkpoints.every((c: any) => isRoundCheckpointCompleteServer(c)));
     
     if (round.status === 'en_progreso') {
-      // Keep strictly in progress while technician is working! Never force completed or incomplete
+      // Keep strictly in progress while technician is working
     } else if (round.status === 'completada' || isFull100) {
       round.status = 'completada';
       round.compliancePercentage = 100;
@@ -2544,23 +2654,48 @@ app.post("/api/rounds", async (req, res) => {
       const existing = current.rounds[idx];
       const mergedCheckpoints = (round.checkpoints || existing.checkpoints || []).map((rc: any) => {
         const ec = (existing.checkpoints || []).find((c: any) => c && (c.id === rc.id || c.title === rc.title));
-        const validRcPhoto = rc.photoUrl && !rc.photoUrl.includes('cached_in_db') && (rc.photoUrl.startsWith('data:image/') || rc.photoUrl.startsWith('http'));
-        const validEcPhoto = ec?.photoUrl && !ec.photoUrl.includes('cached_in_db') && (ec.photoUrl.startsWith('data:image/') || ec.photoUrl.startsWith('http'));
-        const photoUrl = validRcPhoto ? rc.photoUrl : (validEcPhoto ? ec.photoUrl : rc.photoUrl);
+        const mergedChkPhotos = mergeUniquePhotosServer(ec?.photos, ec?.photoUrl, rc.photos, rc.photoUrl);
+        const photoUrl = mergedChkPhotos[mergedChkPhotos.length - 1] || rc.photoUrl || ec?.photoUrl;
 
         const mergedFields = (rc.measurementFields || ec?.measurementFields || []).map((rf: any, fIdx: number) => {
           const ef = ec?.measurementFields?.[fIdx] || ec?.measurementFields?.find((f: any) => f && (f.id === rf.id || f.name === rf.name));
-          const validRfPhoto = rf?.photoUrl && !rf.photoUrl.includes('cached_in_db') && (rf.photoUrl.startsWith('data:image/') || rf.photoUrl.startsWith('http'));
-          const validEfPhoto = ef?.photoUrl && !ef.photoUrl.includes('cached_in_db') && (ef.photoUrl.startsWith('data:image/') || ef.photoUrl.startsWith('http'));
-          const fPhoto = validRfPhoto ? rf.photoUrl : (validEfPhoto ? ef.photoUrl : rf?.photoUrl);
-          return { ...rf, photoUrl: fPhoto };
+          const mergedFieldPhotos = mergeUniquePhotosServer(ef?.photos, ef?.photoUrl, rf?.photos, rf?.photoUrl);
+          const fPhoto = mergedFieldPhotos[mergedFieldPhotos.length - 1] || rf?.photoUrl || ef?.photoUrl;
+          return {
+            ...rf,
+            ...(mergedFieldPhotos.length > 0 ? { photos: mergedFieldPhotos } : {}),
+            ...(fPhoto ? { photoUrl: fPhoto } : {})
+          };
         });
 
-        return { ...rc, photoUrl, measurementFields: mergedFields };
+        return {
+          ...rc,
+          photoRequired: rc.photoRequired ?? ec?.photoRequired,
+          ...(mergedChkPhotos.length > 0 ? { photos: mergedChkPhotos } : {}),
+          ...(photoUrl ? { photoUrl } : {}),
+          measurementFields: mergedFields
+        };
       });
+
+      const mergedCustomMeters: Record<string, any> = {
+        ...(existing.meterReadings?.customMeters || {}),
+        ...(round.meterReadings?.customMeters || {})
+      };
+      for (const cmKey of Object.keys(mergedCustomMeters)) {
+        const eCm = existing.meterReadings?.customMeters?.[cmKey];
+        const rCm = round.meterReadings?.customMeters?.[cmKey];
+        const cmPhotos = mergeUniquePhotosServer(eCm?.photos, eCm?.photoUrl, rCm?.photos, rCm?.photoUrl);
+        mergedCustomMeters[cmKey] = {
+          ...(eCm || {}),
+          ...(rCm || {}),
+          ...(cmPhotos.length > 0 ? { photos: cmPhotos, photoUrl: cmPhotos[cmPhotos.length - 1] } : {})
+        };
+      }
+
       const mergedMeters = {
         ...(existing.meterReadings || {}),
         ...(round.meterReadings || {}),
+        customMeters: mergedCustomMeters,
         waterMeterPhotoUrl: (round.meterReadings?.waterMeterPhotoUrl && !round.meterReadings.waterMeterPhotoUrl.includes('cached_in_db'))
           ? round.meterReadings.waterMeterPhotoUrl
           : (existing.meterReadings?.waterMeterPhotoUrl || round.meterReadings?.waterMeterPhotoUrl),
@@ -2571,22 +2706,29 @@ app.post("/api/rounds", async (req, res) => {
           ? round.meterReadings.gasMeterPhotoUrl
           : (existing.meterReadings?.gasMeterPhotoUrl || round.meterReadings?.gasMeterPhotoUrl),
       };
-      if (!mergedMeters.mainWaterPressurePsi) mergedMeters.mainWaterPressurePsi = 72;
-      if (!mergedMeters.hotWaterSupplyTempC) mergedMeters.hotWaterSupplyTempC = 60;
-      if (!mergedMeters.hotWaterReturnTempC) mergedMeters.hotWaterReturnTempC = 53.5;
-      if (!mergedMeters.waterCubicMeters) mergedMeters.waterCubicMeters = 48925;
-      if (!mergedMeters.electricKwh) mergedMeters.electricKwh = 341950;
-      if (!mergedMeters.gasCubicMeters) mergedMeters.gasCubicMeters = 18215;
-      if (!mergedMeters.poolPh) mergedMeters.poolPh = 7.35;
-      if (!mergedMeters.poolChlorinePpm) mergedMeters.poolChlorinePpm = 2.1;
 
       const mergedAnomalies = (round.anomalies || existing.anomalies || []).map((ra: any) => {
         const ea = (existing.anomalies || []).find((a: any) => a && (a.id === ra.id || a.title === ra.title));
-        const validRaPhoto = ra?.photoUrl && !ra.photoUrl.includes('cached_in_db') && (ra.photoUrl.startsWith('data:image/') || ra.photoUrl.startsWith('http'));
-        const validEaPhoto = ea?.photoUrl && !ea.photoUrl.includes('cached_in_db') && (ea.photoUrl.startsWith('data:image/') || ea.photoUrl.startsWith('http'));
-        const aPhoto = validRaPhoto ? ra.photoUrl : (validEaPhoto ? ea.photoUrl : ra?.photoUrl);
-        return { ...ra, photoUrl: aPhoto };
+        const mergedAnomPhotos = mergeUniquePhotosServer(ea?.photos, ea?.photoUrl, ra?.photos, ra?.photoUrl);
+        const aPhoto = mergedAnomPhotos[mergedAnomPhotos.length - 1] || ra?.photoUrl || ea?.photoUrl;
+        return {
+          ...ra,
+          ...(mergedAnomPhotos.length > 0 ? { photos: mergedAnomPhotos } : {}),
+          ...(aPhoto ? { photoUrl: aPhoto } : {})
+        };
       });
+
+      const mergedRoundPhotos = mergeUniquePhotosServer(
+        existing.photos,
+        round.photos,
+        ...mergedCheckpoints.map((c: any) => c.photos || c.photoUrl),
+        ...mergedCheckpoints.flatMap((c: any) => (c.measurementFields || []).map((f: any) => f.photos || f.photoUrl)),
+        ...mergedAnomalies.map((a: any) => a.photos || a.photoUrl),
+        mergedMeters.waterMeterPhotoUrl,
+        mergedMeters.electricMeterPhotoUrl,
+        mergedMeters.gasMeterPhotoUrl
+      );
+
       const isExistingCompleted = existing.status === 'completada' || Boolean(existing.completedAt && existing.technicianSignature);
       const isIncomingCompleted = round.status === 'completada' || Boolean(round.completedAt && round.technicianSignature);
 
@@ -2598,6 +2740,7 @@ app.post("/api/rounds", async (req, res) => {
           checkpoints: mergedCheckpoints,
           meterReadings: mergedMeters,
           anomalies: mergedAnomalies,
+          photos: mergedRoundPhotos,
           status: 'completada',
           compliancePercentage: 100,
           completedAt: existing.completedAt || new Date().toISOString(),
@@ -2610,6 +2753,7 @@ app.post("/api/rounds", async (req, res) => {
           checkpoints: mergedCheckpoints,
           meterReadings: mergedMeters,
           anomalies: mergedAnomalies,
+          photos: mergedRoundPhotos,
           status: 'completada',
           compliancePercentage: 100,
           completedAt: round.completedAt || existing.completedAt || new Date().toISOString(),
@@ -2622,33 +2766,44 @@ app.post("/api/rounds", async (req, res) => {
           checkpoints: mergedCheckpoints,
           meterReadings: mergedMeters,
           anomalies: mergedAnomalies,
+          photos: mergedRoundPhotos,
           status: 'en_progreso',
           completedAt: undefined,
           technicianSignature: round.technicianSignature || existing.technicianSignature || undefined
         };
       } else {
-        savedRound = { ...existing, ...round, checkpoints: mergedCheckpoints, meterReadings: mergedMeters, anomalies: mergedAnomalies };
+        savedRound = {
+          ...existing,
+          ...round,
+          checkpoints: mergedCheckpoints,
+          meterReadings: mergedMeters,
+          anomalies: mergedAnomalies,
+          photos: mergedRoundPhotos
+        };
       }
       current.rounds[idx] = savedRound;
     } else {
       if (!round.meterReadings || typeof round.meterReadings !== 'object') {
         round.meterReadings = {};
       }
-      if (round.status !== 'en_progreso') {
-        if (!round.meterReadings.mainWaterPressurePsi) round.meterReadings.mainWaterPressurePsi = 72;
-        if (!round.meterReadings.hotWaterSupplyTempC) round.meterReadings.hotWaterSupplyTempC = 60;
-        if (!round.meterReadings.hotWaterReturnTempC) round.meterReadings.hotWaterReturnTempC = 53.5;
-        if (!round.meterReadings.waterCubicMeters) round.meterReadings.waterCubicMeters = 48925;
-        if (!round.meterReadings.electricKwh) round.meterReadings.electricKwh = 341950;
-        if (!round.meterReadings.gasCubicMeters) round.meterReadings.gasCubicMeters = 18215;
-        if (!round.meterReadings.poolPh) round.meterReadings.poolPh = 7.35;
-        if (!round.meterReadings.poolChlorinePpm) round.meterReadings.poolChlorinePpm = 2.1;
+      const initialRoundPhotos = mergeUniquePhotosServer(
+        round.photos,
+        ...(round.checkpoints || []).map((c: any) => c?.photos || c?.photoUrl),
+        ...(round.checkpoints || []).flatMap((c: any) => (c?.measurementFields || []).map((f: any) => f?.photos || f?.photoUrl)),
+        ...(round.anomalies || []).map((a: any) => a?.photos || a?.photoUrl),
+        round.meterReadings.waterMeterPhotoUrl,
+        round.meterReadings.electricMeterPhotoUrl,
+        round.meterReadings.gasMeterPhotoUrl
+      );
+      if (initialRoundPhotos.length > 0) {
+        round.photos = initialRoundPhotos;
       }
       savedRound = round;
       current.rounds.unshift(round);
     }
 
     await pgUpsert('rounds', savedRound.id, savedRound);
+    savedRoundsList.push(savedRound);
 
     const eventType = savedRound.status === 'completada' ? 'round_completed' : 'round_updated';
     broadcastSse({
@@ -2690,8 +2845,8 @@ app.post("/api/rounds", async (req, res) => {
 
   res.json({
     success: true,
-    count: validRounds.length,
-    rounds: validRounds
+    count: savedRoundsList.length,
+    rounds: savedRoundsList
   });
 });
 
@@ -3381,6 +3536,89 @@ app.delete("/api/meter-readings/:id", async (req, res) => {
   broadcastSse({ type: 'meter_reading_deleted', readingId: id, clientId, time: Date.now() });
   broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
   res.json({ status: "deleted", id });
+});
+
+// Bitácora Técnica (Permanent PostgreSQL Operational Logbook)
+app.get("/api/bitacora", async (_req, res) => {
+  const store = getCachedData();
+  if (pgPool) {
+    try {
+      const q = await pgPool.query('SELECT id, data FROM bitacora_tecnica ORDER BY updated_at DESC');
+      const pgBitacora = (q.rows || [])
+        .map((r: any) => (r && r.data && typeof r.data === 'object') ? { ...r.data, id: r.data.id || r.id } : null)
+        .filter(Boolean);
+      store.bitacora = pgBitacora;
+      return res.json(pgBitacora);
+    } catch (e) {
+      console.warn("[PostgreSQL] Notice loading bitacora_tecnica from DB:", (e as any)?.message || e);
+    }
+  }
+  res.json(store.bitacora || []);
+});
+
+app.post("/api/bitacora", async (req, res) => {
+  const item = req.body;
+  if (!item || !item.id) return res.status(400).json({ error: "Invalid bitacora entry" });
+  const store = getCachedData();
+  if (!Array.isArray(store.bitacora)) store.bitacora = [];
+
+  const photos = mergeUniquePhotosServer(item.photos, item.photoUrl);
+  const entry = {
+    ...item,
+    ...(photos.length > 0 ? { photos, photoUrl: photos[photos.length - 1] } : {}),
+    createdAt: item.createdAt || new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  };
+
+  const idx = store.bitacora.findIndex((b: any) => b && b.id === entry.id);
+  if (idx >= 0) {
+    const existing = store.bitacora[idx];
+    const mergedPhotos = mergeUniquePhotosServer(existing.photos, existing.photoUrl, entry.photos, entry.photoUrl);
+    store.bitacora[idx] = {
+      ...existing,
+      ...entry,
+      ...(mergedPhotos.length > 0 ? { photos: mergedPhotos, photoUrl: mergedPhotos[mergedPhotos.length - 1] } : {})
+    };
+  } else {
+    store.bitacora.unshift(entry);
+  }
+
+  const savedEntry = idx >= 0 ? store.bitacora[idx] : entry;
+  await pgUpsert('bitacora_tecnica', savedEntry.id, savedEntry, false);
+  scheduleSaveToDisk();
+
+  const clientId = req.headers['x-client-id'] || null;
+  broadcastSse({ type: 'bitacora_updated', entry: savedEntry, clientId, time: Date.now() });
+  broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
+  res.json({ success: true, entry: savedEntry });
+});
+
+app.put("/api/bitacora/:id", async (req, res) => {
+  const { id } = req.params;
+  const store = getCachedData();
+  if (!Array.isArray(store.bitacora)) store.bitacora = [];
+
+  const idx = store.bitacora.findIndex((b: any) => b && b.id === id);
+  const existing = idx >= 0 ? store.bitacora[idx] : {};
+  const mergedPhotos = mergeUniquePhotosServer(existing.photos, existing.photoUrl, req.body?.photos, req.body?.photoUrl);
+  const updatedEntry = {
+    ...existing,
+    ...req.body,
+    id,
+    ...(mergedPhotos.length > 0 ? { photos: mergedPhotos, photoUrl: mergedPhotos[mergedPhotos.length - 1] } : {}),
+    updatedAt: new Date().toISOString()
+  };
+
+  if (idx >= 0) store.bitacora[idx] = updatedEntry;
+  else store.bitacora.unshift(updatedEntry);
+
+  await pgUpsert('bitacora_tecnica', id, updatedEntry, false);
+  scheduleSaveToDisk();
+
+  const clientId = req.headers['x-client-id'] || null;
+  broadcastSse({ type: 'bitacora_updated', entry: updatedEntry, clientId, time: Date.now() });
+  broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
+  res.json({ success: true, entry: updatedEntry });
 });
 
 // Generic entity CRUD endpoints

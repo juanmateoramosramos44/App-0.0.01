@@ -34,7 +34,8 @@ import {
   CheckSquare,
   CalendarRange,
   Gauge,
-  Loader2
+  Loader2,
+  BookOpen
 } from 'lucide-react';
 
 const safeLower = (val: unknown): string => String(val ?? '').toLowerCase().trim();
@@ -42,6 +43,7 @@ const safeLower = (val: unknown): string => String(val ?? '').toLowerCase().trim
 const AVAILABLE_MODULES = [
   { id: 'dashboard', label: 'Panel General', icon: Layers, desc: 'Métricas e indicadores globales' },
   { id: 'rondas', label: 'Rondas Diarias', icon: Clock, desc: 'Toma de lecturas e inspecciones' },
+  { id: 'bitacora', label: 'Bitácora Técnica', icon: BookOpen, desc: 'Registro operativo de novedades, trabajos y entregas de turno' },
   { id: 'contadores', label: 'Lectura de Contadores', icon: Gauge, desc: 'Control de agua, energía eléctrica y gas' },
   { id: 'bombas', label: 'Equipos & Bombas', icon: Layers, desc: 'Inventario y bitácora técnica' },
   { id: 'hojas_vida', label: 'Hojas de Vida', icon: FileSpreadsheet, desc: 'Historial y documentación' },
@@ -190,7 +192,7 @@ export const UsersView: React.FC = () => {
         notifyIncidents: true
       });
     } else if (role === 'técnico') {
-      setFormSections(['dashboard', 'rondas', 'bombas', 'hojas_vida', 'incidencias', 'preventivo', 'solicitudes', 'tareas', 'horarios', 'cronograma']);
+      setFormSections(['dashboard', 'rondas', 'bitacora', 'bombas', 'hojas_vida', 'incidencias', 'preventivo', 'solicitudes', 'tareas', 'horarios', 'cronograma']);
       setFormPermissions({
         canEditSettings: false,
         canDeleteRecords: false,
@@ -307,6 +309,7 @@ export const UsersView: React.FC = () => {
           role: formRole,
           department: formDepartment.trim(),
           visibleSections: finalSections,
+          bitacoraPermissionExplicit: true,
           permissions: finalPermissions,
           canStartRounds: finalPermissions.canStartRounds,
           notifyRoundInProgress: finalPermissions.notifyRoundInProgress,
@@ -315,7 +318,7 @@ export const UsersView: React.FC = () => {
           notifyTasks: finalPermissions.notifyTasks,
           notifyIncidents: finalPermissions.notifyIncidents,
           status: formStatus
-        });
+        } as any);
       } else {
         // Editing existing user
         const updateData: Partial<User> = {
@@ -325,6 +328,7 @@ export const UsersView: React.FC = () => {
           role: formRole,
           department: formDepartment.trim(),
           visibleSections: finalSections,
+          bitacoraPermissionExplicit: true,
           permissions: finalPermissions,
           canStartRounds: finalPermissions.canStartRounds,
           notifyRoundInProgress: finalPermissions.notifyRoundInProgress,
@@ -333,7 +337,7 @@ export const UsersView: React.FC = () => {
           notifyTasks: finalPermissions.notifyTasks,
           notifyIncidents: finalPermissions.notifyIncidents,
           status: formStatus
-        };
+        } as any;
 
         await updateUser(editingUser.id, updateData);
       }

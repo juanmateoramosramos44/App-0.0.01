@@ -21,6 +21,7 @@ import { UsersView } from './components/usuarios/UsersView';
 import { TechnicianSchedulesView } from './components/horarios/TechnicianSchedulesView';
 import { CronogramaView } from './components/cronograma/CronogramaView';
 import { MetersView } from './components/contadores/MetersView';
+import { BitacoraTecnicaView } from './components/bitacora/BitacoraTecnicaView';
 
 import { NotificationPermissionBanner } from './components/notifications/NotificationPermissionBanner';
 import { PWAAutoPrompt } from './components/common/PWAAutoPrompt';
@@ -132,6 +133,10 @@ function AppContent() {
             <DailyRoundsView />
           )}
 
+          {selectedTab === 'bitacora' && isSectionAllowed('bitacora') && (
+            <BitacoraTecnicaView />
+          )}
+
           {selectedTab === 'contadores' && isSectionAllowed('contadores') && (
             <MetersView />
           )}
@@ -180,7 +185,7 @@ function AppContent() {
           )}
 
           {/* Fallback de seguridad anti-pantalla en blanco: si la pestaña no es válida o no está permitida */}
-          {(!['dashboard', 'rondas', 'contadores', 'bombas', 'hojas_vida', 'incidencias', 'preventivo', 'solicitudes', 'tareas', 'cronograma', 'horarios', 'usuarios', 'configuraciones'].includes(selectedTab) || !isSectionAllowed(selectedTab)) && (
+          {(!['dashboard', 'rondas', 'bitacora', 'contadores', 'bombas', 'hojas_vida', 'incidencias', 'preventivo', 'solicitudes', 'tareas', 'cronograma', 'horarios', 'usuarios', 'configuraciones'].includes(selectedTab) || !isSectionAllowed(selectedTab)) && (
             isSectionAllowed('dashboard') ? (
               <DashboardOverview 
                 onStartRound={handleStartRoundFromDashboard}

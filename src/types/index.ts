@@ -1,6 +1,7 @@
 export type NavigationTab = 
   | 'dashboard' 
   | 'rondas' 
+  | 'bitacora'
   | 'contadores'
   | 'bombas' 
   | 'hojas_vida' 
@@ -245,7 +246,7 @@ export interface DailyRound {
     electricMeterPhotoUrl?: string;
     gasMeterPhotoUrl?: string;
     customPhotos?: Record<string, string>;
-    customMeters?: Record<string, { id?: string; name: string; unit: string; value?: number | string; photoUrl?: string }>;
+    customMeters?: Record<string, { id?: string; name: string; unit: string; value?: number | string; photoUrl?: string; photos?: string[] }>;
     poolPh?: number;
     poolChlorinePpm?: number;
     hotWaterSupplyTempC?: number;
@@ -682,4 +683,32 @@ export interface MeterReadingRecord {
   createdAt: string;
 }
 
+export type BitacoraShift = 'manana' | 'tarde' | 'noche';
+export type BitacoraCategory =
+  | 'mantenimiento_diario'
+  | 'reparacion'
+  | 'emergencia'
+  | 'entrega_turno'
+  | 'observacion';
+export type BitacoraStatus = 'normal' | 'pendiente' | 'en_seguimiento' | 'resuelto';
 
+export interface BitacoraEntry {
+  id: string;
+  date: string; // YYYY-MM-DD
+  time: string; // HH:mm
+  shift: BitacoraShift;
+  technicianId?: string;
+  technicianName: string;
+  area: string;
+  category: BitacoraCategory;
+  status: BitacoraStatus;
+  title?: string;
+  description: string;
+  materialsUsed?: string;
+  observations?: string;
+  photos?: string[];
+  photoUrl?: string;
+  createdAt: string;
+  updatedAt?: string;
+  updatedBy?: string;
+}

@@ -26,7 +26,8 @@ import {
   BulkScheduleParams,
   Cronograma,
   MeterDefinition,
-  MeterReadingRecord
+  MeterReadingRecord,
+  BitacoraEntry
 } from '../types';
 import { 
   INITIAL_EQUIPMENT, 
@@ -112,7 +113,8 @@ export const getDoc = async (_docRef: any) => ({
 });
 export const arrayUnion = (...items: any[]) => items;
 export const onSnapshot = (_ref: any, _next?: any, _error?: any) => () => {};
-import { getCheckpointButtonAction, getFieldButtonAction, isCheckpointAlarmActive, getIncompleteCheckpoints, isCheckpointComplete } from '../utils/roundButtonUtils';
+import { getCheckpointButtonAction, getFieldButtonAction, isCheckpointAlarmActive, getIncompleteCheckpoints, isCheckpointComplete, isCheckpointPhotoRequired, hasCheckpointRequiredPhoto, validateRoundCompletion } from '../utils/roundButtonUtils';
+import { mergeUniquePhotos } from '../utils/imageCompression';
 import { sendSystemNotification, playAlertSound, requestNotificationPermission, isNotificationSupported, syncPushSubscriptionWithServer, broadcastServerPushNotification } from '../lib/notifications';
 import { getLocalDateTimeString, getLocalDateString } from '../utils/dateUtils';
 import { performStateAudit, StateAuditResult, CANONICAL_INCIDENT_MAP, correctionsToAuditLogEntries, getInitialAuditLogs } from '../utils/stateAudit';
@@ -355,8 +357,37 @@ interface MaintenanceContextType {
   syncRoundsSilently: () => Promise<void>;
   startNewRound: (shift: RoundShift, technicianName: string, customDate?: string) => DailyRound | null;
   updateRound: (roundId: string, data: Partial<DailyRound>) => Promise<void>;
-  updateActiveRoundCheckpoint: (chkId: string, val: any, notes?: string, measurementFields?: RoundMeasurementField[], statusValue?: string, ampState?: string, immediate?: boolean, photoUrl?: string) => void;
-  updateActiveRoundMeasurementField: (chkId: string, fieldIndex: number, val: number | string, ampState?: string, statusValue?: string, immediate?: boolean) => void;
+  updateActiveRoundCheckpoint: (
+    chkId: string,
+    val: any,
+    notes?: string,
+    measurementFields?: RoundMeasurementField[],
+    statusValue?: string,
+    ampState?: string,
+    immediate?: boolean,
+    photoUrl?: string,
+    photosOverride?: string[],
+    photoAction?: 'append' | 'remove' | 'replace'
+  ) => void;
+  updateActiveRoundMeasurementField: (
+    chkId: string,
+    fieldIndex: number,
+    val: number | string,
+    ampState?: string,
+    statusValue?: string,
+    immediate?: boolean,
+    photoUrl?: string,
+    photosOverride?: string[],
+    photoAction?: 'append' | 'remove' | 'replace'
+  ) => void;
+  removeActiveRoundPhoto: (target: {
+    targetType: 'checkpoint' | 'field' | 'generalWater' | 'generalElectric' | 'generalGas' | 'customMeter' | 'anomaly';
+    checkpointId?: string;
+    fieldIndex?: number;
+    customMeterId?: string;
+    anomalyId?: string;
+    photoUrl: string;
+  }) => void;
   updateActiveRoundMeterReadings: (readings: Partial<DailyRound['meterReadings']>, generalNotes?: string) => void;
   updateActiveRoundCheckpointTags: (chkId: string, tags: string[], saveToTemplate?: boolean, targetTitle?: string, targetArea?: string) => Promise<void>;
   addRoundAnomaly: (anomaly: Omit<RoundAnomaly, 'id' | 'timestamp'>) => void;
@@ -439,6 +470,11 @@ interface MaintenanceContextType {
   deleteMeter: (id: string) => Promise<void>;
   recordMeterReading: (data: Omit<MeterReadingRecord, 'id' | 'createdAt' | 'consumption' | 'intervalHours'>) => Promise<MeterReadingRecord>;
   deleteMeterReading: (id: string) => Promise<void>;
+
+  // Bitácora Técnica (PostgreSQL Operational Logbook)
+  bitacora: BitacoraEntry[];
+  addBitacoraEntry: (entry: Omit<BitacoraEntry, 'id' | 'createdAt' | 'updatedAt'>) => Promise<BitacoraEntry>;
+  updateBitacoraEntry: (id: string, data: Partial<BitacoraEntry>) => Promise<void>;
 }
 
 const MaintenanceContext = createContext<MaintenanceContextType | null>(null);
@@ -463,6 +499,7 @@ const STORAGE_KEYS = {
   METERS: 'hotel_maint_meters',
   METER_READINGS_LOG: 'hotel_maint_meter_readings_log',
   PENDING_OFFLINE_ROUNDS: 'hotel_maint_pending_offline_rounds',
+  BITACORA: 'hotel_maint_bitacora',
 };
 
 const DELETED_EQUIPMENT_STORAGE_KEY = 'hotel_maint_deleted_eq_ids';
@@ -1911,9 +1948,10 @@ const mergeRoundLists = (
 
       return {
         ...pc,
+        photoRequired: pc.photoRequired ?? sc?.photoRequired,
         currentValue: finalVal,
         statusValue: finalStatus,
-        photoUrl: finalPhotoUrl,
+        photoUrl: finalPhotoUrl || mergedPhotos[mergedPhotos.length - 1],
         photos: mergedPhotos.length > 0 ? mergedPhotos : undefined,
         measurementFields: mergedFields
       };
@@ -1921,7 +1959,28 @@ const mergeRoundLists = (
   };
 
   const mergeMeterPhotos = (primaryMeters: any, secondaryMeters: any) => {
+    const priCustom = primaryMeters?.customMeters || {};
+    const secCustom = secondaryMeters?.customMeters || {};
+    const mergedCustom: Record<string, any> = {};
+    const customKeys = new Set([...Object.keys(priCustom), ...Object.keys(secCustom)]);
+    customKeys.forEach(k => {
+      const p = priCustom[k];
+      const s = secCustom[k];
+      if (!p && !s) return;
+      const mergedCPhotos = mergeUniquePhotos(p?.photos, p?.photoUrl ? [p.photoUrl] : [], s?.photos, s?.photoUrl ? [s.photoUrl] : []);
+      const mainPhoto = isPhotoValid(p?.photoUrl)
+        ? p.photoUrl
+        : (isPhotoValid(s?.photoUrl) ? s.photoUrl : (mergedCPhotos[mergedCPhotos.length - 1] || p?.photoUrl || s?.photoUrl));
+      mergedCustom[k] = {
+        ...(s || {}),
+        ...(p || {}),
+        photoUrl: mainPhoto,
+        photos: mergedCPhotos.length > 0 ? mergedCPhotos : undefined
+      };
+    });
+
     return {
+      ...(secondaryMeters || {}),
       ...(primaryMeters || {}),
       waterMeterPhotoUrl: isPhotoValid(primaryMeters?.waterMeterPhotoUrl)
         ? primaryMeters.waterMeterPhotoUrl
@@ -1932,6 +1991,7 @@ const mergeRoundLists = (
       gasMeterPhotoUrl: isPhotoValid(primaryMeters?.gasMeterPhotoUrl)
         ? primaryMeters.gasMeterPhotoUrl
         : (isPhotoValid(secondaryMeters?.gasMeterPhotoUrl) ? secondaryMeters.gasMeterPhotoUrl : primaryMeters?.gasMeterPhotoUrl),
+      customMeters: Object.keys(mergedCustom).length > 0 ? mergedCustom : (primaryMeters?.customMeters || secondaryMeters?.customMeters)
     };
   };
 
@@ -1950,9 +2010,11 @@ const mergeRoundLists = (
       const sa = secMap.get(pa.id) || secMap.get(pa.title) || (pa.title ? secMap.get(pa.title.toLowerCase().trim()) : undefined);
       const hasPriPhoto = isPhotoValid(pa.photoUrl);
       const hasSecPhoto = sa ? isPhotoValid(sa.photoUrl) : false;
+      const mergedAPhotos = mergeUniquePhotos(pa.photos, hasPriPhoto ? [pa.photoUrl] : [], sa?.photos, hasSecPhoto ? [sa.photoUrl] : []);
       return {
         ...pa,
-        photoUrl: hasPriPhoto ? pa.photoUrl : (hasSecPhoto ? sa.photoUrl : (pa.photoUrl || sa?.photoUrl))
+        photoUrl: hasPriPhoto ? pa.photoUrl : (hasSecPhoto ? sa.photoUrl : (mergedAPhotos[mergedAPhotos.length - 1] || pa.photoUrl || sa?.photoUrl)),
+        photos: mergedAPhotos.length > 0 ? mergedAPhotos : undefined
       };
     });
   };
@@ -2016,12 +2078,15 @@ const mergeRoundLists = (
         const mergedMeterReadings = mergeMeterPhotos(winner.meterReadings, loser.meterReadings);
         const mergedAnomalies = mergeAnomaliesWithPhotos(winner.anomalies || [], loser.anomalies || []);
 
+        const mergedPhotosRoot = mergeUniquePhotos(winner.photos, loser.photos);
+
         map.set(r.id, normalizeRoundRecord({
           ...winner,
           checkpoints: mergedCheckpoints,
           meterReadings: mergedMeterReadings,
           anomalies: mergedAnomalies,
-          anomaliesCount: mergedAnomalies.length
+          anomaliesCount: mergedAnomalies.length,
+          photos: mergedPhotosRoot.length > 0 ? mergedPhotosRoot : undefined
         }));
       }
     }
@@ -2578,7 +2643,7 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
       if (typeof window !== 'undefined') {
         const urlParams = new URLSearchParams(window.location.search);
         const queryTab = urlParams.get('tab') as NavigationTab | null;
-        if (queryTab && ['dashboard', 'rondas', 'contadores', 'bombas', 'hojas_vida', 'incidencias', 'preventivo', 'solicitudes', 'tareas', 'cronograma', 'horarios', 'usuarios', 'configuraciones'].includes(queryTab)) {
+        if (queryTab && ['dashboard', 'rondas', 'bitacora', 'contadores', 'bombas', 'hojas_vida', 'incidencias', 'preventivo', 'solicitudes', 'tareas', 'cronograma', 'horarios', 'usuarios', 'configuraciones'].includes(queryTab)) {
           return queryTab;
         }
       }
@@ -2608,7 +2673,7 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
       try {
         const urlParams = new URLSearchParams(window.location.search);
         const queryTab = urlParams.get('tab') as NavigationTab | null;
-        if (queryTab && ['dashboard', 'rondas', 'contadores', 'bombas', 'hojas_vida', 'incidencias', 'preventivo', 'solicitudes', 'tareas', 'cronograma', 'horarios', 'usuarios', 'configuraciones'].includes(queryTab)) {
+        if (queryTab && ['dashboard', 'rondas', 'bitacora', 'contadores', 'bombas', 'hojas_vida', 'incidencias', 'preventivo', 'solicitudes', 'tareas', 'cronograma', 'horarios', 'usuarios', 'configuraciones'].includes(queryTab)) {
           setSelectedTab(queryTab);
         }
       } catch (e) {}
@@ -2622,7 +2687,7 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
         try {
           const urlObj = new URL(targetUrl, window.location.origin);
           const tab = urlObj.searchParams.get('tab') as NavigationTab | null;
-          if (tab && ['dashboard', 'rondas', 'contadores', 'bombas', 'hojas_vida', 'incidencias', 'preventivo', 'solicitudes', 'tareas', 'cronograma', 'horarios', 'usuarios', 'configuraciones'].includes(tab)) {
+          if (tab && ['dashboard', 'rondas', 'bitacora', 'contadores', 'bombas', 'hojas_vida', 'incidencias', 'preventivo', 'solicitudes', 'tareas', 'cronograma', 'horarios', 'usuarios', 'configuraciones'].includes(tab)) {
             setSelectedTab(tab);
           }
         } catch (e) {}
@@ -2923,6 +2988,19 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
     return Array.from(map.values());
   }, [rounds, activeRound?.id]);
 
+  const [bitacora, setBitacora] = useState<BitacoraEntry[]>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEYS.BITACORA);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) return parsed.filter((b: BitacoraEntry) => b && b.id);
+      }
+    } catch (e) { console.error(e); }
+    return [];
+  });
+  const bitacoraRef = useRef<BitacoraEntry[]>(bitacora);
+  useEffect(() => { bitacoraRef.current = bitacora; }, [bitacora]);
+
   const [pumpInspections, setPumpInspections] = useState<PumpInspection[]>(() => {
     const deletedIds = getDeletedPumpInspectionIds();
     const saved = localStorage.getItem(STORAGE_KEYS.INSPECTIONS);
@@ -3093,15 +3171,24 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
     // Si el perfil del usuario tiene una lista explícita de secciones visibles (visibleSections) configurada por el Administrador:
     if (Array.isArray(currentUser.visibleSections)) {
       const userSections = currentUser.visibleSections.map(normalizeSectionId);
+      if (userSections.includes(normalizedTarget)) return true;
 
-      // Se respeta ÚNICA Y ESTRICTAMENTE lo que esté configurado en visibleSections para cualquier rol
-      return userSections.includes(normalizedTarget);
+      // Para cuentas existentes previas a Bitácora Técnica, habilitar automáticamente a admin/técnico si aún no fue desmarcada explícitamente por el administrador
+      if (
+        normalizedTarget === 'bitacora' &&
+        (currentUser as any).bitacoraPermissionExplicit !== true &&
+        (currentUser.role === 'admin' || currentUser.role === 'técnico' || userSections.includes('rondas'))
+      ) {
+        return true;
+      }
+
+      return false;
     }
 
     // Valores por defecto por rol solo si visibleSections NO ha sido configurado en el usuario
     if (currentUser.role === 'admin') return true;
     if (currentUser.role === 'housekeeping') return ['dashboard', 'rondas', 'incidencias'].includes(normalizedTarget);
-    if (currentUser.role === 'técnico') return ['dashboard', 'rondas', 'bombas', 'hojas_vida', 'incidencias', 'preventivo', 'cronograma', 'contadores', 'solicitudes', 'tareas', 'horarios'].includes(normalizedTarget);
+    if (currentUser.role === 'técnico') return ['dashboard', 'rondas', 'bitacora', 'bombas', 'hojas_vida', 'incidencias', 'preventivo', 'cronograma', 'contadores', 'solicitudes', 'tareas', 'horarios'].includes(normalizedTarget);
     return normalizedTarget === 'rondas';
   }, [currentUser]);
 
@@ -3396,6 +3483,7 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
                 statusValue: existingField?.statusValue !== undefined ? existingField.statusValue : tplF.statusValue,
                 ampState: existingField?.ampState || (existingField?.value === 0 ? 'Apagado' : (tplF.ampState || 'Encendido')),
                 photoUrl: existingField?.photoUrl,
+                photos: existingField?.photos,
                 lastNonZeroValue: existingField?.lastNonZeroValue
               };
             })
@@ -3404,11 +3492,13 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
         return {
           ...tplItem,
           id: existing.id || tplItem.id,
+          photoRequired: tplItem.photoRequired ?? existing.photoRequired,
           currentValue: existing.currentValue !== undefined ? existing.currentValue : '',
           statusValue: existing.statusValue !== undefined ? existing.statusValue : tplItem.statusValue,
           ampState: existing.ampState || tplItem.ampState || 'Encendido',
           notes: existing.notes !== undefined ? existing.notes : '',
           photoUrl: existing.photoUrl,
+          photos: existing.photos,
           measurementFields: mergedFields,
           lastNonZeroValue: existing.lastNonZeroValue
         };
@@ -5204,6 +5294,21 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
         safeSetItem(STORAGE_KEYS.TASKS, JSON.stringify(merged));
       }
     }).catch(() => {});
+
+    idbGet<BitacoraEntry[]>(STORAGE_KEYS.BITACORA).then(idbBit => {
+      if (isInitialFetchDone.current) return;
+      if (idbBit && Array.isArray(idbBit) && idbBit.length > 0) {
+        const map = new Map<string, BitacoraEntry>();
+        idbBit.forEach(e => { if (e && e.id) map.set(e.id, e); });
+        (bitacoraRef.current || []).forEach(e => { if (e && e.id) map.set(e.id, e); });
+        const merged = Array.from(map.values()).sort((a, b) =>
+          new Date(b.createdAt || b.date || 0).getTime() - new Date(a.createdAt || a.date || 0).getTime()
+        );
+        bitacoraRef.current = merged;
+        setBitacora(merged);
+        safeSetItem(STORAGE_KEYS.BITACORA, JSON.stringify(merged));
+      }
+    }).catch(() => {});
   }, []);
 
   // Track actions originating from this local session to prevent duplicate/conflicting notifications
@@ -5792,6 +5897,38 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
         }
       }
 
+      if (Array.isArray(data.bitacora)) {
+        const bitMap = new Map<string, BitacoraEntry>();
+        const upsertBit = (b: BitacoraEntry) => {
+          if (!b || !b.id) return;
+          const prev = bitMap.get(b.id);
+          if (!prev) {
+            bitMap.set(b.id, b);
+          } else {
+            const tPrev = new Date(prev.updatedAt || prev.createdAt || 0).getTime() || 0;
+            const tInc = new Date(b.updatedAt || b.createdAt || 0).getTime() || 0;
+            bitMap.set(b.id, tInc >= tPrev ? { ...prev, ...b } : { ...b, ...prev });
+          }
+        };
+        data.bitacora.forEach(upsertBit);
+        (bitacoraRef.current || []).forEach(b => {
+          if (b && b.id && (pendingCreations.has(b.id) || !bitMap.has(b.id))) {
+            upsertBit(b);
+          }
+        });
+        const mergedBitacora = Array.from(bitMap.values()).sort((a, b) => {
+          const tA = new Date(a.createdAt || `${a.date || '1970-01-01'}T${a.time || '00:00'}:00`).getTime() || 0;
+          const tB = new Date(b.createdAt || `${b.date || '1970-01-01'}T${b.time || '00:00'}:00`).getTime() || 0;
+          return tB - tA;
+        });
+        if (JSON.stringify(mergedBitacora) !== JSON.stringify(bitacoraRef.current)) {
+          bitacoraRef.current = mergedBitacora;
+          setBitacora(mergedBitacora);
+          safeSetItem(STORAGE_KEYS.BITACORA, JSON.stringify(mergedBitacora));
+          idbSet(STORAGE_KEYS.BITACORA, mergedBitacora).catch(() => {});
+        }
+      }
+
       if (Array.isArray(data.roundTemplate) && data.roundTemplate.length > 0 && !localActionIds.current.has('round_template')) {
         const sanitizedTpl = data.roundTemplate.map(sanitizeCheckpointTemplate);
         if (JSON.stringify(sanitizedTpl) !== JSON.stringify(roundTemplateRef.current)) {
@@ -6168,6 +6305,19 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
             setUploadedDocuments(updatedDocs);
             localStorage.setItem('hotel_doc_folders', JSON.stringify(updatedFolders));
             localStorage.setItem(STORAGE_KEYS.DOCUMENTS, JSON.stringify(updatedDocs));
+          } else if (payload && payload.type === 'bitacora_updated' && payload.entry) {
+            const incomingEntry = payload.entry as BitacoraEntry;
+            if (!incomingEntry || !incomingEntry.id) return;
+            const prevList = bitacoraRef.current || [];
+            const nextList = [incomingEntry, ...prevList.filter(b => b && b.id !== incomingEntry.id)].sort((a, b) => {
+              const tA = new Date(a.createdAt || `${a.date || '1970-01-01'}T${a.time || '00:00'}:00`).getTime() || 0;
+              const tB = new Date(b.createdAt || `${b.date || '1970-01-01'}T${b.time || '00:00'}:00`).getTime() || 0;
+              return tB - tA;
+            });
+            bitacoraRef.current = nextList;
+            setBitacora(nextList);
+            safeSetItem(STORAGE_KEYS.BITACORA, JSON.stringify(nextList));
+            idbSet(STORAGE_KEYS.BITACORA, nextList).catch(() => {});
           } else if (payload && payload.type === 'app_data_updated' && payload.id === 'round_template' && payload.data && Array.isArray(payload.data.items)) {
             if (payload.clientId && payload.clientId === clientSessionId.current) return;
             const sanitized = payload.data.items.map(sanitizeCheckpointTemplate);
@@ -6422,6 +6572,17 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
         meterReadingsLogRef.current = updated;
         setMeterReadingsLog(updated);
         localStorage.setItem(STORAGE_KEYS.METER_READINGS_LOG, JSON.stringify(updated));
+      } else if (e.data && e.data.type === 'bitacora_updated' && e.data.entry) {
+        const incomingEntry = e.data.entry as BitacoraEntry;
+        if (!incomingEntry?.id) return;
+        const updated = [incomingEntry, ...(bitacoraRef.current || []).filter(b => b && b.id !== incomingEntry.id)].sort((a, b) => {
+          const tA = new Date(a.createdAt || `${a.date || '1970-01-01'}T${a.time || '00:00'}:00`).getTime() || 0;
+          const tB = new Date(b.createdAt || `${b.date || '1970-01-01'}T${b.time || '00:00'}:00`).getTime() || 0;
+          return tB - tA;
+        });
+        bitacoraRef.current = updated;
+        setBitacora(updated);
+        safeSetItem(STORAGE_KEYS.BITACORA, JSON.stringify(updated));
       }
     };
     roundsChannel.current?.addEventListener('message', handleBroadcast);
@@ -7558,6 +7719,124 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
       });
     } catch {}
     notify('Lectura eliminada');
+  };
+
+  // -------------------------------------------------------------
+  // BITÁCORA TÉCNICA DE MANTENIMIENTO (PostgreSQL)
+  // -------------------------------------------------------------
+  const addBitacoraEntry = async (
+    entryData: Omit<BitacoraEntry, 'id' | 'createdAt' | 'updatedAt'>
+  ): Promise<BitacoraEntry> => {
+    const nowIso = new Date().toISOString();
+    const cleanPhotos = mergeUniquePhotos(entryData.photos, entryData.photoUrl ? [entryData.photoUrl] : []);
+    const newEntry: BitacoraEntry = {
+      ...entryData,
+      id: `bit-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+      photos: cleanPhotos.length > 0 ? cleanPhotos : undefined,
+      photoUrl: entryData.photoUrl || cleanPhotos[cleanPhotos.length - 1] || undefined,
+      createdAt: nowIso,
+      updatedAt: nowIso
+    };
+
+    trackLocalCreation(newEntry.id);
+    localActionIds.current.add(newEntry.id);
+
+    const updated = [newEntry, ...(bitacoraRef.current || []).filter(b => b && b.id !== newEntry.id)].sort((a, b) =>
+      new Date(b.createdAt || b.date || 0).getTime() - new Date(a.createdAt || a.date || 0).getTime()
+    );
+    bitacoraRef.current = updated;
+    setBitacora(updated);
+    safeSetItem(STORAGE_KEYS.BITACORA, JSON.stringify(updated));
+    idbSet(STORAGE_KEYS.BITACORA, updated).catch(() => {});
+
+    try {
+      roundsChannel.current?.postMessage({ type: 'bitacora_updated', entry: newEntry });
+    } catch {}
+
+    try {
+      const res = await fetch('/api/bitacora', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Client-Id': clientSessionId.current
+        },
+        body: JSON.stringify(newEntry)
+      });
+      if (res.ok) {
+        const data = await res.json().catch(() => null);
+        if (data?.entry) {
+          const synced = [data.entry, ...(bitacoraRef.current || []).filter(b => b && b.id !== data.entry.id)].sort((a, b) =>
+            new Date(b.createdAt || b.date || 0).getTime() - new Date(a.createdAt || a.date || 0).getTime()
+          );
+          bitacoraRef.current = synced;
+          setBitacora(synced);
+          safeSetItem(STORAGE_KEYS.BITACORA, JSON.stringify(synced));
+          idbSet(STORAGE_KEYS.BITACORA, synced).catch(() => {});
+        }
+        setIsCloudSynced(true);
+      } else {
+        hasPendingLocalChanges.current = true;
+      }
+    } catch (e) {
+      console.warn('Error saving bitacora entry to PostgreSQL:', e);
+      hasPendingLocalChanges.current = true;
+    }
+
+    notify('✅ Registro guardado en la Bitácora Técnica');
+    return newEntry;
+  };
+
+  const updateBitacoraEntry = async (id: string, data: Partial<BitacoraEntry>) => {
+    const existing = (bitacoraRef.current || []).find(b => b && b.id === id);
+    if (!existing) return;
+
+    const nowIso = new Date().toISOString();
+    const mergedPhotos = data.photos !== undefined
+      ? mergeUniquePhotos(data.photos, data.photoUrl ? [data.photoUrl] : [])
+      : mergeUniquePhotos(existing.photos, existing.photoUrl ? [existing.photoUrl] : [], data.photoUrl ? [data.photoUrl] : []);
+
+    const updatedEntry: BitacoraEntry = {
+      ...existing,
+      ...data,
+      id,
+      photos: mergedPhotos.length > 0 ? mergedPhotos : undefined,
+      photoUrl: data.photoUrl !== undefined
+        ? (data.photoUrl || mergedPhotos[mergedPhotos.length - 1] || undefined)
+        : (mergedPhotos[mergedPhotos.length - 1] || undefined),
+      updatedAt: nowIso
+    };
+
+    localActionIds.current.add(id);
+    const updated = (bitacoraRef.current || []).map(b => b && b.id === id ? updatedEntry : b);
+    bitacoraRef.current = updated;
+    setBitacora(updated);
+    safeSetItem(STORAGE_KEYS.BITACORA, JSON.stringify(updated));
+    idbSet(STORAGE_KEYS.BITACORA, updated).catch(() => {});
+
+    try {
+      roundsChannel.current?.postMessage({ type: 'bitacora_updated', entry: updatedEntry });
+    } catch {}
+
+    try {
+      const res = await fetch(`/api/bitacora/${id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Client-Id': clientSessionId.current
+        },
+        body: JSON.stringify(updatedEntry)
+      });
+      if (res.ok) {
+        setIsCloudSynced(true);
+      } else {
+        hasPendingLocalChanges.current = true;
+      }
+    } catch (e) {
+      console.warn('Error updating bitacora entry in PostgreSQL:', e);
+      hasPendingLocalChanges.current = true;
+    }
+
+    notify('✅ Registro de Bitácora actualizado');
   };
 
   const updateRequest = async (id: string, data: Partial<HotelRequest>) => {
@@ -8711,16 +8990,18 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
   };
 
   const updateActiveRoundCheckpoint = (
-    chkId: string, 
-    val: any, 
-    notes?: string, 
-    measurementFields?: RoundMeasurementField[], 
+    chkId: string,
+    val: any,
+    notes?: string,
+    measurementFields?: RoundMeasurementField[],
     statusValue?: string,
     ampState?: string,
     immediate: boolean = false,
-    photoUrl?: string
+    photoUrl?: string,
+    photosOverride?: string[],
+    photoAction: 'append' | 'remove' | 'replace' = 'append'
   ) => {
-    if (!activeRound) return;
+    if (!activeRoundRef.current && !activeRound) return;
     setActiveRound(prev => {
       if (!prev) return null;
       const updatedCheckpoints = prev.checkpoints.map(chk => {
@@ -8729,21 +9010,18 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
           const actionType = finalStatus ? getCheckpointButtonAction(chk, finalStatus, roundTemplate) : 'default';
           const isOff = actionType === 'turn_off';
           const isEnc = actionType === 'turn_on';
-          const isDefault = actionType === 'default';
 
-          const finalAmpState = ampState !== undefined 
-            ? ampState 
+          const finalAmpState = ampState !== undefined
+            ? ampState
             : (isOff ? 'Apagado' : (isEnc ? 'Encendido' : (chk.ampState || 'Encendido')));
-          
+
           const numVal = typeof val === 'number' ? val : parseFloat(String(val ?? ''));
           const currentLastNonZero = chk.lastNonZeroValue || (typeof chk.currentValue === 'number' && chk.currentValue !== 0 ? chk.currentValue : (chk.minValue ?? 0));
           const finalLastNonZero = (!isNaN(numVal) && numVal !== 0) ? numVal : currentLastNonZero;
 
-          // Only set to 0 if explicitly powered off via turn_off button action on numeric checkpoints; otherwise preserve the user's typed or selected value
           const isNumericType = chk.type === 'numeric';
           const finalVal = (isOff && isNumericType) ? 0 : (val !== undefined ? val : chk.currentValue);
 
-          // Synchronize measurement fields only if explicitly toggling power/status
           let resolvedMeasurementFields = measurementFields !== undefined ? measurementFields : chk.measurementFields;
           if (isOff && resolvedMeasurementFields && resolvedMeasurementFields.length > 0) {
             resolvedMeasurementFields = resolvedMeasurementFields.map(f => ({
@@ -8764,23 +9042,43 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
             });
           }
 
-          // Lookup template buttonActions if missing on checkpoint
           const tplItem = roundTemplate.find(t => (t.id && t.id === chk.id) || (chk.title && t.title === chk.title));
           const resolvedButtonActions = (chk.buttonActions && Object.keys(chk.buttonActions).length > 0)
             ? chk.buttonActions
             : tplItem?.buttonActions;
 
+          const existingPhotos = mergeUniquePhotos(chk.photos, chk.photoUrl ? [chk.photoUrl] : []);
+          let finalPhotos = existingPhotos;
           let finalPhotoUrl = chk.photoUrl;
-          let finalPhotos = Array.isArray(chk.photos) ? [...chk.photos] : (chk.photoUrl ? [chk.photoUrl] : []);
-          if (photoUrl !== undefined) {
-            finalPhotoUrl = photoUrl;
-            finalPhotos = photoUrl ? [photoUrl] : [];
-          } else if (chk.photoUrl && (!finalPhotos.length || !finalPhotos.includes(chk.photoUrl))) {
-            finalPhotos = [chk.photoUrl];
+
+          if (photosOverride !== undefined) {
+            if (photoAction === 'remove') {
+              const removeSet = new Set(photosOverride);
+              finalPhotos = existingPhotos.filter(p => !removeSet.has(p));
+              finalPhotoUrl = finalPhotos[finalPhotos.length - 1] || undefined;
+            } else if (photoAction === 'replace') {
+              finalPhotos = mergeUniquePhotos(photosOverride);
+              finalPhotoUrl = finalPhotos[finalPhotos.length - 1] || undefined;
+            } else {
+              finalPhotos = mergeUniquePhotos(existingPhotos, photosOverride);
+              finalPhotoUrl = finalPhotos[finalPhotos.length - 1] || finalPhotoUrl;
+            }
+          } else if (photoUrl !== undefined) {
+            if (photoAction === 'remove' && photoUrl) {
+              finalPhotos = existingPhotos.filter(p => p !== photoUrl);
+              finalPhotoUrl = finalPhotos[finalPhotos.length - 1] || undefined;
+            } else if (photoAction === 'replace') {
+              finalPhotos = photoUrl ? mergeUniquePhotos([photoUrl]) : [];
+              finalPhotoUrl = photoUrl || undefined;
+            } else if (photoUrl) {
+              finalPhotos = mergeUniquePhotos(existingPhotos, [photoUrl]);
+              finalPhotoUrl = photoUrl;
+            }
           }
 
           return {
             ...chk,
+            photoRequired: chk.photoRequired ?? tplItem?.photoRequired,
             buttonActions: resolvedButtonActions,
             currentValue: finalVal !== undefined ? finalVal : chk.currentValue,
             notes: notes !== undefined ? notes : chk.notes,
@@ -8789,14 +9087,14 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
             ampState: finalAmpState,
             lastNonZeroValue: finalLastNonZero,
             photoUrl: finalPhotoUrl,
-            photos: finalPhotos.length > 0 ? Array.from(new Set(finalPhotos)) : undefined
+            photos: finalPhotos.length > 0 ? finalPhotos : undefined
           };
         }
         return chk;
       });
 
       const filledCount = updatedCheckpoints.filter(c => isCheckpointComplete(c, roundTemplate)).length;
-      const compliance = Math.round((filledCount / updatedCheckpoints.length) * 100);
+      const compliance = Math.round((filledCount / (updatedCheckpoints.length || 1)) * 100);
 
       const nowIso = new Date().toISOString();
       const updated = {
@@ -8806,7 +9104,8 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
         lastUpdated: nowIso,
         lastHeartbeat: nowIso
       };
-      queueSaveActiveRoundStorage(updated, immediate);
+      activeRoundRef.current = updated;
+      queueSaveActiveRoundStorage(updated, true);
 
       const updatedList = (roundsRef.current || []).map(r => r.id === updated.id ? updated : r);
       if (!updatedList.some(r => r.id === updated.id)) {
@@ -8820,14 +9119,17 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
   };
 
   const updateActiveRoundMeasurementField = (
-    chkId: string, 
-    fieldIndex: number, 
-    val: number | string, 
-    ampState?: string, 
+    chkId: string,
+    fieldIndex: number,
+    val: number | string,
+    ampState?: string,
     statusValue?: string,
-    immediate: boolean = false
+    immediate: boolean = false,
+    photoUrl?: string,
+    photosOverride?: string[],
+    photoAction: 'append' | 'remove' | 'replace' = 'append'
   ) => {
-    if (!activeRound) return;
+    if (!activeRoundRef.current && !activeRound) return;
     setActiveRound(prev => {
       if (!prev) return null;
       const updatedCheckpoints = prev.checkpoints.map(chk => {
@@ -8839,24 +9141,55 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
             const fieldAction = resolvedStatus ? getFieldButtonAction(currentField, resolvedStatus, chk, roundTemplate, fieldIndex) : 'default';
             const isFieldActionOff = fieldAction === 'turn_off';
             const isFieldActionOn = fieldAction === 'turn_on';
-            
+
             const isExplicitOff = isFieldActionOff;
-            const newAmpState = ampState !== undefined 
-              ? ampState 
+            const newAmpState = ampState !== undefined
+              ? ampState
               : (isExplicitOff ? 'Apagado' : (isFieldActionOn ? 'Encendido' : (currentField.ampState || 'Encendido')));
-            
+
             const finalVal = isExplicitOff ? 0 : val;
             const parsedNum = typeof finalVal === 'number' ? finalVal : parseFloat(String(finalVal));
             const prevNonZeroNum = typeof currentField.lastNonZeroValue === 'number' && currentField.lastNonZeroValue !== 0
-              ? currentField.lastNonZeroValue 
+              ? currentField.lastNonZeroValue
               : (typeof currentField.value === 'number' && currentField.value !== 0 ? currentField.value : (currentField.minValue ?? 0));
-            
-            fields[fieldIndex] = { 
-              ...currentField, 
-              value: finalVal, 
+
+            const existingFieldPhotos = mergeUniquePhotos(currentField.photos, currentField.photoUrl ? [currentField.photoUrl] : []);
+            let finalFieldPhotos = existingFieldPhotos;
+            let finalFieldPhotoUrl = currentField.photoUrl;
+
+            if (photosOverride !== undefined) {
+              if (photoAction === 'remove') {
+                const removeSet = new Set(photosOverride);
+                finalFieldPhotos = existingFieldPhotos.filter(p => !removeSet.has(p));
+                finalFieldPhotoUrl = finalFieldPhotos[finalFieldPhotos.length - 1] || undefined;
+              } else if (photoAction === 'replace') {
+                finalFieldPhotos = mergeUniquePhotos(photosOverride);
+                finalFieldPhotoUrl = finalFieldPhotos[finalFieldPhotos.length - 1] || undefined;
+              } else {
+                finalFieldPhotos = mergeUniquePhotos(existingFieldPhotos, photosOverride);
+                finalFieldPhotoUrl = finalFieldPhotos[finalFieldPhotos.length - 1] || finalFieldPhotoUrl;
+              }
+            } else if (photoUrl !== undefined) {
+              if (photoAction === 'remove' && photoUrl) {
+                finalFieldPhotos = existingFieldPhotos.filter(p => p !== photoUrl);
+                finalFieldPhotoUrl = finalFieldPhotos[finalFieldPhotos.length - 1] || undefined;
+              } else if (photoAction === 'replace') {
+                finalFieldPhotos = photoUrl ? mergeUniquePhotos([photoUrl]) : [];
+                finalFieldPhotoUrl = photoUrl || undefined;
+              } else if (photoUrl) {
+                finalFieldPhotos = mergeUniquePhotos(existingFieldPhotos, [photoUrl]);
+                finalFieldPhotoUrl = photoUrl;
+              }
+            }
+
+            fields[fieldIndex] = {
+              ...currentField,
+              value: finalVal,
               ampState: newAmpState,
               statusValue: resolvedStatus,
-              lastNonZeroValue: !isNaN(parsedNum) && parsedNum !== 0 ? parsedNum : prevNonZeroNum
+              lastNonZeroValue: !isNaN(parsedNum) && parsedNum !== 0 ? parsedNum : prevNonZeroNum,
+              photoUrl: finalFieldPhotoUrl,
+              photos: finalFieldPhotos.length > 0 ? finalFieldPhotos : undefined
             };
           }
           return {
@@ -8870,7 +9203,7 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
       });
 
       const filledCount = updatedCheckpoints.filter(c => isCheckpointComplete(c, roundTemplate)).length;
-      const compliance = Math.round((filledCount / updatedCheckpoints.length) * 100);
+      const compliance = Math.round((filledCount / (updatedCheckpoints.length || 1)) * 100);
 
       const nowIso = new Date().toISOString();
       const updated = {
@@ -8880,7 +9213,8 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
         lastUpdated: nowIso,
         lastHeartbeat: nowIso
       };
-      queueSaveActiveRoundStorage(updated, immediate);
+      activeRoundRef.current = updated;
+      queueSaveActiveRoundStorage(updated, true);
 
       const updatedList = (roundsRef.current || []).map(r => r.id === updated.id ? updated : r);
       if (!updatedList.some(r => r.id === updated.id)) {
@@ -8893,23 +9227,133 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
     });
   };
 
-  const updateActiveRoundMeterReadings = (readings: Partial<DailyRound['meterReadings']>, generalNotes?: string) => {
-    if (!activeRound) return;
+  const removeActiveRoundPhoto: MaintenanceContextType['removeActiveRoundPhoto'] = (target) => {
+    if (!activeRoundRef.current && !activeRound) return;
+    if (target.targetType === 'checkpoint' && target.checkpointId) {
+      const chk = (activeRoundRef.current || activeRound)?.checkpoints.find(c => c.id === target.checkpointId);
+      updateActiveRoundCheckpoint(
+        target.checkpointId,
+        chk?.currentValue,
+        chk?.notes,
+        chk?.measurementFields,
+        chk?.statusValue,
+        chk?.ampState,
+        true,
+        target.photoUrl,
+        [target.photoUrl],
+        'remove'
+      );
+      return;
+    }
+    if (target.targetType === 'field' && target.checkpointId && target.fieldIndex !== undefined) {
+      const chk = (activeRoundRef.current || activeRound)?.checkpoints.find(c => c.id === target.checkpointId);
+      const fld = chk?.measurementFields?.[target.fieldIndex];
+      updateActiveRoundMeasurementField(
+        target.checkpointId,
+        target.fieldIndex,
+        fld?.value ?? '',
+        fld?.ampState,
+        fld?.statusValue,
+        true,
+        target.photoUrl,
+        [target.photoUrl],
+        'remove'
+      );
+      return;
+    }
+
     setActiveRound(prev => {
       if (!prev) return null;
+      const mr: any = { ...(prev.meterReadings || {}) };
+      if (target.targetType === 'generalWater') {
+        const list = mergeUniquePhotos(mr.waterMeterPhotos, mr.waterMeterPhotoUrl ? [mr.waterMeterPhotoUrl] : []).filter(p => p !== target.photoUrl);
+        mr.waterMeterPhotos = list.length > 0 ? list : undefined;
+        mr.waterMeterPhotoUrl = list[list.length - 1] || undefined;
+      } else if (target.targetType === 'generalElectric') {
+        const list = mergeUniquePhotos(mr.electricMeterPhotos, mr.electricMeterPhotoUrl ? [mr.electricMeterPhotoUrl] : []).filter(p => p !== target.photoUrl);
+        mr.electricMeterPhotos = list.length > 0 ? list : undefined;
+        mr.electricMeterPhotoUrl = list[list.length - 1] || undefined;
+      } else if (target.targetType === 'generalGas') {
+        const list = mergeUniquePhotos(mr.gasMeterPhotos, mr.gasMeterPhotoUrl ? [mr.gasMeterPhotoUrl] : []).filter(p => p !== target.photoUrl);
+        mr.gasMeterPhotos = list.length > 0 ? list : undefined;
+        mr.gasMeterPhotoUrl = list[list.length - 1] || undefined;
+      } else if (target.targetType === 'customMeter' && target.customMeterId && mr.customMeters?.[target.customMeterId]) {
+        const cm = mr.customMeters[target.customMeterId];
+        const list = mergeUniquePhotos(cm.photos, cm.photoUrl ? [cm.photoUrl] : []).filter(p => p !== target.photoUrl);
+        mr.customMeters = {
+          ...mr.customMeters,
+          [target.customMeterId]: {
+            ...cm,
+            photoUrl: list[list.length - 1] || undefined,
+            photos: list.length > 0 ? list : undefined
+          }
+        };
+      }
+      const updatedAnomalies = target.targetType === 'anomaly' && target.anomalyId
+        ? (prev.anomalies || []).map(a => {
+            if (a.id !== target.anomalyId) return a;
+            const list = mergeUniquePhotos(a.photos, a.photoUrl ? [a.photoUrl] : []).filter(p => p !== target.photoUrl);
+            return {
+              ...a,
+              photoUrl: list[list.length - 1] || undefined,
+              photos: list.length > 0 ? list : undefined
+            };
+          })
+        : prev.anomalies;
+
+      const nowIso = new Date().toISOString();
+      const updated: DailyRound = {
+        ...prev,
+        meterReadings: mr,
+        anomalies: updatedAnomalies,
+        lastUpdated: nowIso,
+        lastHeartbeat: nowIso
+      };
+      activeRoundRef.current = updated;
+      queueSaveActiveRoundStorage(updated, true);
+      const updatedList = (roundsRef.current || []).map(r => r.id === updated.id ? updated : r);
+      queueUpdateRounds(updatedList, true);
+      syncActiveRoundToCloud(updated, true);
+      return updated;
+    });
+  };
+
+  const updateActiveRoundMeterReadings = (readings: Partial<DailyRound['meterReadings']>, generalNotes?: string) => {
+    if (!activeRoundRef.current && !activeRound) return;
+    setActiveRound(prev => {
+      if (!prev) return null;
+      const prevMeters: any = prev.meterReadings || {};
+      const nextReadings: any = { ...readings };
+
+      if (readings.waterMeterPhotoUrl || Array.isArray((readings as any).waterMeterPhotos)) {
+        const mergedW = mergeUniquePhotos(prevMeters.waterMeterPhotos, prevMeters.waterMeterPhotoUrl ? [prevMeters.waterMeterPhotoUrl] : [], (readings as any).waterMeterPhotos, readings.waterMeterPhotoUrl ? [readings.waterMeterPhotoUrl] : []);
+        nextReadings.waterMeterPhotos = mergedW.length > 0 ? mergedW : undefined;
+        nextReadings.waterMeterPhotoUrl = readings.waterMeterPhotoUrl || mergedW[mergedW.length - 1];
+      }
+      if (readings.electricMeterPhotoUrl || Array.isArray((readings as any).electricMeterPhotos)) {
+        const mergedE = mergeUniquePhotos(prevMeters.electricMeterPhotos, prevMeters.electricMeterPhotoUrl ? [prevMeters.electricMeterPhotoUrl] : [], (readings as any).electricMeterPhotos, readings.electricMeterPhotoUrl ? [readings.electricMeterPhotoUrl] : []);
+        nextReadings.electricMeterPhotos = mergedE.length > 0 ? mergedE : undefined;
+        nextReadings.electricMeterPhotoUrl = readings.electricMeterPhotoUrl || mergedE[mergedE.length - 1];
+      }
+      if (readings.gasMeterPhotoUrl || Array.isArray((readings as any).gasMeterPhotos)) {
+        const mergedG = mergeUniquePhotos(prevMeters.gasMeterPhotos, prevMeters.gasMeterPhotoUrl ? [prevMeters.gasMeterPhotoUrl] : [], (readings as any).gasMeterPhotos, readings.gasMeterPhotoUrl ? [readings.gasMeterPhotoUrl] : []);
+        nextReadings.gasMeterPhotos = mergedG.length > 0 ? mergedG : undefined;
+        nextReadings.gasMeterPhotoUrl = readings.gasMeterPhotoUrl || mergedG[mergedG.length - 1];
+      }
+
       const nowIso = new Date().toISOString();
       const updated = {
         ...prev,
         meterReadings: {
-          ...prev.meterReadings,
-          ...readings
+          ...prevMeters,
+          ...nextReadings
         },
         generalNotes: generalNotes !== undefined ? generalNotes : prev.generalNotes,
         lastUpdated: nowIso,
         lastHeartbeat: nowIso
       };
-      safeSetItem(STORAGE_KEYS.ACTIVE_ROUND, JSON.stringify(updated));
-      safeSetItem('active_round_draft_backup', JSON.stringify(updated));
+      activeRoundRef.current = updated;
+      queueSaveActiveRoundStorage(updated, true);
       const updatedList = (roundsRef.current || []).map(r => r.id === updated.id ? updated : r);
       if (!updatedList.some(r => r.id === updated.id)) {
         updatedList.unshift(updated);
@@ -8975,32 +9419,38 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
   };
 
   const addRoundAnomaly = (anomaly: Omit<RoundAnomaly, 'id' | 'timestamp'>) => {
-    if (!activeRound) return;
+    if (!activeRoundRef.current && !activeRound) return;
     const timestamp = getLocalDateTimeString();
     const sharedId = `inc-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+    const cleanPhotos = mergeUniquePhotos(anomaly.photos, anomaly.photoUrl ? [anomaly.photoUrl] : []);
+    const primaryPhoto = anomaly.photoUrl || cleanPhotos[cleanPhotos.length - 1] || undefined;
     const newAnomaly: RoundAnomaly = {
       ...anomaly,
       id: sharedId,
+      photoUrl: primaryPhoto,
+      photos: cleanPhotos.length > 0 ? cleanPhotos : undefined,
       timestamp
     };
 
     setActiveRound(prev => {
       if (!prev) return null;
       const updatedAnomalies = [...prev.anomalies, newAnomaly];
+      const nowIso = new Date().toISOString();
       const updated = {
         ...prev,
         anomalies: updatedAnomalies,
         anomaliesCount: updatedAnomalies.length,
-        lastUpdated: new Date().toISOString()
+        lastUpdated: nowIso,
+        lastHeartbeat: nowIso
       };
-      safeSetItem(STORAGE_KEYS.ACTIVE_ROUND, JSON.stringify(updated));
+      activeRoundRef.current = updated;
+      queueSaveActiveRoundStorage(updated, true);
       const updatedList = (roundsRef.current || []).map(r => r.id === updated.id ? updated : r);
       if (!updatedList.some(r => r.id === updated.id)) {
         updatedList.unshift(updated);
       }
-      roundsRef.current = updatedList;
-      setRounds(updatedList);
-      syncActiveRoundToCloud(updated);
+      queueUpdateRounds(updatedList, true);
+      syncActiveRoundToCloud(updated, true);
       return updated;
     });
 
@@ -9016,44 +9466,54 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
       registeredBy: anomaly.registeredBy,
       equipmentId: anomaly.equipmentId,
       equipmentTag: anomaly.equipmentTag,
-      photoUrl: anomaly.photoUrl,
+      photoUrl: primaryPhoto,
+      photos: cleanPhotos.length > 0 ? cleanPhotos : undefined,
     });
   };
 
   const completeActiveRound = async (readings: any, notes: string, signature: string, allowPartial: boolean = false) => {
-    if (!activeRound) return;
+    const currentActive = activeRoundRef.current || activeRound;
+    if (!currentActive) return;
 
-    // Validación estricta ineludible de puntos requeridos al 100%
+    // Validación estricta ineludible de puntos requeridos y fotografías obligatorias al 100%
     const currentTpl = roundTemplateRef.current?.length ? roundTemplateRef.current : roundTemplate;
+    const validation = validateRoundCompletion(currentActive, currentTpl);
+    const totalPoints = currentActive.checkpoints?.length || 0;
     const templateLength = currentTpl?.length || 0;
-    const incomplete = getIncompleteCheckpoints(activeRound.checkpoints, currentTpl);
-    const totalPoints = activeRound.checkpoints?.length || 0;
-    const filledCount = (activeRound.checkpoints || []).filter(c => isCheckpointComplete(c, currentTpl)).length;
-    const is100Strict = templateLength > 0
-      ? (totalPoints >= templateLength && incomplete.length === 0 && filledCount >= templateLength)
-      : (totalPoints > 0 && incomplete.length === 0 && filledCount === totalPoints);
 
-    if (!is100Strict || (activeRound.compliancePercentage !== undefined && activeRound.compliancePercentage < 100)) {
-      const count = Math.max(incomplete.length, totalPoints - filledCount, templateLength - totalPoints);
-      const pointStr = count === 1 ? '1 punto obligatorio pendiente' : `${count} puntos obligatorios pendientes`;
-      notify(`⚠️ Bloqueo de seguridad: No se puede cerrar la ronda (${pointStr}). Es un requisito estricto e ineludible completar el 100% de los puntos y mediciones obligatorias para poder validar y guardar la ronda.`);
+    if (!allowPartial && (!validation.isValid || (templateLength > 0 && totalPoints < templateLength))) {
+      const missingCount = Math.max(validation.missingCount, Math.max(0, templateLength - totalPoints));
+      const previewDetails = validation.missingDetails.slice(0, 3).join(', ');
+      notify(`⚠️ Bloqueo de seguridad: Faltan ${missingCount} puntos o fotografías obligatorias${previewDetails ? ` (${previewDetails})` : ''}. Completa todos los registros requeridos para validar y guardar la ronda.`);
       return;
     }
 
-    // Requisito ineludible: La ronda solo se puede cerrar y cargar cuando hay conexión (Wi-Fi o datos móviles con señal mínima)
     if (!navigator.onLine) {
-      notify('⚠️ Sin conexión a Internet: No es posible cargar la ronda en el sistema. Por favor busca señal Wi-Fi o datos móviles para cerrar la ronda.');
+      notify('⚠️ Sin conexión a Internet: No es posible cargar la ronda en el sistema. Busca señal Wi-Fi o datos móviles para cerrar la ronda.');
       throw new Error('OFFLINE_NO_INTERNET');
+    }
+
+    // Cancelar de inmediato cualquier sincronización parcial pendiente ('en_progreso') para evitar que un paquete viejo sobreescriba el cierre atómico
+    if (syncActiveRoundTimeoutRef.current) {
+      clearTimeout(syncActiveRoundTimeoutRef.current);
+      syncActiveRoundTimeoutRef.current = null;
+    }
+    if (activeRoundStorageTimer.current) {
+      clearTimeout(activeRoundStorageTimer.current);
+      activeRoundStorageTimer.current = null;
+    }
+    if (setRoundsDebounceTimer.current) {
+      clearTimeout(setRoundsDebounceTimer.current);
+      setRoundsDebounceTimer.current = null;
     }
 
     const autoAnomalies: RoundAnomaly[] = [];
 
-    const sanitizedCheckpoints = activeRound.checkpoints.map(chk => {
+    const sanitizedCheckpoints = currentActive.checkpoints.map(chk => {
       const parsedCurrentVal = typeof chk.currentValue === 'string' && chk.currentValue.trim() !== '' && !isNaN(Number(chk.currentValue))
         ? Number(chk.currentValue)
         : chk.currentValue;
 
-      // Detect if this checkpoint represents an alarm
       const alarmCheck = isCheckpointAlarmActive(chk, roundTemplate);
       const chkAction = chk.statusValue ? getCheckpointButtonAction(chk, chk.statusValue, roundTemplate) : 'default';
       const isChkOff = chkAction === 'turn_off';
@@ -9096,18 +9556,21 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
           ? f.buttonActions
           : tplField?.buttonActions;
 
+        const fieldPhotos = mergeUniquePhotos(f.photos, f.photoUrl ? [f.photoUrl] : []);
+
         return {
           ...f,
           buttonActions: resolvedFieldButtonActions,
           value: typeof f.value === 'string' && f.value.trim() !== '' && !isNaN(Number(f.value))
             ? Number(f.value)
-            : f.value
+            : f.value,
+          photoUrl: f.photoUrl || fieldPhotos[fieldPhotos.length - 1],
+          photos: fieldPhotos.length > 0 ? fieldPhotos : undefined
         };
       });
 
       if (chkHasAlarm) {
-        // First check if an anomaly for this checkpoint was already recorded in activeRound.anomalies
-        const isAlreadyReported = (activeRound.anomalies || []).some(a => 
+        const isAlreadyReported = (currentActive.anomalies || []).some(a =>
           (a.title && (a.title.includes(chk.title) || chk.title.includes(a.title))) ||
           (a.area && chk.area && String(a.area).toLowerCase() === String(chk.area).toLowerCase() && String(a.title || '').toLowerCase().includes('alarma'))
         );
@@ -9119,31 +9582,120 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
             id: autoId,
             area: chk.area || 'General',
             title: `Alarma en: ${chk.title}`,
-            description: alarmCheck.reason 
+            description: alarmCheck.reason
               ? `${alarmCheck.reason}.\nNotas: ${chk.notes || 'Sin comentarios adicionales.'}`
               : `Equipo detectado en estado de alarma o falla durante la ronda.\nNotas: ${chk.notes || 'Sin comentarios adicionales.'}`,
             severity: chk.isCritical ? 'urgente' : 'alta',
             status: 'pendiente',
-            registeredBy: signature || activeRound.technicianName,
+            registeredBy: signature || currentActive.technicianName,
             timestamp
           });
         }
       }
 
+      const chkPhotos = mergeUniquePhotos(chk.photos, chk.photoUrl ? [chk.photoUrl] : []);
+
       return {
         ...chk,
+        photoRequired: chk.photoRequired ?? tplItem?.photoRequired,
         buttonActions: resolvedButtonActions,
         currentValue: parsedCurrentVal,
         measurementFields: mappedFields,
+        photoUrl: chk.photoUrl || chkPhotos[chkPhotos.length - 1],
+        photos: chkPhotos.length > 0 ? chkPhotos : undefined,
         isAlarmActive: chkHasAlarm,
         alarmReason: alarmCheck.reason || (chkHasAlarm ? 'Equipo detectado en estado de alarma o falla durante la ronda.' : undefined)
       };
     });
 
-    // Merge manual anomalies with auto-detected anomalies
-    const finalAnomalies = [...(activeRound.anomalies || []), ...autoAnomalies];
+    const finalAnomalies = [...(currentActive.anomalies || []), ...autoAnomalies].map(a => {
+      const anomPhotos = mergeUniquePhotos(a.photos, a.photoUrl ? [a.photoUrl] : []);
+      return {
+        ...a,
+        photoUrl: a.photoUrl || anomPhotos[anomPhotos.length - 1],
+        photos: anomPhotos.length > 0 ? anomPhotos : undefined
+      };
+    });
 
-    // Report all anomalies from the completed round globally using the exact same ID and timestamp
+    const resolvedClosingTechName = (signature && signature.trim()) ? signature.trim() : currentActive.technicianName;
+    const completed: DailyRound = {
+      ...currentActive,
+      technicianName: resolvedClosingTechName,
+      checkpoints: sanitizedCheckpoints,
+      status: 'completada',
+      anomalies: finalAnomalies,
+      anomaliesCount: finalAnomalies.length,
+      meterReadings: {
+        ...currentActive.meterReadings,
+        ...readings
+      },
+      generalNotes: notes,
+      technicianSignature: signature,
+      compliancePercentage: 100,
+      completedAt: currentActive.completedAt || new Date().toISOString(),
+      lastUpdated: new Date().toISOString()
+    };
+
+    // Respaldar borrador íntegro en almacenamiento local antes de transmitir (NO borrar activeRound hasta recibir ACK real del servidor)
+    queueSaveActiveRoundStorage(currentActive, true);
+    queuePendingOfflineRound(completed);
+
+    // Envío atómico consolidado al servidor PostgreSQL con reintentos progresivos para señal mínima
+    const retryTimeoutsMs = [18000, 25000, 30000];
+    let uploadConfirmed = false;
+    let authoritativeRound: DailyRound = completed;
+    let lastNetworkError: any = null;
+
+    for (let attempt = 0; attempt < retryTimeoutsMs.length; attempt++) {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), retryTimeoutsMs[attempt]);
+      try {
+        const res = await fetch('/api/rounds', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Client-Id': clientSessionId.current
+          },
+          body: JSON.stringify(completed),
+          signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+
+        if (res.ok) {
+          uploadConfirmed = true;
+          try {
+            const payload = await res.json();
+            if (Array.isArray(payload?.rounds)) {
+              const serverMatch = payload.rounds.find((r: any) => r && r.id === completed.id);
+              if (serverMatch) authoritativeRound = serverMatch;
+            } else if (payload?.round && payload.round.id === completed.id) {
+              authoritativeRound = payload.round;
+            }
+          } catch {}
+          break;
+        }
+
+        if (res.status >= 400 && res.status < 500) {
+          const errText = await res.text().catch(() => '');
+          throw new Error(errText || `HTTP_${res.status}`);
+        }
+        lastNetworkError = new Error(`HTTP_${res.status}`);
+      } catch (err: any) {
+        clearTimeout(timeoutId);
+        lastNetworkError = err;
+        if (attempt < retryTimeoutsMs.length - 1) {
+          await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+      }
+    }
+
+    if (!uploadConfirmed) {
+      // Señal caída o insuficiente: conservar activeRound y todos los puntos llenados intactos localmente para que el técnico reintente sin perder nada
+      notify('⚠️ Señal insuficiente para confirmar la carga completa en PostgreSQL. Tus puntos y fotos siguen guardados localmente; busca señal e intenta cerrar nuevamente.');
+      throw (lastNetworkError || new Error('WEAK_OR_LOST_SIGNAL'));
+    }
+
+    // Confirmación ACK real recibida desde PostgreSQL: reportar anomalías, consolidar historial y cerrar limpiamente
     finalAnomalies.forEach(anomaly => {
       reportIncident({
         id: anomaly.id,
@@ -9153,108 +9705,59 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
         area: anomaly.area,
         severity: anomaly.severity,
         status: anomaly.status || 'pendiente',
-        registeredBy: anomaly.registeredBy || signature || activeRound.technicianName,
+        registeredBy: anomaly.registeredBy || signature || currentActive.technicianName,
         equipmentId: anomaly.equipmentId,
         equipmentTag: anomaly.equipmentTag,
+        photoUrl: anomaly.photoUrl,
+        photos: anomaly.photos
       });
     });
 
-    if (syncActiveRoundTimeoutRef.current) {
-      clearTimeout(syncActiveRoundTimeoutRef.current);
-    }
+    completedRoundIdsRef.current.add(authoritativeRound.id);
+    unmarkDeletedRoundId(authoritativeRound.id);
+    trackLocalCreation(authoritativeRound.id);
+    removePendingOfflineRound(authoritativeRound.id);
+    markRoundSynced(authoritativeRound.id);
+    setIsCloudSynced(true);
 
-    const resolvedClosingTechName = (signature && signature.trim()) ? signature.trim() : activeRound.technicianName;
-    const completed: DailyRound = {
-      ...activeRound,
-      technicianName: resolvedClosingTechName,
-      checkpoints: sanitizedCheckpoints,
-      status: 'completada',
-      anomalies: finalAnomalies,
-      anomaliesCount: finalAnomalies.length,
-      meterReadings: {
-        ...activeRound.meterReadings,
-        ...readings
-      },
-      generalNotes: notes,
-      technicianSignature: signature,
-      compliancePercentage: 100,
-      completedAt: activeRound.completedAt || new Date().toISOString(),
-      lastUpdated: new Date().toISOString()
-    };
-
-    // 1. Guardar de inmediato en estado local e IndexedDB para cero pérdida de datos
-    completedRoundIdsRef.current.add(completed.id);
-    unmarkDeletedRoundId(completed.id);
-    const updated = [completed, ...(roundsRef.current || []).filter(r => r.id !== completed.id)];
+    const updated = [authoritativeRound, ...(roundsRef.current || []).filter(r => r.id !== authoritativeRound.id)];
     roundsRef.current = updated;
     setRounds(updated);
     safeSetItem(STORAGE_KEYS.ROUNDS, JSON.stringify(updated));
     idbSet(STORAGE_KEYS.ROUNDS, updated).catch(() => {});
 
-    // Cierre limpio e instantáneo: la ronda pasa inmediatamente al historial al 100% y se liberan borradores
     activeRoundRef.current = null;
     setActiveRound(null);
     localStorage.removeItem(STORAGE_KEYS.ACTIVE_ROUND);
     localStorage.removeItem('active_round_draft_backup');
     idbRemove(STORAGE_KEYS.ACTIVE_ROUND).catch(() => {});
-    trackLocalCreation(completed.id);
 
-    // 2. Subir directamente a la API de PostgreSQL con tolerancia a señal baja (timeout 8s)
-    let uploadConfirmed = false;
-    try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 8000);
-      const res = await fetch('/api/rounds', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Client-Id': clientSessionId.current
-        },
-        body: JSON.stringify(completed),
-        signal: controller.signal
-      });
-      clearTimeout(timeoutId);
-      if (res.ok) {
-        uploadConfirmed = true;
-        removePendingOfflineRound(completed.id);
-        setIsCloudSynced(true);
-      }
-    } catch (netErr) {
-      console.warn('Advertencia en carga inicial a servidor API:', netErr);
-    }
-
-    if (!uploadConfirmed) {
-      queuePendingOfflineRound(completed);
-    }
-
-    notify('✅ Ronda finalizada y cargada al 100% en el sistema con éxito');
+    notify('✅ Ronda finalizada y sincronizada al 100% en PostgreSQL');
 
     sendSystemNotification('📋 ✅ Ronda Técnica Guardada', {
-      body: `Ronda finalizada con éxito por ${signature || activeRound.technicianName}.\n• Turno: ${completed.shift.toUpperCase()}\n• Cumplimiento: 100%`,
-      tag: `round-saved-${completed.id}`,
+      body: `Ronda finalizada con éxito por ${signature || currentActive.technicianName}.\n• Turno: ${authoritativeRound.shift.toUpperCase()}\n• Cumplimiento: 100%`,
+      tag: `round-saved-${authoritativeRound.id}`,
       icon: '/pwa-192x192.png'
     });
     playAlertSound();
 
-    // Broadcast instantáneamente a otras pestañas
     try {
-      roundsChannel.current?.postMessage({ type: 'round_completed', round: completed });
+      roundsChannel.current?.postMessage({ type: 'round_completed', round: authoritativeRound });
     } catch (e) {}
 
-    // Notificar por Push al teléfono de todos los compañeros según su configuración
-    const compShift = completed.shift === 'manana' ? 'Turno Mañana' : completed.shift === 'tarde' ? 'Turno Tarde' : 'Turno Noche';
-    const anomaliesCount = completed.anomaliesCount || (completed.anomalies ? completed.anomalies.length : 0);
+    const compShift = authoritativeRound.shift === 'manana' ? 'Turno Mañana' : authoritativeRound.shift === 'tarde' ? 'Turno Tarde' : 'Turno Noche';
+    const anomaliesCount = authoritativeRound.anomaliesCount || (authoritativeRound.anomalies ? authoritativeRound.anomalies.length : 0);
     broadcastServerPushNotification({
       category: 'rondas',
       title: '📋 ✅ Ronda Técnica Guardada',
-      body: `Ronda finalizada por ${signature || activeRound.technicianName} (${compShift})\n• Cumplimiento: 100%\n• Anomalías detectadas: ${anomaliesCount}`,
+      body: `Ronda finalizada por ${signature || currentActive.technicianName} (${compShift})\n• Cumplimiento: 100%\n• Anomalías detectadas: ${anomaliesCount}`,
       url: '/?tab=rondas',
-      tag: `round-completed-${completed.id}`,
+      tag: `round-completed-${authoritativeRound.id}`,
       excludeUserId: currentUser?.id,
       excludeEmail: currentUser?.email
     });
 
-    return completed;
+    return authoritativeRound;
   };
 
   const cancelActiveRound = async () => {
@@ -10120,6 +10623,7 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
         updateActiveRoundCheckpoint,
         updateActiveRoundMeasurementField,
         updateActiveRoundMeterReadings,
+        removeActiveRoundPhoto,
         updateActiveRoundCheckpointTags,
         addRoundAnomaly,
         completeActiveRound,
@@ -10169,7 +10673,10 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
         updateMeter,
         deleteMeter,
         recordMeterReading,
-        deleteMeterReading
+        deleteMeterReading,
+        bitacora,
+        addBitacoraEntry,
+        updateBitacoraEntry
       }}
     >
       {children}
