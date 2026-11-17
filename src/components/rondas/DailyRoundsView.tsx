@@ -601,6 +601,9 @@ export const DailyRoundsView: React.FC = () => {
         a.photos.forEach((p: string) => addPhoto(p));
       }
     });
+    if (Array.isArray(round.photos)) {
+      round.photos.forEach((p: string) => addPhoto(p));
+    }
     return seen.size;
   };
 
@@ -833,7 +836,7 @@ export const DailyRoundsView: React.FC = () => {
     const compressedList: string[] = [];
     for (const file of files) {
       try {
-        const compressed = await compressImageFile(file, 1080, 0.74);
+        const compressed = await compressImageFile(file, 840, 0.62);
         if (compressed) compressedList.push(compressed);
       } catch (err) {
         console.warn('Error comprimiendo foto de incidencia:', err);
@@ -885,15 +888,8 @@ export const DailyRoundsView: React.FC = () => {
       return;
     }
 
-    // VERIFICACIÓN DE CONECTIVIDAD:
-    // La ronda solo puede cargarse y cerrarse con señal (Wi-Fi o datos móviles).
+    // Intentar la carga real en el servidor incluso durante cambios rápidos Wi-Fi / Datos Móviles
     setIsSubmittingRound(true);
-    if (!navigator.onLine) {
-      setIsSubmittingRound(false);
-      setShowOfflineModal(true);
-      notify('⚠️ Sin conexión a Internet: No es posible cargar la ronda en el sistema. Por favor busca señal Wi-Fi o datos móviles para cerrar la ronda.');
-      return;
-    }
 
     const finalSignature = (signatureName && signatureName.trim()) || activeRound.technicianName || currentUser?.displayName || 'Técnico';
     if (!finalSignature.trim()) {
@@ -1215,10 +1211,11 @@ export const DailyRoundsView: React.FC = () => {
               </button>
               <button
                 type="button"
+                disabled={isSubmittingRound}
                 onClick={() => {
                   setShowDiscardActiveConfirm(true);
                 }}
-                className="px-3 py-1.5 text-xs text-rose-600 hover:text-rose-800 hover:bg-rose-50 rounded-xl border border-rose-200 font-semibold transition-colors flex items-center space-x-1 cursor-pointer"
+                className="px-3 py-1.5 text-xs text-rose-600 hover:text-rose-800 hover:bg-rose-50 rounded-xl border border-rose-200 font-semibold transition-colors flex items-center space-x-1 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                 title="Descartar y cancelar este recorrido"
               >
                 <Trash2 className="w-3.5 h-3.5 text-rose-500" />
@@ -2928,6 +2925,18 @@ export const DailyRoundsView: React.FC = () => {
             });
           });
         });
+
+        if (Array.isArray(liveSelectedRoundDetail.photos)) {
+          liveSelectedRoundDetail.photos.forEach((pUrl, pIdx) => {
+            addRoundPhoto({
+              id: `round-root-photo-${pIdx}`,
+              url: pUrl,
+              title: 'Evidencia de Ronda',
+              area: 'General',
+              sourceType: 'Punto de Inspección'
+            });
+          });
+        }
 
         const totalRoundPhotos = allRoundPhotos.length;
 

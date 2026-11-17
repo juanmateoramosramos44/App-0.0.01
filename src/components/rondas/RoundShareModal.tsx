@@ -115,56 +115,70 @@ export const RoundShareModal: React.FC<RoundShareModalProps> = ({
       });
     }
     (c.measurementFields || []).forEach((f, idx) => {
-      if (isValidPhoto(f.photoUrl)) {
+      const fieldPhotos: string[] = [];
+      if (isValidPhoto(f.photoUrl)) fieldPhotos.push(f.photoUrl!);
+      if (Array.isArray(f.photos)) {
+        f.photos.forEach((p) => {
+          if (isValidPhoto(p) && !fieldPhotos.includes(p)) fieldPhotos.push(p);
+        });
+      }
+      fieldPhotos.forEach((pUrl, fpIdx) => {
         addSharePhoto({
-          id: `field-${c.id}-${f.id || idx}`,
-          url: f.photoUrl!,
+          id: `field-${c.id}-${f.id || idx}-${fpIdx}`,
+          url: pUrl,
           title: `${c.title} — ${f.name || `Medición ${idx + 1}`}`,
           area: c.area || 'Zona técnica',
           type: 'Medición'
         });
-      }
+      });
     });
   });
 
-  if (isValidPhoto(round.meterReadings?.waterMeterPhotoUrl)) {
-    addSharePhoto({
-      id: 'meter-water',
-      url: round.meterReadings!.waterMeterPhotoUrl!,
-      title: 'Contador de Agua Potable',
-      area: 'Cuarto de Contadores',
-      type: 'Contador General'
-    });
-  }
-  if (isValidPhoto(round.meterReadings?.electricMeterPhotoUrl)) {
-    addSharePhoto({
-      id: 'meter-electric',
-      url: round.meterReadings!.electricMeterPhotoUrl!,
-      title: 'Contador de Energía Eléctrica',
-      area: 'Subestación Eléctrica',
-      type: 'Contador General'
-    });
-  }
-  if (isValidPhoto(round.meterReadings?.gasMeterPhotoUrl)) {
-    addSharePhoto({
-      id: 'meter-gas',
-      url: round.meterReadings!.gasMeterPhotoUrl!,
-      title: 'Contador de Gas Natural',
-      area: 'Acometida Gas',
-      type: 'Contador General'
+  const mrShare: any = round.meterReadings || {};
+  const addMeterList = (urls: any[], primary: any, idPrefix: string, title: string, area: string) => {
+    const list: string[] = [];
+    if (Array.isArray(urls)) urls.forEach(u => { if (isValidPhoto(u) && !list.includes(u)) list.push(u); });
+    if (isValidPhoto(primary) && !list.includes(primary)) list.push(primary);
+    list.forEach((u, idx) => addSharePhoto({ id: `${idPrefix}-${idx}`, url: u, title, area, type: 'Contador General' }));
+  };
+  addMeterList(mrShare.waterMeterPhotos, mrShare.waterMeterPhotoUrl, 'meter-water', 'Contador de Agua Potable', 'Cuarto de Contadores');
+  addMeterList(mrShare.electricMeterPhotos, mrShare.electricMeterPhotoUrl, 'meter-electric', 'Contador de Energía Eléctrica', 'Subestación Eléctrica');
+  addMeterList(mrShare.gasMeterPhotos, mrShare.gasMeterPhotoUrl, 'meter-gas', 'Contador de Gas Natural', 'Acometida Gas');
+  if (mrShare.customMeters) {
+    Object.entries(mrShare.customMeters).forEach(([cmKey, cmVal]: [string, any]) => {
+      if (!cmVal) return;
+      addMeterList(cmVal.photos, cmVal.photoUrl, `meter-custom-${cmKey}`, cmVal.name || 'Contador Adicional', 'Cuarto de Contadores');
     });
   }
   (round.anomalies || []).forEach((a, idx) => {
-    if (isValidPhoto(a.photoUrl)) {
+    const anomPhotos: string[] = [];
+    if (isValidPhoto(a.photoUrl)) anomPhotos.push(a.photoUrl!);
+    if (Array.isArray(a.photos)) {
+      a.photos.forEach((p) => {
+        if (isValidPhoto(p) && !anomPhotos.includes(p)) anomPhotos.push(p);
+      });
+    }
+    anomPhotos.forEach((pUrl, aIdx) => {
       addSharePhoto({
-        id: `anom-${a.id || idx}`,
-        url: a.photoUrl!,
+        id: `anom-${a.id || idx}-${aIdx}`,
+        url: pUrl,
         title: `Incidencia: ${a.title}`,
         area: a.area || 'Área afectada',
         type: 'Avería'
       });
-    }
+    });
   });
+  if (Array.isArray(round.photos)) {
+    round.photos.forEach((pUrl, pIdx) => {
+      addSharePhoto({
+        id: `round-root-photo-${pIdx}`,
+        url: pUrl,
+        title: 'Evidencia de Ronda',
+        area: 'General',
+        type: 'Punto de ronda'
+      });
+    });
+  }
 
   const handleCopyText = async () => {
     try {

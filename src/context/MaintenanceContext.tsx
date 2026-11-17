@@ -114,7 +114,7 @@ export const getDoc = async (_docRef: any) => ({
 export const arrayUnion = (...items: any[]) => items;
 export const onSnapshot = (_ref: any, _next?: any, _error?: any) => () => {};
 import { getCheckpointButtonAction, getFieldButtonAction, isCheckpointAlarmActive, getIncompleteCheckpoints, isCheckpointComplete, isCheckpointPhotoRequired, hasCheckpointRequiredPhoto, validateRoundCompletion } from '../utils/roundButtonUtils';
-import { mergeUniquePhotos } from '../utils/imageCompression';
+import { mergeUniquePhotos, collectRoundPhotoUrls } from '../utils/imageCompression';
 import { sendSystemNotification, playAlertSound, requestNotificationPermission, isNotificationSupported, syncPushSubscriptionWithServer, broadcastServerPushNotification } from '../lib/notifications';
 import { getLocalDateTimeString, getLocalDateString } from '../utils/dateUtils';
 import { performStateAudit, StateAuditResult, CANONICAL_INCIDENT_MAP, correctionsToAuditLogEntries, getInitialAuditLogs } from '../utils/stateAudit';
@@ -2106,6 +2106,25 @@ const mergeRoundLists = (
   return deduped;
 };
 
+const getRoundSyncFingerprint = (r: DailyRound): string => {
+  if (!r) return '';
+  const chkSig = (r.checkpoints || []).map(c => {
+    if (!c) return '';
+    const cpCount = (Array.isArray(c.photos) ? c.photos.length : 0) + (c.photoUrl ? 1 : 0);
+    const cpLen = (Array.isArray(c.photos) ? c.photos.reduce((s, p) => s + (p?.length || 0), 0) : 0) + (c.photoUrl?.length || 0);
+    const fSig = (c.measurementFields || []).map(f => {
+      if (!f) return '';
+      const fpCount = (Array.isArray(f.photos) ? f.photos.length : 0) + (f.photoUrl ? 1 : 0);
+      const fpLen = (Array.isArray(f.photos) ? f.photos.reduce((s, p) => s + (p?.length || 0), 0) : 0) + (f.photoUrl?.length || 0);
+      return `${f.value ?? ''}:${f.statusValue ?? ''}:${fpCount}:${fpLen}`;
+    }).join(',');
+    return `${c.id || ''}=${c.currentValue ?? ''}:${c.statusValue ?? ''}:${c.notes ?? ''}:${cpCount}:${cpLen}[${fSig}]`;
+  }).join('|');
+
+  const photosCount = collectRoundPhotoUrls(r).length;
+  return `${r.id}|${r.status}|${r.compliancePercentage}|${r.date}|${r.time}|${r.shift}|${r.technicianName}|${r.technicianSignature || ''}|${r.completedAt || ''}|${r.generalNotes || ''}|${r.anomalies?.length || 0}|${r.checkpoints?.length || 0}|${photosCount}|${r.lastUpdated || ''}|${chkSig}`;
+};
+
 const areRoundsEqual = (a: DailyRound[], b: DailyRound[]): boolean => {
   if (a === b) return true;
   if (!a || !b || a.length !== b.length) return false;
@@ -2113,24 +2132,8 @@ const areRoundsEqual = (a: DailyRound[], b: DailyRound[]): boolean => {
     const r1 = a[i];
     const r2 = b[i];
     if (!r1 || !r2) return false;
-    if (
-      r1.id !== r2.id ||
-      r1.status !== r2.status ||
-      r1.compliancePercentage !== r2.compliancePercentage ||
-      r1.date !== r2.date ||
-      r1.time !== r2.time ||
-      r1.shift !== r2.shift ||
-      r1.technicianName !== r2.technicianName ||
-      r1.technicianSignature !== r2.technicianSignature ||
-      r1.completedAt !== r2.completedAt ||
-      r1.generalNotes !== r2.generalNotes ||
-      (r1.anomalies?.length || 0) !== (r2.anomalies?.length || 0) ||
-      (r1.checkpoints?.length || 0) !== (r2.checkpoints?.length || 0)
-    ) {
+    if (getRoundSyncFingerprint(r1) !== getRoundSyncFingerprint(r2)) {
       return false;
-    }
-    if (r1.status === 'en_progreso' || r2.status === 'en_progreso') {
-      if (r1.lastUpdated !== r2.lastUpdated) return false;
     }
   }
   return true;
@@ -2931,8 +2934,6 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
         }
       } catch (e) { console.error(e); }
     }
-    safeSetItem(STORAGE_KEYS.ROUNDS, JSON.stringify(baseList));
-    idbSet(STORAGE_KEYS.ROUNDS, baseList).catch(() => {});
     return baseList;
   });
 
@@ -2947,7 +2948,8 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
         if (
           !parsed ||
           !parsed.id ||
-          (parsed.status === 'completada' && Boolean(parsed.completedAt && parsed.technicianSignature)) ||
+          parsed.status === 'completada' ||
+          Boolean(parsed.completedAt && parsed.technicianSignature) ||
           getDeletedRoundIds().has(parsed.id)
         ) {
           localStorage.removeItem(STORAGE_KEYS.ACTIVE_ROUND);
@@ -2963,13 +2965,14 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
     return null;
   });
 
+  const completedRoundIdsRef = useRef<Set<string>>(new Set());
+
   const inProgressRounds = useMemo(() => {
     const list = (rounds || []).filter(r => {
       if (!r || !r.id) return false;
       if (getDeletedRoundIds().has(r.id)) return false;
-      // Solo excluir si ya fue cerrada oficialmente con firma
-      if (r.status === 'completada' && Boolean(r.completedAt && r.technicianSignature)) return false;
-      // Cualquier ronda en progreso (como la de condensadoras de Carlos) debe ser 100% visible
+      if (completedRoundIdsRef.current.has(r.id)) return false;
+      if (r.status === 'completada' || Boolean(r.completedAt && r.technicianSignature)) return false;
       return r.status === 'en_progreso';
     });
     const map = new Map<string, DailyRound>();
@@ -3367,10 +3370,12 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
       const rawList: DailyRound[] = existingStr ? JSON.parse(existingStr) : [];
       const list = (Array.isArray(rawList) ? rawList : []).filter(r => r && r.id && !deletedIds.has(r.id));
 
-      // Si existe una ronda activa en curso en este teléfono/dispositivo, incluirla para sincronización obligatoria
+      // Si existe una ronda activa en curso aún no completada, incluirla para sincronización
       if (
         activeRoundRef.current &&
         activeRoundRef.current.id &&
+        !completedRoundIdsRef.current.has(activeRoundRef.current.id) &&
+        activeRoundRef.current.status !== 'completada' &&
         !deletedIds.has(activeRoundRef.current.id) &&
         !list.some(r => r.id === activeRoundRef.current?.id)
       ) {
@@ -3382,6 +3387,10 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
       for (const round of list) {
         if (!round || !round.id || getDeletedRoundIds().has(round.id) || isRecentlyLocallyDeleted(round.id)) {
           if (round?.id) removePendingOfflineRound(round.id);
+          continue;
+        }
+        if (round.status === 'en_progreso' && completedRoundIdsRef.current.has(round.id)) {
+          removePendingOfflineRound(round.id);
           continue;
         }
 
@@ -3433,30 +3442,28 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
       // 2. Flush any remaining valid pending offline rounds
       await flushPendingOfflineRounds();
 
-      // 3. Si la ronda activa exacta (por ID) fue eliminada o ya fue completada con firma, desvincularla. NUNCA cerrar una ronda en progreso por fecha o por otras rondas del mismo turno.
+      // 3. Si la ronda activa ya fue eliminada o completada oficialmente en el servidor, desvincularla para que nunca quede "en curso"
       if (activeRoundRef.current) {
-        if (activeRoundRef.current.status === 'en_progreso') {
-          // REGLA ESTRICTA: Mientras una ronda esté 'en_progreso', el técnico está trabajando en ella. NUNCA cerrarla por sincronizaciones en segundo plano.
-        } else {
-          const activeId = activeRoundRef.current.id;
-          const deletedIds = getDeletedRoundIds();
-          const currentList = roundsRef.current || [];
-          const match = currentList.find(r => r && r.id === activeId);
-          const isMatchCompleted = Boolean(match && (match.status === 'completada' || Boolean(match.completedAt && match.technicianSignature)));
-          const isSelfCompleted = activeRoundRef.current.status === 'completada' || Boolean(activeRoundRef.current.completedAt && activeRoundRef.current.technicianSignature);
+        const activeId = activeRoundRef.current.id;
+        const deletedIds = getDeletedRoundIds();
+        const currentList = roundsRef.current || [];
+        const match = currentList.find(r => r && r.id === activeId);
+        const isMatchCompleted = Boolean(match && (match.status === 'completada' || Boolean(match.completedAt && match.technicianSignature)));
+        const isSelfCompleted = activeRoundRef.current.status === 'completada' || Boolean(activeRoundRef.current.completedAt && activeRoundRef.current.technicianSignature) || completedRoundIdsRef.current.has(activeId);
 
-          if (deletedIds.has(activeId) || isMatchCompleted || isSelfCompleted) {
-            activeRoundRef.current = null;
-            setActiveRound(null);
-            localStorage.removeItem(STORAGE_KEYS.ACTIVE_ROUND);
-            idbRemove(STORAGE_KEYS.ACTIVE_ROUND).catch(() => {});
-          }
+        if (deletedIds.has(activeId) || isMatchCompleted || isSelfCompleted) {
+          activeRoundRef.current = null;
+          setActiveRound(null);
+          localStorage.removeItem(STORAGE_KEYS.ACTIVE_ROUND);
+          localStorage.removeItem('active_round_draft_backup');
+          idbRemove(STORAGE_KEYS.ACTIVE_ROUND).catch(() => {});
+          removePendingOfflineRound(activeId);
         }
       }
     } catch (e) {
       // Silent background sync
     }
-  }, [flushPendingOfflineRounds]);
+  }, [flushPendingOfflineRounds, removePendingOfflineRound]);
 
   const reconcileActiveRoundWithTemplate = useCallback((currentActive: DailyRound, template: RoundCheckpoint[]): DailyRound => {
     if (!currentActive || !Array.isArray(template) || template.length === 0) {
@@ -5324,7 +5331,6 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
   roundsRef.current = rounds;
   const activeRoundRef = useRef(activeRound);
   activeRoundRef.current = activeRound;
-  const completedRoundIdsRef = useRef<Set<string>>(new Set());
   const equipmentsRef = useRef(equipments);
   equipmentsRef.current = equipments;
   const incidentsRef = useRef(incidents);
@@ -6710,7 +6716,6 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
       const delReadings = getDeletedMeterReadingIds();
 
       const payload = {
-        rounds: (roundsRef.current || []).filter(r => r && r.id && !delRounds.has(r.id) && !isRecentlyLocallyDeleted(r.id)),
         equipments: (equipmentsRef.current || []).filter(e => e && e.id && !delEquipments.has(e.id) && !isRecentlyLocallyDeleted(e.id)),
         incidents: (incidentsRef.current || []).filter(i => i && i.id && !delIncidents.has(i.id) && !isRecentlyLocallyDeleted(i.id)),
         requests: (requestsRef.current || []).filter(r => r && r.id && !delRequests.has(r.id) && !isRecentlyLocallyDeleted(r.id)),
@@ -8799,6 +8804,91 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
   // -------------------------------------------------------------
   // ROUNDS ACTIONS (Shared Real-Time)
   // -------------------------------------------------------------
+  const syncedRoundChunksRef = useRef<Map<string, Set<string>>>(new Map());
+
+  const getCheckpointPhotoHash = (chk: RoundCheckpoint): string => {
+    const pCount = (Array.isArray(chk.photos) ? chk.photos.length : 0) + (chk.photoUrl ? 1 : 0);
+    const pLen = (Array.isArray(chk.photos) ? chk.photos.reduce((s, u) => s + (u?.length || 0), 0) : 0) + (chk.photoUrl?.length || 0);
+    const fSig = (chk.measurementFields || []).map(f => {
+      const fpCount = (Array.isArray(f?.photos) ? f.photos.length : 0) + (f?.photoUrl ? 1 : 0);
+      const fpLen = (Array.isArray(f?.photos) ? f.photos.reduce((s, u) => s + (u?.length || 0), 0) : 0) + (f?.photoUrl?.length || 0);
+      return `${f?.value ?? ''}:${f?.statusValue ?? ''}:${fpCount}:${fpLen}`;
+    }).join(',');
+    return `chk:${chk.id}:${chk.currentValue ?? ''}:${chk.statusValue ?? ''}:${pCount}:${pLen}:${fSig}`;
+  };
+
+  const getRoundMetaLite = (round: DailyRound) => ({
+    id: round.id,
+    date: round.date,
+    time: round.time,
+    shift: round.shift,
+    technicianName: round.technicianName,
+    userId: round.userId,
+    userEmail: round.userEmail,
+    status: round.status,
+    compliancePercentage: round.compliancePercentage,
+    lastUpdated: round.lastUpdated,
+    lastHeartbeat: round.lastHeartbeat
+  });
+
+  const uploadSingleRoundChunk = async (
+    roundId: string,
+    bodyPayload: any,
+    timeoutMs: number = 25000,
+    retries: number = 2
+  ): Promise<boolean> => {
+    for (let attempt = 0; attempt <= retries; attempt++) {
+      const controller = new AbortController();
+      const tId = setTimeout(() => controller.abort(), timeoutMs);
+      try {
+        const res = await fetch(`/api/rounds/${roundId}/checkpoint`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Client-Id': clientSessionId.current
+          },
+          body: JSON.stringify(bodyPayload),
+          signal: controller.signal
+        });
+        clearTimeout(tId);
+        if (res.ok) return true;
+        if (res.status === 410 || (res.status >= 400 && res.status < 500)) return false;
+      } catch {
+        clearTimeout(tId);
+        if (attempt < retries) {
+          await new Promise(r => setTimeout(r, 800));
+        }
+      }
+    }
+    return false;
+  };
+
+  const buildLightweightRoundPayload = (round: DailyRound, stripSyncedPhotos: boolean): any => {
+    if (!stripSyncedPhotos) return round;
+    const syncedSet = syncedRoundChunksRef.current.get(round.id);
+    if (!syncedSet || syncedSet.size === 0) return round;
+
+    return {
+      ...round,
+      preserveServerPhotos: true,
+      checkpoints: (round.checkpoints || []).map(chk => {
+        if (!chk) return chk;
+        const hash = getCheckpointPhotoHash(chk);
+        if (!syncedSet.has(hash)) return chk;
+        return {
+          ...chk,
+          photoUrl: undefined,
+          photos: undefined,
+          measurementFields: chk.measurementFields?.map(f => ({
+            ...f,
+            photoUrl: undefined,
+            photos: undefined
+          }))
+        };
+      })
+    };
+  };
+
   const syncActiveRoundTimeoutRef = useRef<any>(null);
   const syncActiveRoundToCloud = (round: DailyRound, immediate = false) => {
     // Si la ronda ya fue completada o descartada, no sincronizar nunca más un estado 'en_progreso'
@@ -8823,24 +8913,46 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
       if (completedRoundIdsRef.current.has(roundToSync.id) || getDeletedRoundIds().has(roundToSync.id) || isRecentlyLocallyDeleted(roundToSync.id)) return;
       if ((roundsRef.current || []).some(r => r.id === roundToSync.id && r.status === 'completada')) return;
 
+      let syncedSet = syncedRoundChunksRef.current.get(roundToSync.id);
+      if (!syncedSet) {
+        syncedSet = new Set<string>();
+        syncedRoundChunksRef.current.set(roundToSync.id, syncedSet);
+      }
+
+      // Subir de forma individual los checkpoints con fotos aún no confirmados (paquetes pequeños ~60 KB aptos para señal mínima)
+      const metaLite = getRoundMetaLite(roundToSync);
+      for (const chk of roundToSync.checkpoints || []) {
+        if (!chk) continue;
+        const hasChkPhoto = Boolean(chk.photoUrl || (chk.photos && chk.photos.length > 0) || (chk.measurementFields || []).some(f => f.photoUrl || (f.photos && f.photos.length > 0)));
+        if (!hasChkPhoto) continue;
+        const hash = getCheckpointPhotoHash(chk);
+        if (!syncedSet.has(hash)) {
+          const ok = await uploadSingleRoundChunk(roundToSync.id, { roundMeta: metaLite, checkpoint: chk }, 20000, 1);
+          if (ok) syncedSet.add(hash);
+        }
+      }
+
+      if (completedRoundIdsRef.current.has(roundToSync.id)) return;
+
+      const payloadToSend = buildLightweightRoundPayload(roundToSync, true);
       fetch('/api/rounds', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'X-Client-Id': clientSessionId.current
         },
-        body: JSON.stringify(roundToSync)
+        body: JSON.stringify(payloadToSend)
       }).catch(() => {});
     };
 
     if (immediate) {
       syncActiveRoundTimeoutRef.current = setTimeout(() => {
         executeSync();
-      }, 400);
+      }, 350);
     } else {
       syncActiveRoundTimeoutRef.current = setTimeout(() => {
         executeSync();
-      }, 2500);
+      }, 2200);
     }
   };
 
@@ -9488,11 +9600,6 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
       return;
     }
 
-    if (!navigator.onLine) {
-      notify('⚠️ Sin conexión a Internet: No es posible cargar la ronda en el sistema. Busca señal Wi-Fi o datos móviles para cerrar la ronda.');
-      throw new Error('OFFLINE_NO_INTERNET');
-    }
-
     // Cancelar de inmediato cualquier sincronización parcial pendiente ('en_progreso') para evitar que un paquete viejo sobreescriba el cierre atómico
     if (syncActiveRoundTimeoutRef.current) {
       clearTimeout(syncActiveRoundTimeoutRef.current);
@@ -9640,38 +9747,163 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
     queueSaveActiveRoundStorage(currentActive, true);
     queuePendingOfflineRound(completed);
 
-    // Envío atómico consolidado al servidor PostgreSQL con reintentos progresivos para señal mínima
-    const retryTimeoutsMs = [18000, 25000, 30000];
+    const expectedPhotoCount = collectRoundPhotoUrls(completed).length;
+
+    // FASE 1: Subida progresiva por tramos pequeños (~50-120 KB cada punto con fotos) para garantizar carga al 100% con señal mínima
+    let syncedSet = syncedRoundChunksRef.current.get(completed.id);
+    if (!syncedSet) {
+      syncedSet = new Set<string>();
+      syncedRoundChunksRef.current.set(completed.id, syncedSet);
+    }
+
+    const metaForChunks = getRoundMetaLite(currentActive);
+    let allPhotoCheckpointsSynced = true;
+
+    for (const chk of completed.checkpoints || []) {
+      if (!chk) continue;
+      const hasChkPhoto = Boolean(chk.photoUrl || (chk.photos && chk.photos.length > 0) || (chk.measurementFields || []).some(f => f.photoUrl || (f.photos && f.photos.length > 0)));
+      if (!hasChkPhoto) continue;
+      const hash = getCheckpointPhotoHash(chk);
+      if (!syncedSet.has(hash)) {
+        const ok = await uploadSingleRoundChunk(completed.id, { roundMeta: metaForChunks, checkpoint: chk }, 28000, 2);
+        if (ok) {
+          syncedSet.add(hash);
+        } else {
+          allPhotoCheckpointsSynced = false;
+        }
+      }
+    }
+
+    // Sincronizar medidores generales y anomalías si tienen fotos antes del commit final
+    const mrHasPhotos = Boolean(
+      completed.meterReadings?.waterMeterPhotoUrl ||
+      (completed.meterReadings as any)?.waterMeterPhotos?.length ||
+      completed.meterReadings?.electricMeterPhotoUrl ||
+      (completed.meterReadings as any)?.electricMeterPhotos?.length ||
+      completed.meterReadings?.gasMeterPhotoUrl ||
+      (completed.meterReadings as any)?.gasMeterPhotos?.length ||
+      (completed.meterReadings?.customMeters && Object.values(completed.meterReadings.customMeters).some((cm: any) => cm?.photoUrl || cm?.photos?.length))
+    );
+    let metersSyncedInChunk = false;
+    if (mrHasPhotos) {
+      metersSyncedInChunk = await uploadSingleRoundChunk(completed.id, { roundMeta: metaForChunks, meterReadings: completed.meterReadings }, 28000, 2);
+    }
+
+    const anomHasPhotos = (completed.anomalies || []).some(a => a?.photoUrl || (a?.photos && a.photos.length > 0));
+    let anomaliesSyncedInChunk = false;
+    if (anomHasPhotos) {
+      anomaliesSyncedInChunk = await uploadSingleRoundChunk(completed.id, { roundMeta: metaForChunks, anomalies: completed.anomalies }, 28000, 2);
+    }
+
+    const buildCommitPayload = (useLightweight: boolean) => {
+      if (!useLightweight) return completed;
+      const baseLite = buildLightweightRoundPayload(completed, true);
+      if (metersSyncedInChunk && baseLite.meterReadings) {
+        const cleanMr: any = { ...baseLite.meterReadings };
+        delete cleanMr.waterMeterPhotoUrl;
+        delete cleanMr.waterMeterPhotos;
+        delete cleanMr.electricMeterPhotoUrl;
+        delete cleanMr.electricMeterPhotos;
+        delete cleanMr.gasMeterPhotoUrl;
+        delete cleanMr.gasMeterPhotos;
+        if (cleanMr.customMeters) {
+          const strippedCm: Record<string, any> = {};
+          for (const k of Object.keys(cleanMr.customMeters)) {
+            const { photoUrl: _pu, photos: _ps, ...restCm } = cleanMr.customMeters[k] || {};
+            strippedCm[k] = restCm;
+          }
+          cleanMr.customMeters = strippedCm;
+        }
+        baseLite.meterReadings = cleanMr;
+      }
+      if (anomaliesSyncedInChunk && Array.isArray(baseLite.anomalies)) {
+        baseLite.anomalies = baseLite.anomalies.map((a: any) => {
+          const { photoUrl: _apu, photos: _aps, ...restA } = a || {};
+          return restA;
+        });
+      }
+      return baseLite;
+    };
+
+    const verifyRoundSavedOnServer = async (): Promise<DailyRound | null> => {
+      const controller = new AbortController();
+      const tId = setTimeout(() => controller.abort(), 12000);
+      try {
+        const checkRes = await fetch(`/api/rounds/${completed.id}?_t=${Date.now()}`, {
+          cache: 'no-store',
+          signal: controller.signal
+        });
+        clearTimeout(tId);
+        if (checkRes.ok) {
+          const srv = await checkRes.json();
+          if (srv && srv.id === completed.id && (srv.status === 'completada' || Boolean(srv.completedAt && srv.technicianSignature))) {
+            return srv as DailyRound;
+          }
+        }
+      } catch {
+        clearTimeout(tId);
+      }
+      return null;
+    };
+
+    // FASE 2: Commit final de cierre (liviano si las fotos ya están en PostgreSQL; fallback completo si hace falta)
+    const retryConfigs = allPhotoCheckpointsSynced
+      ? [
+          { timeoutMs: 30000, lightweight: true },
+          { timeoutMs: 45000, lightweight: true },
+          { timeoutMs: 60000, lightweight: false }
+        ]
+      : [
+          { timeoutMs: 35000, lightweight: false },
+          { timeoutMs: 50000, lightweight: false },
+          { timeoutMs: 65000, lightweight: false }
+        ];
+
     let uploadConfirmed = false;
     let authoritativeRound: DailyRound = completed;
     let lastNetworkError: any = null;
 
-    for (let attempt = 0; attempt < retryTimeoutsMs.length; attempt++) {
+    for (let attempt = 0; attempt < retryConfigs.length; attempt++) {
+      const cfg = retryConfigs[attempt];
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), retryTimeoutsMs[attempt]);
+      const timeoutId = setTimeout(() => controller.abort(), cfg.timeoutMs);
       try {
+        const bodyObj = buildCommitPayload(cfg.lightweight);
         const res = await fetch('/api/rounds', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             'X-Client-Id': clientSessionId.current
           },
-          body: JSON.stringify(completed),
+          body: JSON.stringify(bodyObj),
           signal: controller.signal
         });
         clearTimeout(timeoutId);
 
         if (res.ok) {
-          uploadConfirmed = true;
+          let returnedRound: DailyRound | null = null;
           try {
             const payload = await res.json();
             if (Array.isArray(payload?.rounds)) {
-              const serverMatch = payload.rounds.find((r: any) => r && r.id === completed.id);
-              if (serverMatch) authoritativeRound = serverMatch;
+              returnedRound = payload.rounds.find((r: any) => r && r.id === completed.id) || null;
             } else if (payload?.round && payload.round.id === completed.id) {
-              authoritativeRound = payload.round;
+              returnedRound = payload.round;
             }
           } catch {}
+
+          // Verificar que el servidor tenga todas las fotos reales intactas; si usó lightweight y faltó alguna foto en memoria tras reinicio, reenviar completo
+          const serverPhotoCount = returnedRound ? collectRoundPhotoUrls(returnedRound).length : 0;
+          if (cfg.lightweight && expectedPhotoCount > 0 && serverPhotoCount < expectedPhotoCount) {
+            lastNetworkError = new Error('RETRY_FULL_PHOTOS');
+            continue;
+          }
+
+          uploadConfirmed = true;
+          if (returnedRound) {
+            // Combinar garantizando 0 pérdida de fotos locales
+            const mergedFinal = mergeRoundLists([completed], [returnedRound], getDeletedRoundIds());
+            authoritativeRound = mergedFinal[0] || returnedRound;
+          }
           break;
         }
 
@@ -9683,17 +9915,37 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
       } catch (err: any) {
         clearTimeout(timeoutId);
         lastNetworkError = err;
-        if (attempt < retryTimeoutsMs.length - 1) {
+        // Verificar si PostgreSQL ya recibió y guardó la ronda a pesar del timeout de respuesta
+        const alreadySaved = await verifyRoundSavedOnServer();
+        if (alreadySaved && collectRoundPhotoUrls(alreadySaved).length >= expectedPhotoCount) {
+          uploadConfirmed = true;
+          const mergedFinal = mergeRoundLists([completed], [alreadySaved], getDeletedRoundIds());
+          authoritativeRound = mergedFinal[0] || alreadySaved;
+          break;
+        }
+        if (attempt < retryConfigs.length - 1) {
           await new Promise(resolve => setTimeout(resolve, 1000));
         }
       }
     }
 
     if (!uploadConfirmed) {
-      // Señal caída o insuficiente: conservar activeRound y todos los puntos llenados intactos localmente para que el técnico reintente sin perder nada
-      notify('⚠️ Señal insuficiente para confirmar la carga completa en PostgreSQL. Tus puntos y fotos siguen guardados localmente; busca señal e intenta cerrar nuevamente.');
+      // Última verificación contra el servidor antes de reportar falla de señal
+      const alreadySaved = await verifyRoundSavedOnServer();
+      if (alreadySaved && collectRoundPhotoUrls(alreadySaved).length >= expectedPhotoCount) {
+        uploadConfirmed = true;
+        const mergedFinal = mergeRoundLists([completed], [alreadySaved], getDeletedRoundIds());
+        authoritativeRound = mergedFinal[0] || alreadySaved;
+      }
+    }
+
+    if (!uploadConfirmed) {
+      // Señal caída o insuficiente: conservar activeRound y todos los puntos/fotos intactos localmente para que el técnico reintente sin perder nada
+      notify('⚠️ Señal insuficiente para confirmar la carga completa en PostgreSQL. Tus puntos y fotos siguen guardados localmente; intenta cerrar nuevamente cuando tengas un poco de señal.');
       throw (lastNetworkError || new Error('WEAK_OR_LOST_SIGNAL'));
     }
+
+    syncedRoundChunksRef.current.delete(authoritativeRound.id);
 
     // Confirmación ACK real recibida desde PostgreSQL: reportar anomalías, consolidar historial y cerrar limpiamente
     finalAnomalies.forEach(anomaly => {

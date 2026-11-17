@@ -2591,6 +2591,194 @@ app.delete("/api/tasks/:id", async (req, res) => {
   res.json({ status: "deleted", id });
 });
 
+app.get("/api/rounds/:id", async (req, res) => {
+  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+  const { id } = req.params;
+  if (await isIdDeletedInServer(id)) {
+    return res.status(410).json({ error: "Deleted", id });
+  }
+  if (pgPool) {
+    const pgRound = await pgGet('rounds', id);
+    if (pgRound && typeof pgRound === 'object') {
+      const store = getCachedData();
+      if (!Array.isArray(store.rounds)) store.rounds = [];
+      const idx = store.rounds.findIndex((r: any) => r && r.id === id);
+      const normalized = { ...pgRound, id: pgRound.id || id };
+      if (idx >= 0) store.rounds[idx] = normalized;
+      else store.rounds.unshift(normalized);
+      return res.json(normalized);
+    }
+  }
+  const store = getCachedData();
+  const found = (store.rounds || []).find((r: any) => r && r.id === id);
+  if (!found) {
+    return res.status(404).json({ error: "Not found", id });
+  }
+  return res.json(found);
+});
+
+app.post("/api/rounds/:id/checkpoint", async (req, res) => {
+  const { id } = req.params;
+  let body = req.body;
+  if (typeof body === 'string') {
+    try {
+      body = JSON.parse(body);
+    } catch {
+      return res.status(400).json({ error: "Invalid JSON in body" });
+    }
+  }
+  if (!body || typeof body !== 'object') {
+    return res.status(400).json({ error: "Empty request body" });
+  }
+  if (await isIdDeletedInServer(id)) {
+    return res.status(410).json({ error: "Deleted", id });
+  }
+
+  const current = getCachedData();
+  if (!Array.isArray(current.rounds)) current.rounds = [];
+
+  let idx = current.rounds.findIndex((r: any) => r && r.id === id);
+  let existing = idx >= 0 ? current.rounds[idx] : null;
+  if (!existing && pgPool) {
+    const pgExisting = await pgGet('rounds', id);
+    if (pgExisting && typeof pgExisting === 'object') {
+      existing = { ...pgExisting, id: pgExisting.id || id };
+      current.rounds.unshift(existing);
+      idx = 0;
+    }
+  }
+
+  const { roundMeta, checkpoint, meterReadings, anomalies } = body;
+  const nowIso = new Date().toISOString();
+
+  if (!existing) {
+    existing = {
+      ...(roundMeta && typeof roundMeta === 'object' ? roundMeta : {}),
+      id,
+      status: roundMeta?.status === 'completada' ? 'completada' : 'en_progreso',
+      checkpoints: Array.isArray(roundMeta?.checkpoints) ? roundMeta.checkpoints : [],
+      anomalies: Array.isArray(roundMeta?.anomalies) ? roundMeta.anomalies : [],
+      meterReadings: roundMeta?.meterReadings && typeof roundMeta.meterReadings === 'object' ? roundMeta.meterReadings : {},
+      lastUpdated: nowIso
+    };
+    current.rounds.unshift(existing);
+    idx = 0;
+  }
+
+  const isExistingCompleted = existing.status === 'completada' || Boolean(existing.completedAt && existing.technicianSignature);
+  let updatedCheckpoints = Array.isArray(existing.checkpoints) ? [...existing.checkpoints] : [];
+
+  if (checkpoint && typeof checkpoint === 'object' && checkpoint.id) {
+    const cIdx = updatedCheckpoints.findIndex((c: any) => c && (c.id === checkpoint.id || (checkpoint.title && c.title === checkpoint.title)));
+    const ec = cIdx >= 0 ? updatedCheckpoints[cIdx] : null;
+    const mergedChkPhotos = mergeUniquePhotosServer(ec?.photos, ec?.photoUrl, checkpoint.photos, checkpoint.photoUrl);
+    const photoUrl = mergedChkPhotos[mergedChkPhotos.length - 1] || checkpoint.photoUrl || ec?.photoUrl;
+
+    const mergedFields = (checkpoint.measurementFields || ec?.measurementFields || []).map((rf: any, fIdx: number) => {
+      const ef = ec?.measurementFields?.[fIdx] || ec?.measurementFields?.find((f: any) => f && (f.id === rf.id || f.name === rf.name));
+      const mergedFieldPhotos = mergeUniquePhotosServer(ef?.photos, ef?.photoUrl, rf?.photos, rf?.photoUrl);
+      const fPhoto = mergedFieldPhotos[mergedFieldPhotos.length - 1] || rf?.photoUrl || ef?.photoUrl;
+      return {
+        ...ef,
+        ...rf,
+        ...(mergedFieldPhotos.length > 0 ? { photos: mergedFieldPhotos } : {}),
+        ...(fPhoto ? { photoUrl: fPhoto } : {})
+      };
+    });
+
+    const mergedChk = {
+      ...(ec || {}),
+      ...checkpoint,
+      photoRequired: checkpoint.photoRequired ?? ec?.photoRequired,
+      ...(mergedChkPhotos.length > 0 ? { photos: mergedChkPhotos } : {}),
+      ...(photoUrl ? { photoUrl } : {}),
+      ...(mergedFields.length > 0 ? { measurementFields: mergedFields } : {})
+    };
+
+    if (cIdx >= 0) updatedCheckpoints[cIdx] = mergedChk;
+    else updatedCheckpoints.push(mergedChk);
+  }
+
+  let updatedMeters = existing.meterReadings && typeof existing.meterReadings === 'object' ? { ...existing.meterReadings } : {};
+  if (meterReadings && typeof meterReadings === 'object') {
+    const mergedCustom: Record<string, any> = {
+      ...(updatedMeters.customMeters || {}),
+      ...(meterReadings.customMeters || {})
+    };
+    for (const cmKey of Object.keys(mergedCustom)) {
+      const eCm = updatedMeters.customMeters?.[cmKey];
+      const rCm = meterReadings.customMeters?.[cmKey];
+      const cmPhotos = mergeUniquePhotosServer(eCm?.photos, eCm?.photoUrl, rCm?.photos, rCm?.photoUrl);
+      mergedCustom[cmKey] = {
+        ...(eCm || {}),
+        ...(rCm || {}),
+        ...(cmPhotos.length > 0 ? { photos: cmPhotos, photoUrl: cmPhotos[cmPhotos.length - 1] } : {})
+      };
+    }
+
+    const wPhotos = mergeUniquePhotosServer(updatedMeters.waterMeterPhotos, updatedMeters.waterMeterPhotoUrl, meterReadings.waterMeterPhotos, meterReadings.waterMeterPhotoUrl);
+    const ePhotos = mergeUniquePhotosServer(updatedMeters.electricMeterPhotos, updatedMeters.electricMeterPhotoUrl, meterReadings.electricMeterPhotos, meterReadings.electricMeterPhotoUrl);
+    const gPhotos = mergeUniquePhotosServer(updatedMeters.gasMeterPhotos, updatedMeters.gasMeterPhotoUrl, meterReadings.gasMeterPhotos, meterReadings.gasMeterPhotoUrl);
+
+    updatedMeters = {
+      ...updatedMeters,
+      ...meterReadings,
+      customMeters: mergedCustom,
+      ...(wPhotos.length > 0 ? { waterMeterPhotos: wPhotos, waterMeterPhotoUrl: wPhotos[wPhotos.length - 1] } : {}),
+      ...(ePhotos.length > 0 ? { electricMeterPhotos: ePhotos, electricMeterPhotoUrl: ePhotos[ePhotos.length - 1] } : {}),
+      ...(gPhotos.length > 0 ? { gasMeterPhotos: gPhotos, gasMeterPhotoUrl: gPhotos[gPhotos.length - 1] } : {})
+    };
+  }
+
+  let updatedAnomalies = Array.isArray(existing.anomalies) ? [...existing.anomalies] : [];
+  if (Array.isArray(anomalies) && anomalies.length > 0) {
+    const anomMap = new Map<string, any>();
+    for (const ea of updatedAnomalies) {
+      if (ea && ea.id) anomMap.set(ea.id, ea);
+    }
+    for (const ra of anomalies) {
+      if (!ra || !ra.id) continue;
+      const ea = anomMap.get(ra.id);
+      const mergedAPhotos = mergeUniquePhotosServer(ea?.photos, ea?.photoUrl, ra.photos, ra.photoUrl);
+      anomMap.set(ra.id, {
+        ...(ea || {}),
+        ...ra,
+        ...(mergedAPhotos.length > 0 ? { photos: mergedAPhotos, photoUrl: mergedAPhotos[mergedAPhotos.length - 1] } : {})
+      });
+    }
+    updatedAnomalies = Array.from(anomMap.values());
+  }
+
+  const nextRound = {
+    ...existing,
+    ...(roundMeta && typeof roundMeta === 'object' ? {
+      compliancePercentage: isExistingCompleted ? 100 : (roundMeta.compliancePercentage ?? existing.compliancePercentage),
+      technicianName: isExistingCompleted ? existing.technicianName : (roundMeta.technicianName || existing.technicianName),
+      lastHeartbeat: roundMeta.lastHeartbeat || nowIso
+    } : {}),
+    checkpoints: updatedCheckpoints,
+    meterReadings: updatedMeters,
+    anomalies: updatedAnomalies,
+    anomaliesCount: updatedAnomalies.length,
+    status: isExistingCompleted ? 'completada' : (existing.status || 'en_progreso'),
+    lastUpdated: nowIso
+  };
+
+  current.rounds[idx] = nextRound;
+  await pgUpsert('rounds', id, nextRound, false);
+  scheduleSaveToDisk();
+
+  const clientId = req.headers['x-client-id'] || null;
+  broadcastSse({
+    type: nextRound.status === 'completada' ? 'round_completed' : 'round_updated',
+    round: nextRound,
+    clientId,
+    time: Date.now()
+  });
+
+  res.json({ success: true, id, checkpointId: checkpoint?.id });
+});
+
 app.post("/api/rounds", async (req, res) => {
   let body = req.body;
   if (typeof body === 'string') {
@@ -2720,83 +2908,71 @@ app.post("/api/rounds", async (req, res) => {
 
       const mergedRoundPhotos = mergeUniquePhotosServer(
         existing.photos,
-        round.photos,
-        ...mergedCheckpoints.map((c: any) => c.photos || c.photoUrl),
-        ...mergedCheckpoints.flatMap((c: any) => (c.measurementFields || []).map((f: any) => f.photos || f.photoUrl)),
-        ...mergedAnomalies.map((a: any) => a.photos || a.photoUrl),
-        mergedMeters.waterMeterPhotoUrl,
-        mergedMeters.electricMeterPhotoUrl,
-        mergedMeters.gasMeterPhotoUrl
+        round.photos
       );
 
       const isExistingCompleted = existing.status === 'completada' || Boolean(existing.completedAt && existing.technicianSignature);
       const isIncomingCompleted = round.status === 'completada' || Boolean(round.completedAt && round.technicianSignature);
 
       if (isExistingCompleted && !isIncomingCompleted) {
-        // La ronda ya fue cerrada y completada oficialmente por el técnico: NINGÚN paquete rezagado 'en_progreso' puede degradarla ni borrar su firma
+        // La ronda ya fue cerrada y completada oficialmente por el técnico: NINGÚN paquete rezagado 'en_progreso' puede degradarla ni sobreescribirla
         savedRound = {
           ...existing,
-          ...round,
           checkpoints: mergedCheckpoints,
           meterReadings: mergedMeters,
           anomalies: mergedAnomalies,
-          photos: mergedRoundPhotos,
+          ...(mergedRoundPhotos.length > 0 ? { photos: mergedRoundPhotos } : {}),
           status: 'completada',
           compliancePercentage: 100,
           completedAt: existing.completedAt || new Date().toISOString(),
-          technicianSignature: existing.technicianSignature || round.technicianSignature || existing.technicianName
+          technicianSignature: existing.technicianSignature || existing.technicianName
         };
       } else if (isIncomingCompleted) {
+        const cleanRoundBody = { ...round };
+        delete cleanRoundBody.preserveServerPhotos;
         savedRound = {
           ...existing,
-          ...round,
+          ...cleanRoundBody,
           checkpoints: mergedCheckpoints,
           meterReadings: mergedMeters,
           anomalies: mergedAnomalies,
-          photos: mergedRoundPhotos,
+          ...(mergedRoundPhotos.length > 0 ? { photos: mergedRoundPhotos } : {}),
           status: 'completada',
           compliancePercentage: 100,
           completedAt: round.completedAt || existing.completedAt || new Date().toISOString(),
           technicianSignature: round.technicianSignature || existing.technicianSignature || round.technicianName
         };
       } else if (round.status === 'en_progreso') {
+        const cleanRoundBody = { ...round };
+        delete cleanRoundBody.preserveServerPhotos;
         savedRound = {
           ...existing,
-          ...round,
+          ...cleanRoundBody,
           checkpoints: mergedCheckpoints,
           meterReadings: mergedMeters,
           anomalies: mergedAnomalies,
-          photos: mergedRoundPhotos,
+          ...(mergedRoundPhotos.length > 0 ? { photos: mergedRoundPhotos } : {}),
           status: 'en_progreso',
           completedAt: undefined,
           technicianSignature: round.technicianSignature || existing.technicianSignature || undefined
         };
       } else {
+        const cleanRoundBody = { ...round };
+        delete cleanRoundBody.preserveServerPhotos;
         savedRound = {
           ...existing,
-          ...round,
+          ...cleanRoundBody,
           checkpoints: mergedCheckpoints,
           meterReadings: mergedMeters,
           anomalies: mergedAnomalies,
-          photos: mergedRoundPhotos
+          ...(mergedRoundPhotos.length > 0 ? { photos: mergedRoundPhotos } : {})
         };
       }
       current.rounds[idx] = savedRound;
     } else {
+      delete round.preserveServerPhotos;
       if (!round.meterReadings || typeof round.meterReadings !== 'object') {
         round.meterReadings = {};
-      }
-      const initialRoundPhotos = mergeUniquePhotosServer(
-        round.photos,
-        ...(round.checkpoints || []).map((c: any) => c?.photos || c?.photoUrl),
-        ...(round.checkpoints || []).flatMap((c: any) => (c?.measurementFields || []).map((f: any) => f?.photos || f?.photoUrl)),
-        ...(round.anomalies || []).map((a: any) => a?.photos || a?.photoUrl),
-        round.meterReadings.waterMeterPhotoUrl,
-        round.meterReadings.electricMeterPhotoUrl,
-        round.meterReadings.gasMeterPhotoUrl
-      );
-      if (initialRoundPhotos.length > 0) {
-        round.photos = initialRoundPhotos;
       }
       savedRound = round;
       current.rounds.unshift(round);
@@ -2837,11 +3013,13 @@ app.post("/api/rounds", async (req, res) => {
 
   scheduleSaveToDisk();
 
-  broadcastSse({
-    type: 'data_updated',
-    clientId,
-    time: Date.now()
-  });
+  if (savedRoundsList.some((r: any) => r?.status === 'completada' || (r?.anomalies && r.anomalies.length > 0))) {
+    broadcastSse({
+      type: 'data_updated',
+      clientId,
+      time: Date.now()
+    });
+  }
 
   res.json({
     success: true,
@@ -3624,18 +3802,21 @@ app.put("/api/bitacora/:id", async (req, res) => {
 // Generic entity CRUD endpoints
 // 1. Rounds
 app.get("/api/rounds", async (_req, res) => {
+  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
   const store = getCachedData();
+  const deletedSet = await getAuthoritativeDeletedIdsSet();
   if (pgPool) {
     try {
       const q = await pgPool.query('SELECT id, data FROM rounds ORDER BY updated_at DESC');
-      const pgRounds = (q.rows || []).map((r: any) => (r && r.data && typeof r.data === 'object') ? { ...r.data, id: r.data.id || r.id } : null).filter(Boolean);
+      const pgRounds = (q.rows || [])
+        .map((r: any) => (r && r.data && typeof r.data === 'object') ? { ...r.data, id: r.data.id || r.id } : null)
+        .filter((r: any) => r && r.id && !deletedSet.has(r.id));
       store.rounds = pgRounds;
       return res.json(pgRounds);
     } catch (e) {
       console.warn("[PostgreSQL] Notice loading rounds from DB:", (e as any)?.message || e);
     }
   }
-  const deletedSet = new Set(store.deletedIds || []);
   res.json((store.rounds || []).filter((r: any) => r && r.id && !deletedSet.has(r.id)));
 });
 
@@ -4368,10 +4549,13 @@ async function startServer() {
     }
   });
 
-  app.listen(PORT, "0.0.0.0", () => {
+  const httpServer = app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://localhost:${PORT}`);
     console.log('[Server] System operational and synchronized with PostgreSQL/Storage.');
   });
+  httpServer.setTimeout(120000);
+  httpServer.keepAliveTimeout = 65000;
+  httpServer.headersTimeout = 70000;
 }
 
 startServer();
