@@ -1563,12 +1563,19 @@ function mergeAppData(incoming: any) {
       }
       for (const item of incoming[key]) {
         if (!item || !item.id || deletedIdsSet.has(item.id)) continue;
+        const cleanItem: Record<string, any> = {};
+        for (const k of Object.keys(item)) {
+          if (item[k] !== undefined) cleanItem[k] = item[k];
+        }
         const existing = existingMap.get(item.id);
-        let chosen = item;
+        let chosen: any = cleanItem;
         if (existing) {
-          const tExisting = new Date(existing.updatedAt || existing.lastUpdated || existing.resolvedAt || existing.createdAt || 0).getTime() || 0;
-          const tIncoming = new Date(item.updatedAt || item.lastUpdated || item.resolvedAt || item.createdAt || 0).getTime() || 0;
-          chosen = tIncoming >= tExisting ? { ...existing, ...item } : { ...item, ...existing };
+          const tExisting = new Date(existing.updatedAt || existing.lastUpdated || existing.resolvedAt || existing.uploadDate || existing.createdAt || 0).getTime() || 0;
+          const tIncoming = new Date(cleanItem.updatedAt || cleanItem.lastUpdated || cleanItem.resolvedAt || cleanItem.uploadDate || cleanItem.createdAt || 0).getTime() || 0;
+          chosen = tIncoming >= tExisting ? { ...existing, ...cleanItem } : { ...cleanItem, ...existing };
+          if (key === 'uploadedDocuments' && !chosen.rawBase64 && (existing.rawBase64 || cleanItem.rawBase64)) {
+            chosen.rawBase64 = cleanItem.rawBase64 || existing.rawBase64;
+          }
         }
         if (key === 'users' && Array.isArray(chosen.visibleSections) && !chosen.visibleSections.includes('tareas')) {
           existingMap.set(item.id, { ...chosen, visibleSections: [...chosen.visibleSections, 'tareas'] });
@@ -3483,6 +3490,7 @@ app.put("/api/shift-swaps/:id", async (req, res) => {
 
 // Uploaded Documents
 app.get("/api/uploaded-documents", async (_req, res) => {
+  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
   const store = getCachedData();
   if (pgPool) {
     try {
@@ -3496,6 +3504,36 @@ app.get("/api/uploaded-documents", async (_req, res) => {
   }
   res.json(store.uploadedDocuments || []);
 });
+app.get("/api/uploaded-documents/:id/download", async (req, res) => {
+  const { id } = req.params;
+  const store = getCachedData();
+  let doc: any = null;
+  if (pgPool) {
+    try {
+      doc = await pgGet('uploaded_documents', id);
+    } catch {}
+  }
+  if (!doc && Array.isArray(store.uploadedDocuments)) {
+    doc = store.uploadedDocuments.find((d: any) => d && d.id === id);
+  }
+  if (!doc) return res.status(404).json({ error: "Document not found" });
+  if (!doc.rawBase64) return res.status(404).json({ error: "Original binary not stored for this document" });
+
+  const cleanBase64 = String(doc.rawBase64).includes(',') ? String(doc.rawBase64).split(',')[1] : String(doc.rawBase64);
+  const buffer = Buffer.from(cleanBase64, 'base64');
+  const rawName = String(doc.name || `documento_${id}.xlsx`).replace(/[^\w.\-\s()áéíóúÁÉÍÓÚñÑ]/g, '_');
+  const fileName = rawName.toLowerCase().endsWith('.xlsx') || rawName.toLowerCase().endsWith('.xls') || rawName.toLowerCase().endsWith('.csv') || rawName.toLowerCase().endsWith('.pdf')
+    ? rawName
+    : `${rawName}.xlsx`;
+  const mime = doc.type === 'pdf'
+    ? 'application/pdf'
+    : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+
+  res.setHeader("Cache-Control", "no-store");
+  res.setHeader("Content-Type", mime);
+  res.setHeader("Content-Disposition", `attachment; filename*=UTF-8''${encodeURIComponent(fileName)}`);
+  res.send(buffer);
+});
 app.post("/api/uploaded-documents", async (req, res) => {
   const item = req.body;
   if (!item || !item.id) return res.status(400).json({ error: "Invalid document data" });
@@ -3504,14 +3542,28 @@ app.post("/api/uploaded-documents", async (req, res) => {
   }
   const store = getCachedData();
   if (!Array.isArray(store.uploadedDocuments)) store.uploadedDocuments = [];
+  const cleanItem: Record<string, any> = {};
+  for (const k of Object.keys(item)) {
+    if (item[k] !== undefined) cleanItem[k] = item[k];
+  }
+  cleanItem.updatedAt = cleanItem.updatedAt || new Date().toISOString();
+
   const idx = store.uploadedDocuments.findIndex((d: any) => d.id === item.id);
-  if (idx >= 0) store.uploadedDocuments[idx] = { ...store.uploadedDocuments[idx], ...item };
-  else store.uploadedDocuments.push(item);
-  await pgUpsert('uploaded_documents', item.id, item, Boolean(item.forceRestore));
+  const existing = idx >= 0 ? store.uploadedDocuments[idx] : (pgPool ? await pgGet('uploaded_documents', item.id) : null);
+  const savedDoc = existing ? { ...existing, ...cleanItem } : cleanItem;
+  if (!savedDoc.rawBase64 && existing?.rawBase64) {
+    savedDoc.rawBase64 = existing.rawBase64;
+  }
+
+  if (idx >= 0) store.uploadedDocuments[idx] = savedDoc;
+  else store.uploadedDocuments.unshift(savedDoc);
+
+  await pgUpsert('uploaded_documents', savedDoc.id, savedDoc, Boolean(item.forceRestore));
   scheduleSaveToDisk();
   const clientId = req.headers['x-client-id'] || null;
+  broadcastSse({ type: 'uploaded_document_updated', document: savedDoc, clientId, time: Date.now() });
   broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
-  res.json({ status: "success", document: item });
+  res.json({ status: "success", document: savedDoc });
 });
 app.delete("/api/uploaded-documents/:id", async (req, res) => {
   const { id } = req.params;
@@ -3526,6 +3578,7 @@ app.delete("/api/uploaded-documents/:id", async (req, res) => {
 
 // Document Folders
 app.get("/api/document-folders", async (_req, res) => {
+  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
   const store = getCachedData();
   if (pgPool) {
     try {
@@ -3547,14 +3600,32 @@ app.post("/api/document-folders", async (req, res) => {
   }
   const store = getCachedData();
   if (!Array.isArray(store.documentFolders)) store.documentFolders = [];
-  const idx = store.documentFolders.findIndex((f: any) => f.id === item.id);
-  if (idx >= 0) store.documentFolders[idx] = { ...store.documentFolders[idx], ...item };
-  else store.documentFolders.push(item);
-  await pgUpsert('document_folders', item.id, item, Boolean(item.forceRestore));
+  const savedFolder = { ...item, updatedAt: item.updatedAt || new Date().toISOString() };
+  const idx = store.documentFolders.findIndex((f: any) => f.id === savedFolder.id);
+  if (idx >= 0) store.documentFolders[idx] = { ...store.documentFolders[idx], ...savedFolder };
+  else store.documentFolders.unshift(savedFolder);
+  await pgUpsert('document_folders', savedFolder.id, savedFolder, Boolean(item.forceRestore));
   scheduleSaveToDisk();
   const clientId = req.headers['x-client-id'] || null;
+  broadcastSse({ type: 'document_folder_updated', folder: savedFolder, clientId, time: Date.now() });
   broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
-  res.json({ status: "success", folder: item });
+  res.json({ status: "success", folder: savedFolder });
+});
+app.put("/api/document-folders/:id", async (req, res) => {
+  const { id } = req.params;
+  const store = getCachedData();
+  if (!Array.isArray(store.documentFolders)) store.documentFolders = [];
+  const idx = store.documentFolders.findIndex((f: any) => f && f.id === id);
+  const existing = idx >= 0 ? store.documentFolders[idx] : (pgPool ? await pgGet('document_folders', id) : null);
+  const savedFolder = { ...(existing || {}), ...(req.body || {}), id, updatedAt: new Date().toISOString() };
+  if (idx >= 0) store.documentFolders[idx] = savedFolder;
+  else store.documentFolders.unshift(savedFolder);
+  await pgUpsert('document_folders', id, savedFolder, false);
+  scheduleSaveToDisk();
+  const clientId = req.headers['x-client-id'] || null;
+  broadcastSse({ type: 'document_folder_updated', folder: savedFolder, clientId, time: Date.now() });
+  broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
+  res.json({ status: "success", folder: savedFolder });
 });
 app.delete("/api/document-folders/:id", async (req, res) => {
   const { id } = req.params;

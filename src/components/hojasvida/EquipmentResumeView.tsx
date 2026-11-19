@@ -44,11 +44,19 @@ import {
   Eye,
   KeyRound,
   Table,
-  Fuel
+  Fuel,
+  FilePlus2,
+  FolderOpen,
+  Loader2
 } from 'lucide-react';
 import { OriginalDocumentViewer } from './OriginalDocumentViewer';
 import { CustomSelect } from '../common/CustomSelect';
 import { WaterPumpIcon, CondenserIcon, SubstationIcon, TankIcon, SaunaColdPlungeIcon } from '../../utils/roundIcons';
+import {
+  parseExcelFileToUploadedDocument,
+  createExcelDocumentFromTemplate,
+  ExcelTemplateType
+} from '../../utils/excelEngine';
 
 export const EquipmentResumeView: React.FC = () => {
   const { 
@@ -62,10 +70,12 @@ export const EquipmentResumeView: React.FC = () => {
     uploadedDocuments,
     addUploadedDocument,
     updateUploadedDocument,
+    moveUploadedDocument,
     deleteUploadedDocument,
     clearAllUploadedDocuments,
     documentFolders,
     createDocumentFolder,
+    updateDocumentFolder,
     deleteDocumentFolder,
     verifyAdminPin,
     setRole,
@@ -73,19 +83,20 @@ export const EquipmentResumeView: React.FC = () => {
     workOrders, 
     incidents, 
     settings, 
-    isAdmin, 
+    isAdmin,
+    currentUser,
     notify,
     setSelectedTab,
     canDeleteRecords
   } = useMaintenance();
 
   // Navigation Sub-tab: Hojas de Vida Técnicas vs Visor de Documentos Originales
-  const [activeSubTab, setActiveSubTab] = useState<'hojas_vida' | 'visor_documentos'>('hojas_vida');
+  const [activeSubTab, setActiveSubTab] = useState<'hojas_vida' | 'visor_documentos'>('visor_documentos');
   const [activeDocId, setActiveDocId] = useState<string>('');
   const [activeFolderId, setActiveFolderId] = useState<string | null>(null);
 
-  const handleCreateFolder = async (name: string) => {
-    await createDocumentFolder(name);
+  const handleCreateFolder = async (name: string, color?: string, description?: string) => {
+    await createDocumentFolder(name, color, description);
   };
 
   const handleDeleteFolder = async (folderId: string) => {
@@ -113,6 +124,7 @@ export const EquipmentResumeView: React.FC = () => {
   
   // Modals
   const [isExcelModalOpen, setIsExcelModalOpen] = useState(false);
+  const [isCreateExcelModalOpen, setIsCreateExcelModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isCreatingNew, setIsCreatingNew] = useState(false);
 
@@ -126,10 +138,18 @@ export const EquipmentResumeView: React.FC = () => {
   // Excel Import & Document Extraction State
   const [excelPreviewData, setExcelPreviewData] = useState<Partial<Equipment>[]>([]);
   const [excelFileName, setExcelFileName] = useState<string>('');
-  const [parsedUploadedDoc, setParsedUploadedDoc] = useState<Omit<UploadedDocument, 'id'> | null>(null);
+  const [parsedUploadedDocs, setParsedUploadedDocs] = useState<Omit<UploadedDocument, 'id'>[]>([]);
+  const [uploadTargetFolderId, setUploadTargetFolderId] = useState<string>('');
+  const [isParsingExcel, setIsParsingExcel] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Create New Excel Template State
+  const [newExcelFileName, setNewExcelFileName] = useState('');
+  const [newExcelTemplate, setNewExcelTemplate] = useState<ExcelTemplateType>('hoja_vida_equipo');
+  const [newExcelFolderId, setNewExcelFolderId] = useState<string>('');
+  const [isCreatingExcelDoc, setIsCreatingExcelDoc] = useState(false);
 
   // Count of generic equipments previously imported
   const genericEquipmentsCount = useMemo(() => {
@@ -289,313 +309,141 @@ export const EquipmentResumeView: React.FC = () => {
     }
   };
 
-  // Handle Excel File Upload (Stores original document sheets and detects equipment)
-  const handleExcelFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    setExcelFileName(file.name);
+  // Parse one or multiple Excel files with exact ExcelJS fidelity (all rows, colors, widths, merges & exact rawBase64)
+  const processSelectedExcelFiles = async (files: File[]) => {
+    if (!files || files.length === 0) return;
     setImportError(null);
+    setIsParsingExcel(true);
+    setExcelFileName(files.length === 1 ? files[0].name : `${files.length} archivos seleccionados`);
 
-    const base64Reader = new FileReader();
-    let rawBase64Data = '';
-    base64Reader.onload = (bevt) => {
-      rawBase64Data = bevt.target?.result as string || '';
-    };
-    base64Reader.readAsDataURL(file);
+    try {
+      const uploader = currentUser?.displayName || (isAdmin ? 'Administrador' : 'Equipo Mantenimiento');
+      const targetFolder = uploadTargetFolderId || activeFolderId || undefined;
+      const parsedList: Omit<UploadedDocument, 'id'>[] = [];
 
-    const reader = new FileReader();
-    reader.onload = async (evt) => {
-      try {
-        const XLSX = await import('xlsx');
-        const bstr = evt.target?.result;
-        const workbook = XLSX.read(bstr, { type: 'binary', cellStyles: true });
-
-        if (!workbook.SheetNames || workbook.SheetNames.length === 0) {
-          setImportError('El archivo no contiene hojas de cálculo.');
-          return;
-        }
-
-        const extractedSheets: UploadedDocumentSheet[] = [];
-        let totalExtractedRows = 0;
-        let maxCols = 0;
-
-        // Process all sheets in workbook
-        workbook.SheetNames.forEach((sheetName) => {
-          const worksheet = workbook.Sheets[sheetName];
-          const rawAoa: any[][] = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' });
-
-          if (!rawAoa || rawAoa.length === 0) return;
-
-          // Find the best header row within first 10 rows
-          let bestHeaderIdx = 0;
-          let bestScore = -1;
-
-          const headerKeywords = [
-            'tag', 'cod', 'codigo', 'equipo', 'nombre', 'marca', 'modelo',
-            'serie', 'area', 'ubicacion', 'hp', 'kw', 'potencia', 'item',
-            'voltaje', 'tension', 'amperaje', 'presion', 'descripcion', 'estado'
-          ];
-
-          for (let r = 0; r < Math.min(rawAoa.length, 12); r++) {
-            const row = rawAoa[r];
-            if (!Array.isArray(row)) continue;
-
-            const textCells = row.filter(c => typeof c === 'string' && c.trim().length > 0);
-            if (textCells.length === 0) continue;
-
-            let score = textCells.length;
-            row.forEach(c => {
-              const str = String(c).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-              if (headerKeywords.some(kw => str.includes(kw))) {
-                score += 5;
-              }
-            });
-
-            if (score > bestScore) {
-              bestScore = score;
-              bestHeaderIdx = r;
-            }
-          }
-
-          // Headers
-          const rawHeaderRow = rawAoa[bestHeaderIdx] || [];
-          const headers: string[] = rawHeaderRow.map((cell, idx) => {
-            const val = String(cell || '').trim();
-            return val || `Columna ${idx + 1}`;
-          });
-
-          if (headers.length > maxCols) maxCols = headers.length;
-
-          // Data rows (rows after header row with non-empty content)
-          const dataRows: any[][] = rawAoa.slice(bestHeaderIdx + 1).filter(row => {
-            if (!Array.isArray(row)) return false;
-            return row.some(cell => cell !== '' && cell !== null && cell !== undefined);
-          });
-
-          totalExtractedRows += dataRows.length;
-
-          // Extract cell styles if present
-          const cellStyles: Record<string, any> = {};
-          try {
-            const range = XLSX.utils.decode_range(worksheet['!ref'] || 'A1');
-            for (let R = range.s.r; R <= range.e.r; ++R) {
-              for (let C = range.s.c; C <= range.e.c; ++C) {
-                const cellRef = XLSX.utils.encode_cell({ c: C, r: R });
-                const cell = worksheet[cellRef];
-                if (cell && cell.s) {
-                  const styleInfo: any = {};
-                  if (cell.s.fill && cell.s.fill.fgColor) {
-                    const rgb = cell.s.fill.fgColor.rgb || cell.s.fill.fgColor.theme;
-                    if (rgb && typeof rgb === 'string') {
-                      styleInfo.bgColor = `#${rgb.length === 8 ? rgb.substring(2) : rgb}`;
-                    }
-                  }
-                  if (cell.s.font) {
-                    if (cell.s.font.color && cell.s.font.color.rgb) {
-                      const frgb = cell.s.font.color.rgb;
-                      styleInfo.textColor = `#${frgb.length === 8 ? frgb.substring(2) : frgb}`;
-                    }
-                    if (cell.s.font.bold) styleInfo.bold = true;
-                    if (cell.s.font.italic) styleInfo.italic = true;
-                  }
-                  if (cell.s.alignment && cell.s.alignment.horizontal) {
-                    styleInfo.align = cell.s.alignment.horizontal;
-                  }
-                  if (R > bestHeaderIdx) {
-                    const dataRowIdx = R - bestHeaderIdx - 1;
-                    cellStyles[`${dataRowIdx}-${C}`] = styleInfo;
-                  }
-                }
-              }
-            }
-          } catch (stErr) {
-            console.warn('Could not parse cell styles:', stErr);
-          }
-
-          extractedSheets.push({
-            name: sheetName,
-            headers,
-            rows: dataRows,
-            cellStyles
-          });
-        });
-
-        if (extractedSheets.length === 0 || totalExtractedRows === 0) {
-          setImportError('El archivo Excel no contiene filas de datos.');
-          return;
-        }
-
-        // Create the UploadedDocument object
-        const newUploadedDoc: Omit<UploadedDocument, 'id'> = {
-          name: file.name,
-          uploadDate: new Date().toISOString(),
-          uploadedBy: isAdmin ? 'Administrador' : 'Técnico Autorizado',
-          sizeBytes: file.size,
-          type: 'excel',
-          sheets: extractedSheets,
-          totalRows: totalExtractedRows,
-          totalColumns: maxCols,
-          rawBase64: rawBase64Data
-        };
-        setParsedUploadedDoc(newUploadedDoc);
-
-        // Map primary sheet to Equipment objects intelligently
-        const primarySheet = extractedSheets[0];
-        const headers = primarySheet.headers;
-
-        // Determine column indexes
-        const findColIdx = (keywords: string[]) => {
-          return headers.findIndex(h => {
-            const clean = h.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, '');
-            return keywords.some(kw => clean.includes(kw));
-          });
-        };
-
-        const tagIdx = findColIdx(['tag', 'cod', 'codigo', 'id', 'activo', 'item', 'numero', 'no']);
-        const nameIdx = findColIdx(['nombre', 'equipo', 'descripcion', 'denominacion', 'maquinaria', 'maquina', 'aparato', 'elemento', 'activo']);
-        const brandIdx = findColIdx(['marca', 'fabricante', 'brand', 'make']);
-        const modelIdx = findColIdx(['modelo', 'model', 'referencia', 'ref', 'tipo']);
-        const serialIdx = findColIdx(['serie', 'serial', 'noserie', 'numeroserie', 'sn', 'placa']);
-        const areaIdx = findColIdx(['area', 'ubicacion', 'zona', 'sector', 'lugar', 'piso', 'cuarto', 'sala']);
-        const locationDetailsIdx = findColIdx(['detalles', 'sububicacion', 'especifica', 'exacta']);
-        const hpIdx = findColIdx(['hp', 'kw', 'potencia', 'capacidad']);
-        const voltageIdx = findColIdx(['voltaje', 'tension', 'v', 'fase']);
-        const ampsIdx = findColIdx(['amperaje', 'corriente', 'amps', 'a']);
-        const pressureIdx = findColIdx(['presion', 'psi', 'bar']);
-        const statusIdx = findColIdx(['estado', 'status', 'condicion']);
-
-        const mappedList: Partial<Equipment>[] = primarySheet.rows.map((row, idx) => {
-          // Extract tag
-          let tag = tagIdx !== -1 && row[tagIdx] ? String(row[tagIdx]).trim() : '';
-          
-          // Extract name
-          let name = nameIdx !== -1 && row[nameIdx] ? String(row[nameIdx]).trim() : '';
-          
-          // If name wasn't found in nameIdx, look for first text cell with reasonable length
-          if (!name) {
-            for (let c = 0; c < row.length; c++) {
-              const cellVal = String(row[c] ?? '').trim();
-              if (c !== tagIdx && cellVal.length > 3 && isNaN(Number(cellVal))) {
-                name = cellVal;
-                break;
-              }
-            }
-          }
-
-          if (!name) {
-            name = `Equipo Fila ${idx + 1}`;
-          }
-
-          if (!tag) {
-            // Generate clean tag from name initials or number
-            const prefix = name.toLowerCase().includes('bomba') ? 'BOM' :
-                           name.toLowerCase().includes('calder') ? 'CAL' :
-                           name.toLowerCase().includes('chiller') ? 'CHI' :
-                           name.toLowerCase().includes('tanque') ? 'TNQ' : 'EQ';
-            tag = `${prefix}-${(idx + 1).toString().padStart(2, '0')}`;
-          }
-
-          const brand = brandIdx !== -1 && row[brandIdx] ? String(row[brandIdx]).trim() : 'N/A';
-          const model = modelIdx !== -1 && row[modelIdx] ? String(row[modelIdx]).trim() : 'N/A';
-          const serialNumber = serialIdx !== -1 && row[serialIdx] ? String(row[serialIdx]).trim() : 'S/N';
-          const area = areaIdx !== -1 && row[areaIdx] ? String(row[areaIdx]).trim() : 'Sala de Máquinas General';
-          const locationDetails = locationDetailsIdx !== -1 && row[locationDetailsIdx] ? String(row[locationDetailsIdx]).trim() : '';
-
-          const powerHp = hpIdx !== -1 ? (parseFloat(String(row[hpIdx]).replace(/[^0-9.]/g, '')) || 0) : 0;
-          const voltage = voltageIdx !== -1 && row[voltageIdx] ? String(row[voltageIdx]).trim() : '220V / 3F';
-          const nominalAmps = ampsIdx !== -1 ? (parseFloat(String(row[ampsIdx]).replace(/[^0-9.]/g, '')) || 0) : 0;
-          const nominalPressurePsi = pressureIdx !== -1 ? (parseFloat(String(row[pressureIdx]).replace(/[^0-9.]/g, '')) || 0) : 0;
-
-          const statusRaw = statusIdx !== -1 && row[statusIdx] ? String(row[statusIdx]).toLowerCase() : 'operativo';
-          let status: EquipmentStatus = 'operativo';
-          if (statusRaw.includes('manten') || statusRaw.includes('taller')) status = 'en_mantenimiento';
-          else if (statusRaw.includes('fuer') || statusRaw.includes('dan') || statusRaw.includes('par')) status = 'fuera_servicio';
-          else if (statusRaw.includes('alert') || statusRaw.includes('obs')) status = 'alerta';
-
-          // Category detection
-          let category: PumpCategory = 'bomba_presion';
-          const combinedText = `${name} ${tag}`.toLowerCase();
-          if (combinedText.includes('impuls')) category = 'bomba_impulsion';
-          else if (combinedText.includes('calder') || combinedText.includes('boiler')) category = 'caldera';
-          else if (combinedText.includes('chiller') || combinedText.includes('enfriad')) category = 'chiller';
-          else if (combinedText.includes('sauna') || combinedText.includes('plunge') || combinedText.includes('turco')) category = 'sauna_cold_plunge';
-          else if (combinedText.includes('piscina') || combinedText.includes('alberca')) category = 'bomba_piscina';
-          else if (combinedText.includes('acs') || combinedText.includes('caliente')) category = 'bomba_acs';
-          else if (combinedText.includes('achique') || combinedText.includes('fosa')) category = 'bomba_achique';
-          else if (combinedText.includes('incend') || combinedText.includes('jockey')) category = 'bomba_incendio';
-          else if (combinedText.includes('generad') || combinedText.includes('planta')) category = 'generador';
-          else if (combinedText.includes('bater') || combinedText.includes('battery') || combinedText.includes('ups') || combinedText.includes('acumulad')) category = 'bateria';
-
-          // Collect extra columns in notes
-          const extraInfo: string[] = [];
-          row.forEach((cell, cIdx) => {
-            if (![tagIdx, nameIdx, brandIdx, modelIdx, serialIdx, areaIdx, locationDetailsIdx, hpIdx, voltageIdx, ampsIdx, pressureIdx, statusIdx].includes(cIdx)) {
-              if (cell !== '' && cell !== null && cell !== undefined) {
-                const headerLabel = headers[cIdx] || `Columna ${cIdx + 1}`;
-                extraInfo.push(`${headerLabel}: ${cell}`);
-              }
-            }
-          });
-
-          return {
-            tag,
-            name,
-            brand,
-            model,
-            serialNumber,
-            area,
-            locationDetails,
-            powerHp,
-            powerKw: powerHp > 0 ? Number((powerHp * 0.7457).toFixed(2)) : 0,
-            voltage,
-            nominalAmps,
-            nominalPressurePsi,
-            category,
-            status,
-            installationDate: new Date().toISOString().split('T')[0],
-            notes: extraInfo.length > 0 ? `Datos del documento original:\n${extraInfo.join('\n')}` : '',
-            criticality: 'media'
-          };
-        });
-
-        setExcelPreviewData(mappedList);
-      } catch (err: any) {
-        console.error('Error parsing Excel:', err);
-        setImportError('Error al leer el archivo. Asegúrate de que sea un archivo de Excel válido (.xlsx, .xls o .csv).');
+      for (const file of files) {
+        const parsed = await parseExcelFileToUploadedDocument(file, uploader, targetFolder);
+        parsedList.push(parsed);
       }
-    };
-    reader.readAsBinaryString(file);
+
+      setParsedUploadedDocs(parsedList);
+      setExcelPreviewData([]);
+    } catch (err: any) {
+      console.error('Error parsing Excel:', err);
+      setImportError(err?.message || 'Error al leer el archivo. Asegúrate de que sea un Excel válido (.xlsx, .xls o .csv).');
+    } finally {
+      setIsParsingExcel(false);
+    }
   };
 
-  // Confirm Excel Import and Save Document into Visor (Exclusively in Hojas de Vida)
+  const handleExcelFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files ? Array.from(e.target.files) : [];
+    e.target.value = '';
+    if (files.length === 0) return;
+    await processSelectedExcelFiles(files);
+  };
+
+  // Quick drag-and-drop direct upload into active folder
+  const handleQuickUploadFiles = async (files: File[]) => {
+    if (!files || files.length === 0) return;
+    const uploader = currentUser?.displayName || (isAdmin ? 'Administrador' : 'Equipo Mantenimiento');
+    const targetFolder = activeFolderId || undefined;
+    try {
+      let lastSavedId = '';
+      for (const file of files) {
+        const parsed = await parseExcelFileToUploadedDocument(file, uploader, targetFolder);
+        const saved = await addUploadedDocument(parsed);
+        lastSavedId = saved.id;
+      }
+      if (lastSavedId) {
+        setActiveDocId(lastSavedId);
+        setActiveSubTab('visor_documentos');
+      }
+      notify(files.length === 1
+        ? `Archivo "${files[0].name}" guardado permanentemente en PostgreSQL`
+        : `${files.length} archivos Excel guardados permanentemente en PostgreSQL`
+      );
+    } catch (err) {
+      console.error(err);
+      notify('Error al subir uno o más archivos Excel');
+    }
+  };
+
+  // Confirm Excel Import and Save Documents into PostgreSQL
   const handleConfirmExcelImport = async () => {
-    if (!parsedUploadedDoc) {
-      notify('Por favor selecciona un archivo Excel válido');
+    if (parsedUploadedDocs.length === 0) {
+      notify('Por favor selecciona al menos un archivo Excel válido');
       return;
     }
 
     setIsImporting(true);
     try {
-      // Save exclusively into uploadedDocuments (Hojas de Vida) with optional folderId
-      const docToSave = {
-        ...parsedUploadedDoc,
-        folderId: activeFolderId || undefined
-      };
-      const savedDoc = await addUploadedDocument(docToSave);
-      setActiveDocId(savedDoc.id);
-      setActiveSubTab('visor_documentos');
-      notify(`Documento "${savedDoc.name}" guardado exclusivamente en este apartado`);
+      const targetFolderId = uploadTargetFolderId || undefined;
+      let lastSaved: UploadedDocument | null = null;
+
+      for (const docItem of parsedUploadedDocs) {
+        const docToSave: Omit<UploadedDocument, 'id'> = {
+          ...docItem,
+          folderId: targetFolderId
+        };
+        lastSaved = await addUploadedDocument(docToSave);
+      }
+
+      if (lastSaved) {
+        setActiveFolderId(targetFolderId || null);
+        setActiveDocId(lastSaved.id);
+        setActiveSubTab('visor_documentos');
+      }
+
+      notify(
+        parsedUploadedDocs.length === 1 && lastSaved
+          ? `Documento "${lastSaved.name}" guardado permanentemente en PostgreSQL`
+          : `${parsedUploadedDocs.length} archivos Excel guardados permanentemente en PostgreSQL`
+      );
 
       setIsExcelModalOpen(false);
       setExcelPreviewData([]);
-      setParsedUploadedDoc(null);
+      setParsedUploadedDocs([]);
       setExcelFileName('');
     } catch (e) {
       console.error(e);
       notify('Ocurrió un inconveniente al guardar el documento');
     } finally {
       setIsImporting(false);
+    }
+  };
+
+  // Create New Excel Document from Template
+  const handleCreateNewExcelDocument = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const cleanName = newExcelFileName.trim();
+    if (!cleanName) {
+      notify('Escribe un nombre para el nuevo archivo Excel');
+      return;
+    }
+
+    setIsCreatingExcelDoc(true);
+    try {
+      const uploader = currentUser?.displayName || (isAdmin ? 'Administrador' : 'Equipo Mantenimiento');
+      const targetFolder = newExcelFolderId || undefined;
+      const newDocDraft = await createExcelDocumentFromTemplate(
+        newExcelTemplate,
+        cleanName,
+        uploader,
+        targetFolder
+      );
+      const saved = await addUploadedDocument(newDocDraft);
+      setActiveFolderId(targetFolder || null);
+      setActiveDocId(saved.id);
+      setActiveSubTab('visor_documentos');
+      setIsCreateExcelModalOpen(false);
+      setNewExcelFileName('');
+      notify(`Libro Excel "${saved.name}" creado y guardado en PostgreSQL`);
+    } catch (err) {
+      console.error('Error creando libro Excel:', err);
+      notify('No se pudo crear el libro Excel');
+    } finally {
+      setIsCreatingExcelDoc(false);
     }
   };
 
@@ -720,11 +568,31 @@ export const EquipmentResumeView: React.FC = () => {
           {/* Botón Importar Excel / Documento */}
           <button
             id="btn-import-excel-hdv"
-            onClick={() => setIsExcelModalOpen(true)}
-            className="flex-1 sm:flex-none inline-flex items-center justify-center space-x-2 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all shadow-sm active:scale-98 bg-emerald-600 hover:bg-emerald-700 text-white"
+            onClick={() => {
+              setUploadTargetFolderId(activeFolderId || '');
+              setParsedUploadedDocs([]);
+              setExcelFileName('');
+              setImportError(null);
+              setIsExcelModalOpen(true);
+            }}
+            className="flex-1 sm:flex-none inline-flex items-center justify-center space-x-2 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all shadow-sm active:scale-98 bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer"
           >
             <Upload className="w-4 h-4" />
-            <span>Cargar Excel / Doc</span>
+            <span>Subir Excel</span>
+          </button>
+
+          {/* Botón Crear Nuevo Excel desde Plantilla */}
+          <button
+            type="button"
+            onClick={() => {
+              setNewExcelFolderId(activeFolderId || '');
+              setNewExcelFileName('');
+              setIsCreateExcelModalOpen(true);
+            }}
+            className="flex-1 sm:flex-none inline-flex items-center justify-center space-x-2 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all shadow-sm active:scale-98 bg-slate-900 hover:bg-slate-800 text-white cursor-pointer"
+          >
+            <FilePlus2 className="w-4 h-4 text-emerald-400" />
+            <span>Crear Excel</span>
           </button>
 
           {/* Botón Descargar Plantilla */}
@@ -792,37 +660,37 @@ export const EquipmentResumeView: React.FC = () => {
       <div className="flex items-center space-x-2 border-b border-slate-200 pb-2 overflow-x-auto">
         <button
           type="button"
-          onClick={() => setActiveSubTab('hojas_vida')}
-          className={`inline-flex items-center space-x-2 px-4 py-2 rounded-xl text-xs font-bold transition-all shrink-0 ${
-            activeSubTab === 'hojas_vida'
-              ? 'bg-slate-900 text-white shadow-xs'
-              : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
-          }`}
-        >
-          <FileText className="w-4 h-4" />
-          <span>Hojas de Vida Técnicas</span>
-          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-            activeSubTab === 'hojas_vida' ? 'bg-slate-700 text-white' : 'bg-slate-100 text-slate-600'
-          }`}>
-            {equipments.length}
-          </span>
-        </button>
-
-        <button
-          type="button"
           onClick={() => setActiveSubTab('visor_documentos')}
-          className={`inline-flex items-center space-x-2 px-4 py-2 rounded-xl text-xs font-bold transition-all shrink-0 ${
+          className={`inline-flex items-center space-x-2 px-4 py-2 rounded-xl text-xs font-bold transition-all shrink-0 cursor-pointer ${
             activeSubTab === 'visor_documentos'
               ? 'bg-emerald-600 text-white shadow-xs'
               : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
           }`}
         >
           <Table className="w-4 h-4" />
-          <span>Documentos Excel Guardados</span>
-          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+          <span>Carpetas y Archivos Excel</span>
+          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full tabular-nums ${
             activeSubTab === 'visor_documentos' ? 'bg-emerald-700 text-white' : 'bg-slate-100 text-slate-600'
           }`}>
             {uploadedDocuments.length}
+          </span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveSubTab('hojas_vida')}
+          className={`inline-flex items-center space-x-2 px-4 py-2 rounded-xl text-xs font-bold transition-all shrink-0 cursor-pointer ${
+            activeSubTab === 'hojas_vida'
+              ? 'bg-slate-900 text-white shadow-xs'
+              : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
+          }`}
+        >
+          <FileText className="w-4 h-4" />
+          <span>Fichas Técnicas de Equipos</span>
+          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full tabular-nums ${
+            activeSubTab === 'hojas_vida' ? 'bg-slate-700 text-white' : 'bg-slate-100 text-slate-600'
+          }`}>
+            {equipments.length}
           </span>
         </button>
       </div>
@@ -836,17 +704,26 @@ export const EquipmentResumeView: React.FC = () => {
           onUpdateDocument={async (doc) => {
             await updateUploadedDocument(doc);
           }}
+          onMoveDocument={moveUploadedDocument}
           onDeleteDocument={async (id) => {
-            deleteUploadedDocument(id);
+            await deleteUploadedDocument(id);
           }}
           onClearAllDocuments={async () => {
-            clearAllUploadedDocuments();
+            await clearAllUploadedDocuments();
           }}
           onTriggerUpload={() => {
-            requireAdmin('Cargar Documentos', () => {
-              setIsExcelModalOpen(true);
-            });
+            setUploadTargetFolderId(activeFolderId || '');
+            setParsedUploadedDocs([]);
+            setExcelFileName('');
+            setImportError(null);
+            setIsExcelModalOpen(true);
           }}
+          onTriggerCreateExcel={() => {
+            setNewExcelFolderId(activeFolderId || '');
+            setNewExcelFileName('');
+            setIsCreateExcelModalOpen(true);
+          }}
+          onQuickUploadFiles={handleQuickUploadFiles}
           isAdmin={isAdmin}
           onRequireAdminPin={requireAdmin}
           onCleanImportedEquipments={async () => {
@@ -855,6 +732,7 @@ export const EquipmentResumeView: React.FC = () => {
           importedEquipmentsCount={importedEquipmentsCount}
           folders={documentFolders}
           onCreateFolder={handleCreateFolder}
+          onUpdateFolder={updateDocumentFolder}
           onDeleteFolder={handleDeleteFolder}
           activeFolderId={activeFolderId}
           onSelectFolder={setActiveFolderId}
@@ -1369,7 +1247,7 @@ export const EquipmentResumeView: React.FC = () => {
         </div>
       )}
 
-      {/* MODAL PARA IMPORTAR ARCHIVO EXCEL (.XLSX / .XLS / .CSV) */}
+      {/* MODAL PARA IMPORTAR ARCHIVOS EXCEL (.XLSX / .XLS / .CSV) */}
       {isExcelModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70">
           <div className="bg-white rounded-2xl max-w-3xl w-full max-h-[90vh] flex flex-col shadow-2xl overflow-hidden border border-slate-200">
@@ -1381,21 +1259,22 @@ export const EquipmentResumeView: React.FC = () => {
                 </div>
                 <div>
                   <h3 className="text-base font-bold text-slate-900">
-                    Cargar Documento Excel (.xlsx, .xls, .csv)
+                    Subir Archivos Excel desde el Computador
                   </h3>
                   <p className="text-xs text-slate-500">
-                    El documento se guardará exclusivamente en la casilla de Hojas de Vida de Equipos
+                    Se conserva 100% el archivo binario, colores, anchos, bordes y todas sus hojas en PostgreSQL
                   </p>
                 </div>
               </div>
               <button
+                type="button"
                 onClick={() => {
                   setIsExcelModalOpen(false);
                   setExcelPreviewData([]);
-                  setParsedUploadedDoc(null);
+                  setParsedUploadedDocs([]);
                   setExcelFileName('');
                 }}
-                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-200/60"
+                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-200/60 cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -1403,39 +1282,70 @@ export const EquipmentResumeView: React.FC = () => {
 
             {/* Contenido del Modal */}
             <div className="p-6 overflow-y-auto space-y-5">
-              
-              {/* Zona de Arrastrar o Seleccionar Archivo */}
-              <div 
+              {/* Selector de Carpeta Destino */}
+              <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div className="flex items-center gap-2 text-xs font-bold text-slate-800">
+                  <FolderOpen className="w-4 h-4 text-amber-500 shrink-0" />
+                  <span>Carpeta de Destino:</span>
+                </div>
+                <select
+                  value={uploadTargetFolderId}
+                  onChange={(e) => setUploadTargetFolderId(e.target.value)}
+                  className="px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500 sm:min-w-[240px]"
+                >
+                  <option value="">Raíz del Archivero (Sin carpeta)</option>
+                  {documentFolders.map(f => (
+                    <option key={f.id} value={f.id}>📁 {f.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Zona de Arrastrar o Seleccionar Archivo(s) */}
+              <div
                 onClick={() => fileInputRef.current?.click()}
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={async (e) => {
+                  e.preventDefault();
+                  const dropped = Array.from(e.dataTransfer.files || []).filter(f => /\.(xlsx|xls|csv)$/i.test(f.name));
+                  if (dropped.length > 0) await processSelectedExcelFiles(dropped);
+                }}
                 className="border-2 border-dashed border-emerald-300 hover:border-emerald-500 bg-emerald-50/50 hover:bg-emerald-50/80 rounded-2xl p-6 sm:p-8 text-center cursor-pointer transition-all space-y-3"
               >
                 <input
                   ref={fileInputRef}
                   type="file"
                   accept=".xlsx, .xls, .csv"
+                  multiple
                   onChange={handleExcelFileUpload}
                   className="hidden"
                 />
                 <div className="w-12 h-12 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center mx-auto shadow-xs">
-                  <Upload className="w-6 h-6" />
+                  {isParsingExcel ? <Loader2 className="w-6 h-6 animate-spin" /> : <Upload className="w-6 h-6" />}
                 </div>
                 <div>
                   <p className="text-sm font-bold text-slate-800">
-                    {excelFileName ? excelFileName : 'Haz clic aquí o arrastra tu archivo Excel / CSV'}
+                    {isParsingExcel
+                      ? 'Procesando colores, anchos y hojas originales...'
+                      : excelFileName
+                      ? excelFileName
+                      : 'Haz clic aquí o arrastra uno o varios archivos Excel (.xlsx, .xls, .csv)'}
                   </p>
                   <p className="text-xs text-slate-500 mt-1">
-                    Formatos compatibles: .xlsx, .xls, .csv (Se conservan hojas, columnas y filas originales)
+                    Conserva el formato 100% idéntico tanto dentro de la aplicación como al abrirlo en Excel de tu computador
                   </p>
                 </div>
-                {excelFileName && (
-                  <div className="inline-flex items-center space-x-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-600 text-white shadow-2xs">
+                {parsedUploadedDocs.length > 0 && (
+                  <div className="inline-flex items-center space-x-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-600 text-white">
                     <Check className="w-3.5 h-3.5" />
-                    <span>Archivo analizado: {parsedUploadedDoc?.sheets.length || 1} Hoja(s) • {parsedUploadedDoc?.totalRows || 0} Filas</span>
+                    <span>
+                      {parsedUploadedDocs.length === 1
+                        ? `Listo: ${parsedUploadedDocs[0].sheets.length} hoja(s) • ${parsedUploadedDocs[0].totalRows} filas`
+                        : `${parsedUploadedDocs.length} libros Excel listos para guardar`}
+                    </span>
                   </div>
                 )}
               </div>
 
-              {/* Mensaje de Error si ocurre */}
               {importError && (
                 <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-xs text-rose-800 flex items-center space-x-2">
                   <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
@@ -1443,94 +1353,212 @@ export const EquipmentResumeView: React.FC = () => {
                 </div>
               )}
 
-              {/* Vista Previa de los Datos Extraídos */}
-              {parsedUploadedDoc && (
+              {/* Vista Previa Fidelidad Exacta */}
+              {parsedUploadedDocs[0] && parsedUploadedDocs[0].sheets[0] && (
                 <div className="space-y-3 border border-slate-200 rounded-2xl p-4 bg-slate-50/60">
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-center justify-between flex-wrap gap-2">
                     <div className="flex items-center space-x-2">
                       <Table className="w-4 h-4 text-emerald-600" />
                       <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
-                        Vista Previa del Documento Original
+                        Vista Previa Exacta ({parsedUploadedDocs[0].name})
                       </h4>
                     </div>
-                    <span className="text-xs text-emerald-700 font-semibold bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
-                      {parsedUploadedDoc.totalRows} filas extraídas con fidelidad
+                    <span className="text-xs text-emerald-700 font-semibold bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200 tabular-nums">
+                      {parsedUploadedDocs[0].totalRows} filas • {parsedUploadedDocs[0].sheets.length} hoja(s)
                     </span>
                   </div>
 
-                  {/* Tabla con las primeras 5 filas tal como están en el Excel */}
-                  {parsedUploadedDoc.sheets[0] && (
-                    <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white max-h-48">
-                      <table className="min-w-full text-left text-[11px] border-collapse">
-                        <thead className="bg-slate-100 text-slate-700 uppercase font-semibold sticky top-0 border-b border-slate-200">
-                          <tr>
-                            <th className="px-2.5 py-1.5 border-r border-slate-200 text-slate-400">#</th>
-                            {parsedUploadedDoc.sheets[0].headers.slice(0, 8).map((h, i) => (
-                              <th key={i} className="px-2.5 py-1.5 border-r border-slate-200 truncate max-w-[140px]" title={h}>
-                                {h}
-                              </th>
-                            ))}
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-100 font-mono text-slate-700">
-                          {parsedUploadedDoc.sheets[0].rows.slice(0, 5).map((row, rIdx) => (
-                            <tr key={rIdx} className="hover:bg-slate-50">
-                              <td className="px-2.5 py-1 text-slate-400 border-r border-slate-100 bg-slate-50/60">{rIdx + 1}</td>
-                              {parsedUploadedDoc.sheets[0].headers.slice(0, 8).map((_, cIdx) => (
-                                <td key={cIdx} className="px-2.5 py-1 border-r border-slate-100 truncate max-w-[140px]">
+                  <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white max-h-52">
+                    <table className="min-w-full text-left text-[11px] border-collapse">
+                      <tbody className="divide-y divide-slate-100 text-slate-700">
+                        {parsedUploadedDocs[0].sheets[0].rows.slice(0, 6).map((row, rIdx) => (
+                          <tr key={rIdx}>
+                            <td className="px-2 py-1 text-slate-400 border-r border-slate-200 bg-slate-50 font-mono text-[10px] w-8 text-center">
+                              {rIdx + 1}
+                            </td>
+                            {parsedUploadedDocs[0].sheets[0].headers.slice(0, 8).map((_, cIdx) => {
+                              const st = parsedUploadedDocs[0].sheets[0].cellStyles?.[`${rIdx}-${cIdx}`];
+                              return (
+                                <td
+                                  key={cIdx}
+                                  style={{
+                                    backgroundColor: st?.bgColor || undefined,
+                                    color: st?.textColor || undefined,
+                                    fontWeight: st?.bold ? 700 : undefined,
+                                    textAlign: st?.align || undefined
+                                  }}
+                                  className="px-2.5 py-1 border-r border-slate-200 truncate max-w-[160px]"
+                                >
                                   {String(row[cIdx] ?? '')}
                                 </td>
-                              ))}
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
+                              );
+                            })}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               )}
 
-              {/* Instrucción o ayuda */}
               <div className="bg-emerald-50/80 p-3.5 rounded-xl border border-emerald-200 text-xs text-emerald-900 space-y-1">
                 <p className="font-bold flex items-center space-x-1.5">
                   <ShieldCheck className="w-4 h-4 text-emerald-700 shrink-0" />
-                  <span>Almacenamiento exclusivo en Hojas de Vida:</span>
+                  <span>Respaldo Permanente en PostgreSQL:</span>
                 </p>
                 <p className="text-emerald-800">
-                  Este documento quedará guardado <strong>únicamente en la casilla de Hojas de Vida de Equipos</strong> para su consulta exacta con todas sus hojas y tablas. NO se agregará al inventario general ni aparecerá en el Parque de Bombas u otras secciones.
+                  Tus archivos Excel y carpetas se guardan directamente en PostgreSQL. No se pierden con actualizaciones ni reinicios y se abren idénticos en tu computador sin pedir permisos.
                 </p>
               </div>
-
             </div>
 
             {/* Pie del Modal */}
-            <div className="p-4 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-3 bg-slate-50">
+            <div className="p-4 border-t border-slate-200 flex items-center justify-between gap-3 bg-slate-50">
               <button
                 type="button"
                 onClick={() => {
                   setIsExcelModalOpen(false);
                   setExcelPreviewData([]);
-                  setParsedUploadedDoc(null);
+                  setParsedUploadedDocs([]);
                   setExcelFileName('');
                 }}
-                className="px-4 py-2 text-xs font-semibold text-slate-600 hover:text-slate-800 self-start sm:self-auto"
+                className="px-4 py-2 text-xs font-semibold text-slate-600 hover:text-slate-800 cursor-pointer"
               >
                 Cancelar
               </button>
 
-              <div className="flex items-center space-x-2 w-full sm:w-auto justify-end">
+              <button
+                type="button"
+                disabled={parsedUploadedDocs.length === 0 || isImporting || isParsingExcel}
+                onClick={handleConfirmExcelImport}
+                className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-bold shadow-sm transition-all flex items-center space-x-2 cursor-pointer"
+              >
+                {isImporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileSpreadsheet className="w-4 h-4" />}
+                <span>
+                  {isImporting
+                    ? 'Guardando en PostgreSQL...'
+                    : parsedUploadedDocs.length > 1
+                    ? `Guardar ${parsedUploadedDocs.length} Archivos Excel`
+                    : 'Guardar Excel Permanentemente'}
+                </span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL PARA CREAR UN LIBRO EXCEL NUEVO DESDE PLANTILLA */}
+      {isCreateExcelModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70">
+          <div className="bg-white rounded-2xl max-w-lg w-full shadow-2xl overflow-hidden border border-slate-200">
+            <div className="p-5 border-b border-slate-200 flex items-center justify-between bg-slate-50">
+              <div className="flex items-center space-x-3">
+                <div className="w-10 h-10 rounded-xl bg-slate-900 flex items-center justify-center text-emerald-400">
+                  <FilePlus2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">Crear Nuevo Archivo Excel</h3>
+                  <p className="text-xs text-slate-500">Se crea con formato profesional y se guarda en PostgreSQL</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsCreateExcelModalOpen(false)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-200/60 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateNewExcelDocument} className="p-5 space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Nombre del Archivo Excel *
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={newExcelFileName}
+                  onChange={(e) => setNewExcelFileName(e.target.value)}
+                  placeholder="Ej. Hoja_Vida_Chiller_01"
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-xs font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  autoFocus
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                  Plantilla Inicial
+                </label>
+                <div className="grid grid-cols-1 gap-2">
+                  {[
+                    {
+                      id: 'hoja_vida_equipo' as ExcelTemplateType,
+                      title: 'Hoja de Vida de Equipo (Completa con Colores)',
+                      desc: 'Incluye Identificación, Especificaciones de Placa e Historial de Mantenimiento.'
+                    },
+                    {
+                      id: 'control_mantenimiento' as ExcelTemplateType,
+                      title: 'Control de Mantenimiento y Repuestos',
+                      desc: 'Tabla estructurada por fecha, actividad, técnico, horas y costo.'
+                    },
+                    {
+                      id: 'en_blanco' as ExcelTemplateType,
+                      title: 'Libro Excel en Blanco (8 columnas × 15 filas)',
+                      desc: 'Cuadrícula libre para diseñar y formatear desde cero.'
+                    }
+                  ].map(tpl => (
+                    <button
+                      key={tpl.id}
+                      type="button"
+                      onClick={() => setNewExcelTemplate(tpl.id)}
+                      className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
+                        newExcelTemplate === tpl.id
+                          ? 'border-emerald-500 bg-emerald-50/60 ring-1 ring-emerald-500/30'
+                          : 'border-slate-200 hover:border-slate-300 bg-white'
+                      }`}
+                    >
+                      <div className="text-xs font-bold text-slate-900">{tpl.title}</div>
+                      <div className="text-[11px] text-slate-500 mt-0.5">{tpl.desc}</div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Guardar en Carpeta
+                </label>
+                <select
+                  value={newExcelFolderId}
+                  onChange={(e) => setNewExcelFolderId(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs font-semibold text-slate-800"
+                >
+                  <option value="">Raíz del Archivero (Sin carpeta)</option>
+                  {documentFolders.map(f => (
+                    <option key={f.id} value={f.id}>📁 {f.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
                 <button
                   type="button"
-                  disabled={!parsedUploadedDoc || isImporting}
-                  onClick={() => handleConfirmExcelImport()}
-                  className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-bold shadow-sm transition-all flex items-center space-x-2"
-                  title="Guardar documento exclusivamente en Hojas de Vida"
+                  onClick={() => setIsCreateExcelModalOpen(false)}
+                  className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold cursor-pointer"
                 >
-                  <FileSpreadsheet className="w-4 h-4" />
-                  <span>{isImporting ? 'Guardando en la nube...' : 'Guardar Documento en Hojas de Vida'}</span>
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={isCreatingExcelDoc || !newExcelFileName.trim()}
+                  className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-bold flex items-center gap-2 cursor-pointer"
+                >
+                  {isCreatingExcelDoc ? <Loader2 className="w-4 h-4 animate-spin" /> : <FilePlus2 className="w-4 h-4" />}
+                  <span>Crear y Abrir</span>
                 </button>
               </div>
-            </div>
+            </form>
           </div>
         </div>
       )}

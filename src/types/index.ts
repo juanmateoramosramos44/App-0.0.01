@@ -337,7 +337,10 @@ export interface DocumentFolder {
   id: string;
   name: string;
   color?: string;
+  description?: string;
+  createdBy?: string;
   createdAt: string;
+  updatedAt?: string;
 }
 
 export type UserRole = 'admin' | 'técnico' | 'housekeeping' | 'ayb' | 'sastra' | 'cocina';
@@ -384,7 +387,25 @@ export interface CellStyleInfo {
   textColor?: string;
   bold?: boolean;
   italic?: boolean;
-  align?: 'left' | 'center' | 'right';
+  underline?: boolean;
+  strike?: boolean;
+  fontSize?: number;
+  fontFamily?: string;
+  align?: 'left' | 'center' | 'right' | 'justify';
+  valign?: 'top' | 'middle' | 'bottom';
+  wrapText?: boolean;
+  borderTop?: string;
+  borderRight?: string;
+  borderBottom?: string;
+  borderLeft?: string;
+  numFmt?: string;
+}
+
+export interface ExcelMergeRange {
+  startRow: number; // 0-indexed relative to sheet grid
+  startCol: number; // 0-indexed
+  endRow: number;   // 0-indexed inclusive
+  endCol: number;   // 0-indexed inclusive
 }
 
 export interface UploadedDocumentSheet {
@@ -394,6 +415,14 @@ export interface UploadedDocumentSheet {
   totalColumns?: number;
   totalRows?: number;
   cellStyles?: Record<string, CellStyleInfo>; // Key format "rowIdx-colIdx"
+  cellFormulas?: Record<string, string>; // Key format "rowIdx-colIdx"
+  colWidths?: number[]; // Column widths in pixels
+  rowHeights?: Record<number, number>; // Row heights in pixels (0-indexed)
+  merges?: ExcelMergeRange[];
+  isRawGrid?: boolean; // True when rows[0..] represent exact Excel row 1..N without stripping top rows
+  showGridLines?: boolean;
+  frozenRows?: number;
+  frozenCols?: number;
   headerBgColor?: string;
   headerTextColor?: string;
 }
@@ -402,6 +431,7 @@ export interface UploadedDocument {
   id: string;
   name: string;
   uploadDate: string;
+  updatedAt?: string;
   uploadedBy: string;
   sizeBytes: number;
   type: 'excel' | 'pdf' | 'image' | 'csv' | 'otro';
@@ -692,6 +722,13 @@ export type BitacoraCategory =
   | 'observacion';
 export type BitacoraStatus = 'normal' | 'pendiente' | 'en_seguimiento' | 'resuelto';
 
+export interface BitacoraComment {
+  id: string;
+  userName: string;
+  text: string;
+  timestamp: string;
+}
+
 export interface BitacoraEntry {
   id: string;
   date: string; // YYYY-MM-DD
@@ -706,6 +743,12 @@ export interface BitacoraEntry {
   description: string;
   materialsUsed?: string;
   observations?: string;
+  equipmentId?: string;
+  equipmentTag?: string;
+  equipmentName?: string;
+  handoverHighlighted?: boolean;
+  durationMinutes?: number;
+  comments?: BitacoraComment[];
   photos?: string[];
   photoUrl?: string;
   createdAt: string;

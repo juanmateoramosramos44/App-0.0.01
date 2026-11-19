@@ -44,7 +44,9 @@ import {
   Bell,
   BellRing,
   FileDown,
-  Loader2
+  Loader2,
+  LayoutList,
+  LayoutGrid
 } from 'lucide-react';
 import { 
   getLocalDateString, 
@@ -373,6 +375,23 @@ export const TasksView: React.FC = () => {
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [priorityFilter, setPriorityFilter] = useState<string>('all');
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
+
+  // View Mode: Lista (default) vs Cuadros, persisted in localStorage
+  const [viewMode, setViewMode] = useState<'lista' | 'cuadros'>(() => {
+    try {
+      const saved = localStorage.getItem('hotel_tasks_view_mode');
+      return saved === 'cuadros' ? 'cuadros' : 'lista';
+    } catch {
+      return 'lista';
+    }
+  });
+
+  const handleChangeViewMode = (mode: 'lista' | 'cuadros') => {
+    setViewMode(mode);
+    try {
+      localStorage.setItem('hotel_tasks_view_mode', mode);
+    } catch {}
+  };
 
   // Modals state
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -1125,6 +1144,36 @@ export const TasksView: React.FC = () => {
               Creadas por mí
             </button>
           </div>
+
+          {/* View Mode Switcher: Lista vs Cuadros */}
+          <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl shrink-0 self-start md:self-auto">
+            <button
+              type="button"
+              onClick={() => handleChangeViewMode('lista')}
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
+                viewMode === 'lista'
+                  ? 'bg-white text-slate-900 shadow-sm'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+              title="Ver tareas como lista compacta"
+            >
+              <LayoutList className="w-3.5 h-3.5 text-emerald-600" />
+              <span>Lista</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => handleChangeViewMode('cuadros')}
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
+                viewMode === 'cuadros'
+                  ? 'bg-white text-slate-900 shadow-sm'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+              title="Ver tareas como cuadros / tarjetas"
+            >
+              <LayoutGrid className="w-3.5 h-3.5 text-emerald-600" />
+              <span>Cuadros</span>
+            </button>
+          </div>
         </div>
 
         {/* Dropdown Filters Row */}
@@ -1210,6 +1259,174 @@ export const TasksView: React.FC = () => {
             <Plus className="w-4 h-4" />
             <span>Crear la primera tarea</span>
           </button>
+        </div>
+      ) : viewMode === 'lista' ? (
+        <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-2xs">
+          <div className="px-4 py-2.5 bg-slate-50 border-b border-slate-200 flex items-center justify-between text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+            <span>Listado de Tareas ({sortedTasks.length}) — Haz clic en cualquier fila para ver toda la información</span>
+            <span className="hidden sm:inline">Estado y Acciones</span>
+          </div>
+
+          <div className="divide-y divide-slate-100">
+            {sortedTasks.map((task) => {
+              const priorityStyle = PRIORITY_CONFIG[task.priority] || PRIORITY_CONFIG.media;
+              const statusStyle = STATUS_CONFIG[task.status] || STATUS_CONFIG.pendiente;
+              const categoryStyle = CATEGORY_CONFIG[task.category] || CATEGORY_CONFIG.mantenimiento;
+              const checklistItems = Array.isArray(task.checklist) ? task.checklist : [];
+              const completedCount = checklistItems.filter(c => c && c.completed).length;
+              const commentsCount = Array.isArray(task.comments) ? task.comments.length : 0;
+              const photosTotal = (Array.isArray(task.photos) ? task.photos.length : 0) + (Array.isArray(task.completionPhotos) ? task.completionPhotos.length : 0);
+              const isAssignedToMe = isTaskAssignedToUser(task);
+
+              return (
+                <div
+                  key={task.id}
+                  id={`task-row-${task.id}`}
+                  onClick={() => setActiveTaskId(task.id)}
+                  className={`px-4 py-3.5 hover:bg-slate-50/90 transition-colors cursor-pointer flex flex-col lg:flex-row lg:items-center justify-between gap-3 ${
+                    task.status === 'completada'
+                      ? 'bg-emerald-50/15'
+                      : task.priority === 'urgente'
+                      ? 'border-l-4 border-l-rose-500'
+                      : 'border-l-4 border-l-transparent'
+                  }`}
+                >
+                  {/* Left: Number, Priority, Title & Metadata */}
+                  <div className="min-w-0 flex-1 space-y-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="px-2 py-0.5 text-[11px] font-black rounded-md bg-slate-900 text-white font-mono tabular-nums shrink-0">
+                        #{taskOrderMap.get(task.id) || 1}
+                      </span>
+                      <span className={`inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-bold rounded-md border ${priorityStyle.bg} ${priorityStyle.text} ${priorityStyle.border} shrink-0`}>
+                        {priorityStyle.label}
+                      </span>
+                      <span className={`inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-semibold rounded-md border ${categoryStyle.bg} ${categoryStyle.color} shrink-0`}>
+                        {categoryStyle.label}
+                      </span>
+                      <h3 className="text-sm font-bold text-slate-900 truncate">
+                        {task.title}
+                      </h3>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-x-3.5 gap-y-1 text-xs text-slate-600">
+                      <span className="inline-flex items-center gap-1 font-medium text-slate-800">
+                        <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                        <span className="truncate max-w-[200px]">{task.area || 'Hotel'}</span>
+                      </span>
+
+                      {task.equipmentTag && (
+                        <span className="px-1.5 py-0.5 bg-blue-50 text-blue-800 border border-blue-200 font-mono text-[10px] font-bold rounded">
+                          {task.equipmentTag}
+                        </span>
+                      )}
+
+                      <span className="inline-flex items-center gap-1 font-semibold text-slate-700">
+                        <User className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                        <span>{task.assignedToName || 'Sin asignar'}</span>
+                        {isAssignedToMe && (
+                          <span className="px-1.5 py-0.2 bg-emerald-100 text-emerald-800 text-[10px] font-bold rounded">
+                            Tú
+                          </span>
+                        )}
+                      </span>
+
+                      {task.dueDate && (
+                        <span className="inline-flex items-center gap-1 text-slate-500 tabular-nums">
+                          <Calendar className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                          <span>{task.dueDate} {task.dueTime || ''}</span>
+                        </span>
+                      )}
+
+                      {checklistItems.length > 0 && (
+                        <span className="inline-flex items-center gap-1 text-indigo-700 font-semibold tabular-nums">
+                          <ListTodo className="w-3.5 h-3.5" />
+                          <span>{completedCount}/{checklistItems.length}</span>
+                        </span>
+                      )}
+
+                      {photosTotal > 0 && (
+                        <span className="inline-flex items-center gap-1 text-slate-600 font-semibold tabular-nums">
+                          <Camera className="w-3.5 h-3.5 text-slate-400" />
+                          <span>{photosTotal}</span>
+                        </span>
+                      )}
+
+                      {commentsCount > 0 && (
+                        <span className="inline-flex items-center gap-1 text-blue-700 font-semibold tabular-nums">
+                          <MessageSquare className="w-3.5 h-3.5" />
+                          <span>{commentsCount}</span>
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Right: Status & Quick Actions */}
+                  <div
+                    className="flex items-center gap-1.5 flex-wrap shrink-0"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-bold rounded-lg border ${statusStyle.bg} ${statusStyle.text} ${statusStyle.border}`}>
+                      <span className={`w-1.5 h-1.5 rounded-full ${statusStyle.dotColor}`} />
+                      <span>{statusStyle.label}</span>
+                    </span>
+
+                    {task.status === 'pendiente' && (
+                      <button
+                        type="button"
+                        onClick={() => handleStartTask(task)}
+                        className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold cursor-pointer whitespace-nowrap"
+                        title="Iniciar tarea"
+                      >
+                        <Play className="w-3 h-3 fill-current" />
+                        <span>Iniciar</span>
+                      </button>
+                    )}
+
+                    {(task.status === 'pendiente' || task.status === 'en_progreso') && (
+                      <button
+                        type="button"
+                        onClick={() => handleOpenCompleteModal(task)}
+                        className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold cursor-pointer whitespace-nowrap"
+                        title="Cerrar tarea al 100%"
+                      >
+                        <Check className="w-3.5 h-3.5 stroke-[3]" />
+                        <span>Cerrar</span>
+                      </button>
+                    )}
+
+                    <button
+                      type="button"
+                      onClick={() => handleDownloadTaskPdf(task)}
+                      disabled={downloadingTaskId === task.id}
+                      className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-lg text-xs font-bold cursor-pointer whitespace-nowrap disabled:opacity-50"
+                      title="Descargar PDF"
+                    >
+                      {downloadingTaskId === task.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FileDown className="w-3.5 h-3.5" />}
+                      <span>PDF</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => openEditModal(task)}
+                      className="p-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg border border-slate-200 cursor-pointer"
+                      title="Editar tarea"
+                    >
+                      <Edit2 className="w-3.5 h-3.5" />
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setTaskToDelete(task)}
+                      className="p-1.5 bg-white hover:bg-rose-50 text-slate-400 hover:text-rose-600 rounded-lg border border-slate-200 cursor-pointer"
+                      title="Eliminar tarea"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
@@ -2290,40 +2507,115 @@ export const TasksView: React.FC = () => {
                   )}
                 </button>
               </div>
-              {/* Task Overview Card */}
+              {/* Task Overview Card (Complete Task Information) */}
               <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-2xs space-y-3">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                    Información Completa de la Tarea
+                  </span>
+                  <div className="flex items-center gap-1.5">
+                    {activeTask.status === 'pendiente' && (
+                      <button
+                        type="button"
+                        onClick={() => handleStartTask(activeTask)}
+                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-bold cursor-pointer"
+                      >
+                        <Play className="w-3 h-3 fill-current" />
+                        <span>Iniciar Tarea</span>
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const t = activeTask;
+                        setActiveTaskId(null);
+                        openEditModal(t);
+                      }}
+                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-200 text-[11px] font-bold cursor-pointer"
+                    >
+                      <Edit2 className="w-3 h-3" />
+                      <span>Editar</span>
+                    </button>
+                  </div>
+                </div>
+
                 {activeTask.description && (
-                  <p className="text-xs text-slate-700 whitespace-pre-line leading-relaxed">
+                  <p className="text-xs sm:text-sm text-slate-800 whitespace-pre-line leading-relaxed bg-slate-50/70 p-3 rounded-xl border border-slate-100">
                     {activeTask.description}
                   </p>
                 )}
 
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 border-t border-slate-100 text-xs">
-                  <div className="p-2 bg-slate-50 rounded-xl border border-slate-100">
+                  <div className="p-2.5 bg-slate-50 rounded-xl border border-slate-100">
                     <span className="text-[10px] uppercase font-bold text-slate-400 block">Asignado a</span>
                     <span className="font-semibold text-slate-800 truncate block mt-0.5">
                       {activeTask.assignedToName}
                     </span>
                   </div>
-                  <div className="p-2 bg-slate-50 rounded-xl border border-slate-100">
+                  <div className="p-2.5 bg-slate-50 rounded-xl border border-slate-100">
                     <span className="text-[10px] uppercase font-bold text-slate-400 block">Ubicación</span>
                     <span className="font-semibold text-slate-800 truncate block mt-0.5">
                       {activeTask.area || 'Hotel'}
                     </span>
                   </div>
-                  <div className="p-2 bg-slate-50 rounded-xl border border-slate-100">
+                  <div className="p-2.5 bg-slate-50 rounded-xl border border-slate-100">
                     <span className="text-[10px] uppercase font-bold text-slate-400 block">Prioridad</span>
                     <span className="font-semibold text-slate-800 capitalize block mt-0.5">
                       {PRIORITY_CONFIG[activeTask.priority]?.label || activeTask.priority}
                     </span>
                   </div>
-                  <div className="p-2 bg-slate-50 rounded-xl border border-slate-100">
+                  <div className="p-2.5 bg-slate-50 rounded-xl border border-slate-100">
                     <span className="text-[10px] uppercase font-bold text-slate-400 block">Fecha Límite</span>
-                    <span className="font-semibold text-slate-800 truncate block mt-0.5">
+                    <span className="font-semibold text-slate-800 truncate block mt-0.5 tabular-nums">
                       {activeTask.dueDate ? `${activeTask.dueDate} ${activeTask.dueTime || ''}` : 'Sin fecha'}
                     </span>
                   </div>
+                  {(activeTask.equipmentTag || activeTask.equipmentName) && (
+                    <div className="p-2.5 bg-blue-50/70 rounded-xl border border-blue-200 col-span-2">
+                      <span className="text-[10px] uppercase font-bold text-blue-600 block">Equipo Vinculado</span>
+                      <span className="font-bold text-blue-950 truncate block mt-0.5">
+                        {activeTask.equipmentTag ? `[${activeTask.equipmentTag}] ` : ''}{activeTask.equipmentName || ''}
+                      </span>
+                    </div>
+                  )}
+                  <div className="p-2.5 bg-slate-50 rounded-xl border border-slate-100">
+                    <span className="text-[10px] uppercase font-bold text-slate-400 block">Categoría</span>
+                    <span className="font-semibold text-slate-800 truncate block mt-0.5">
+                      {CATEGORY_CONFIG[activeTask.category]?.label || activeTask.category}
+                    </span>
+                  </div>
+                  <div className="p-2.5 bg-slate-50 rounded-xl border border-slate-100">
+                    <span className="text-[10px] uppercase font-bold text-slate-400 block">Creada</span>
+                    <span className="font-semibold text-slate-800 truncate block mt-0.5 tabular-nums">
+                      {activeTask.createdAt ? new Date(activeTask.createdAt).toLocaleDateString('es-ES') : 'Registrada'}
+                    </span>
+                  </div>
                 </div>
+
+                {/* Initial Attached Photos */}
+                {Array.isArray(activeTask.photos) && activeTask.photos.length > 0 && (
+                  <div className="pt-2 border-t border-slate-100 space-y-1.5">
+                    <span className="text-[11px] font-bold text-slate-600 flex items-center gap-1.5">
+                      <Camera className="w-3.5 h-3.5 text-slate-500" />
+                      <span>Fotografías Iniciales Adjuntas ({activeTask.photos.length})</span>
+                    </span>
+                    <div className="flex items-center gap-2 overflow-x-auto py-1">
+                      {activeTask.photos.map((photo, pIdx) => (
+                        <button
+                          key={`init-photo-${pIdx}`}
+                          type="button"
+                          onClick={() => setPreviewImage(photo)}
+                          className="relative w-16 h-16 rounded-xl overflow-hidden border border-slate-200 shrink-0 group focus:outline-none focus:ring-2 focus:ring-emerald-500 cursor-pointer"
+                        >
+                          <img src={photo} alt={`Foto inicial ${pIdx + 1}`} className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
+                          <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                            <Maximize2 className="w-3.5 h-3.5 text-white" />
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Checklist Interactivo */}

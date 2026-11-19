@@ -1,25 +1,14 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { useMaintenance } from '../../context/MaintenanceContext';
-import { 
-  FileSpreadsheet, 
-  FileText, 
-  Search, 
-  Download, 
-  Trash2, 
-  Maximize2, 
-  Minimize2, 
-  Upload, 
-  ShieldCheck, 
-  Lock, 
-  AlertCircle,
-  Eye,
-  RefreshCw,
-  Layers,
+import {
+  FileSpreadsheet,
+  Search,
+  Trash2,
+  Maximize2,
+  Minimize2,
+  Upload,
   Table,
-  CheckCircle2,
-  Calendar,
   User,
-  HardDrive,
   Folder,
   FolderPlus,
   ArrowLeft,
@@ -28,44 +17,102 @@ import {
   ExternalLink,
   Edit3,
   Plus,
-  Palette
+  FolderInput,
+  Save,
+  Bold,
+  Italic,
+  Underline,
+  AlignLeft,
+  AlignCenter,
+  AlignRight,
+  Check,
+  FilePlus2,
+  Loader2,
+  Database,
+  X
 } from 'lucide-react';
-import { UploadedDocument, DocumentFolder } from '../../types';
+import {
+  UploadedDocument,
+  DocumentFolder,
+  CellStyleInfo,
+  UploadedDocumentSheet
+} from '../../types';
+import {
+  getExcelColLetter,
+  openDocumentInComputerExcel,
+  rebuildWorkbookBase64FromDoc
+} from '../../utils/excelEngine';
 
 interface OriginalDocumentViewerProps {
   documents: UploadedDocument[];
   activeDocId?: string;
   onSelectDocument: (docId: string) => void;
-  onUpdateDocument?: (doc: UploadedDocument) => void;
+  onUpdateDocument?: (doc: UploadedDocument) => Promise<void> | void;
+  onMoveDocument?: (docId: string, folderId: string | null) => Promise<void> | void;
   onDeleteDocument: (docId: string) => Promise<void>;
   onClearAllDocuments?: () => Promise<void>;
   onTriggerUpload: () => void;
+  onTriggerCreateExcel?: () => void;
+  onQuickUploadFiles?: (files: File[]) => Promise<void>;
   isAdmin: boolean;
   onRequireAdminPin: (actionName: string, onSuccess: () => void) => void;
   onCleanImportedEquipments?: () => void;
   importedEquipmentsCount?: number;
   folders: DocumentFolder[];
-  onCreateFolder: (name: string) => void;
+  onCreateFolder: (name: string, color?: string, description?: string) => Promise<void> | void;
+  onUpdateFolder?: (folderId: string, updates: Partial<DocumentFolder>) => Promise<void> | void;
   onDeleteFolder: (folderId: string) => void;
   activeFolderId: string | null;
   onSelectFolder: (folderId: string | null) => void;
   canDeleteRecords?: boolean;
 }
 
+const FOLDER_COLOR_STYLES: Record<string, { bg: string; text: string; border: string; badge: string }> = {
+  amber: { bg: 'bg-amber-50', text: 'text-amber-700', border: 'border-amber-200', badge: 'bg-amber-500' },
+  emerald: { bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-200', badge: 'bg-emerald-600' },
+  blue: { bg: 'bg-blue-50', text: 'text-blue-700', border: 'border-blue-200', badge: 'bg-blue-600' },
+  indigo: { bg: 'bg-indigo-50', text: 'text-indigo-700', border: 'border-indigo-200', badge: 'bg-indigo-600' },
+  rose: { bg: 'bg-rose-50', text: 'text-rose-700', border: 'border-rose-200', badge: 'bg-rose-600' },
+  slate: { bg: 'bg-slate-100', text: 'text-slate-700', border: 'border-slate-300', badge: 'bg-slate-600' },
+};
+
+const BG_COLOR_SWATCHES = [
+  { label: 'Sin relleno', value: '' },
+  { label: 'Encabezado Pizarra', value: '#0F172A' },
+  { label: 'Encabezado Esmeralda', value: '#065F46' },
+  { label: 'Encabezado Azul', value: '#1E3A8A' },
+  { label: 'Verde Suave', value: '#D1FAE5' },
+  { label: 'Azul Suave', value: '#DBEAFE' },
+  { label: 'Ámbar Suave', value: '#FEF3C7' },
+  { label: 'Rosa Suave', value: '#FFE4E6' },
+  { label: 'Gris Claro', value: '#F1F5F9' },
+];
+
+const TEXT_COLOR_SWATCHES = [
+  { label: 'Negro / Oscuro', value: '#0F172A' },
+  { label: 'Blanco', value: '#FFFFFF' },
+  { label: 'Esmeralda', value: '#047857' },
+  { label: 'Azul', value: '#1D4ED8' },
+  { label: 'Rojo', value: '#BE123C' },
+  { label: 'Ámbar', value: '#B45309' },
+];
+
 export const OriginalDocumentViewer: React.FC<OriginalDocumentViewerProps> = ({
   documents,
   activeDocId,
   onSelectDocument,
   onUpdateDocument,
+  onMoveDocument,
   onDeleteDocument,
   onClearAllDocuments,
   onTriggerUpload,
-  isAdmin,
-  onRequireAdminPin,
+  onTriggerCreateExcel,
+  onQuickUploadFiles,
   onCleanImportedEquipments,
   importedEquipmentsCount = 0,
   folders = [],
   onCreateFolder,
+  onUpdateFolder,
   onDeleteFolder,
   activeFolderId,
   onSelectFolder,
@@ -76,154 +123,29 @@ export const OriginalDocumentViewer: React.FC<OriginalDocumentViewerProps> = ({
   const [searchFilter, setSearchFilter] = useState<string>('');
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
   const [currentPage, setCurrentPage] = useState<number>(1);
+  const rowsPerPage = 80;
+
+  // Folder modals
   const [isNewFolderModalOpen, setIsNewFolderModalOpen] = useState(false);
   const [newFolderNameInput, setNewFolderNameInput] = useState('');
-  const rowsPerPage = 50;
+  const [newFolderColor, setNewFolderColor] = useState('amber');
+  const [newFolderDesc, setNewFolderDesc] = useState('');
 
-  // Edit Mode & Theme State for Excel Tables
+  // Rename folder inline
+  const [renamingFolderId, setRenamingFolderId] = useState<string | null>(null);
+  const [renameFolderInput, setRenameFolderInput] = useState('');
+
+  // Drag & Drop state on viewer
+  const [isDraggingFiles, setIsDraggingFiles] = useState(false);
+
+  // Live Excel Editor state
   const [isEditMode, setIsEditMode] = useState<boolean>(false);
-  const [headerTheme, setHeaderTheme] = useState<'emerald' | 'blue' | 'dark' | 'amber'>('emerald');
-
-  const getThemeClasses = () => {
-    switch (headerTheme) {
-      case 'blue':
-        return {
-          headerTr: 'bg-blue-50/90 text-blue-950 border-blue-300',
-          headerIndex: 'bg-blue-100 text-blue-900',
-          badge: 'bg-blue-600 text-white'
-        };
-      case 'dark':
-        return {
-          headerTr: 'bg-slate-900 text-slate-100 border-slate-700',
-          headerIndex: 'bg-slate-800 text-slate-200',
-          badge: 'bg-slate-700 text-white'
-        };
-      case 'amber':
-        return {
-          headerTr: 'bg-amber-50/90 text-amber-950 border-amber-300',
-          headerIndex: 'bg-amber-100 text-amber-900',
-          badge: 'bg-amber-600 text-white'
-        };
-      case 'emerald':
-      default:
-        return {
-          headerTr: 'bg-emerald-50/90 text-emerald-950 border-emerald-300',
-          headerIndex: 'bg-emerald-100 text-emerald-900',
-          badge: 'bg-emerald-600 text-white'
-        };
-    }
-  };
-  const theme = getThemeClasses();
-
-  const handleCellEdit = (filteredRowIdx: number, colIdx: number, newValue: string) => {
-    if (!currentDoc || !currentSheet || !onUpdateDocument) return;
-    const absoluteRowIdx = (currentPage - 1) * rowsPerPage + filteredRowIdx;
-    
-    const updatedSheets = [...currentDoc.sheets];
-    const sheetToUpdate = { ...updatedSheets[selectedSheetIdx] };
-    const newRows = sheetToUpdate.rows.map((row, rIdx) => {
-      if (rIdx === absoluteRowIdx) {
-        const updatedRow = [...row];
-        updatedRow[colIdx] = newValue;
-        return updatedRow;
-      }
-      return row;
-    });
-    sheetToUpdate.rows = newRows;
-    updatedSheets[selectedSheetIdx] = sheetToUpdate;
-
-    const updatedDoc: UploadedDocument = {
-      ...currentDoc,
-      sheets: updatedSheets,
-      totalRows: updatedSheets.reduce((acc, s) => acc + s.rows.length, 0)
-    };
-    onUpdateDocument(updatedDoc);
-  };
-
-  const handleHeaderEdit = (colIdx: number, newHeaderName: string) => {
-    if (!currentDoc || !currentSheet || !onUpdateDocument) return;
-    const updatedSheets = [...currentDoc.sheets];
-    const sheetToUpdate = { ...updatedSheets[selectedSheetIdx] };
-    const newHeaders = [...sheetToUpdate.headers];
-    newHeaders[colIdx] = newHeaderName;
-    sheetToUpdate.headers = newHeaders;
-    updatedSheets[selectedSheetIdx] = sheetToUpdate;
-
-    const updatedDoc: UploadedDocument = {
-      ...currentDoc,
-      sheets: updatedSheets
-    };
-    onUpdateDocument(updatedDoc);
-  };
-
-  const handleAddRow = () => {
-    if (!currentDoc || !currentSheet || !onUpdateDocument) return;
-    const updatedSheets = [...currentDoc.sheets];
-    const sheetToUpdate = { ...updatedSheets[selectedSheetIdx] };
-    const emptyRow = new Array(sheetToUpdate.headers.length).fill('');
-    sheetToUpdate.rows = [emptyRow, ...sheetToUpdate.rows];
-    updatedSheets[selectedSheetIdx] = sheetToUpdate;
-
-    const updatedDoc: UploadedDocument = {
-      ...currentDoc,
-      sheets: updatedSheets,
-      totalRows: updatedSheets.reduce((acc, s) => acc + s.rows.length, 0)
-    };
-    onUpdateDocument(updatedDoc);
-  };
-
-  const handleDeleteRow = (filteredRowIdx: number) => {
-    if (!currentDoc || !currentSheet || !onUpdateDocument) return;
-    const absoluteRowIdx = (currentPage - 1) * rowsPerPage + filteredRowIdx;
-    const updatedSheets = [...currentDoc.sheets];
-    const sheetToUpdate = { ...updatedSheets[selectedSheetIdx] };
-    sheetToUpdate.rows = sheetToUpdate.rows.filter((_, rIdx) => rIdx !== absoluteRowIdx);
-    updatedSheets[selectedSheetIdx] = sheetToUpdate;
-
-    const updatedDoc: UploadedDocument = {
-      ...currentDoc,
-      sheets: updatedSheets,
-      totalRows: updatedSheets.reduce((acc, s) => acc + s.rows.length, 0)
-    };
-    onUpdateDocument(updatedDoc);
-  };
-
-  const handleAddColumn = () => {
-    if (!currentDoc || !currentSheet || !onUpdateDocument) return;
-    const updatedSheets = [...currentDoc.sheets];
-    const sheetToUpdate = { ...updatedSheets[selectedSheetIdx] };
-    const newColName = `COLUMNA ${sheetToUpdate.headers.length + 1}`;
-    sheetToUpdate.headers = [...sheetToUpdate.headers, newColName];
-    sheetToUpdate.rows = sheetToUpdate.rows.map(row => [...row, '']);
-    sheetToUpdate.totalColumns = sheetToUpdate.headers.length;
-    updatedSheets[selectedSheetIdx] = sheetToUpdate;
-
-    const updatedDoc: UploadedDocument = {
-      ...currentDoc,
-      sheets: updatedSheets
-    };
-    onUpdateDocument(updatedDoc);
-  };
-
-  const handleDeleteColumn = (colIdx: number) => {
-    if (!currentDoc || !currentSheet || !onUpdateDocument) return;
-    if (currentSheet.headers.length <= 1) {
-      notify('⚠️ La tabla debe tener al menos una columna.');
-      return;
-    }
-    const updatedSheets = [...currentDoc.sheets];
-    const sheetToUpdate = { ...updatedSheets[selectedSheetIdx] };
-    sheetToUpdate.headers = sheetToUpdate.headers.filter((_, idx) => idx !== colIdx);
-    sheetToUpdate.rows = sheetToUpdate.rows.map(row => row.filter((_, idx) => idx !== colIdx));
-    sheetToUpdate.totalColumns = sheetToUpdate.headers.length;
-    updatedSheets[selectedSheetIdx] = sheetToUpdate;
-
-    const updatedDoc: UploadedDocument = {
-      ...currentDoc,
-      sheets: updatedSheets
-    };
-    onUpdateDocument(updatedDoc);
-  };
+  const [draftDoc, setDraftDoc] = useState<UploadedDocument | null>(null);
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState<boolean>(false);
+  const [isSavingWorkbook, setIsSavingWorkbook] = useState<boolean>(false);
+  const [selectedCell, setSelectedCell] = useState<{ row: number; col: number } | null>(null);
+  const [editingCell, setEditingCell] = useState<{ row: number; col: number } | null>(null);
+  const [formulaInput, setFormulaInput] = useState<string>('');
 
   // Active folder object
   const activeFolder = useMemo(() => {
@@ -239,8 +161,8 @@ export const OriginalDocumentViewer: React.FC<OriginalDocumentViewerProps> = ({
     return documents.filter(d => !d.folderId);
   }, [documents, activeFolderId]);
 
-  // Active document
-  const currentDoc = useMemo(() => {
+  // Selected document from store
+  const storeDoc = useMemo(() => {
     if (!currentFolderDocuments || currentFolderDocuments.length === 0) return null;
     if (activeDocId) {
       const found = currentFolderDocuments.find(d => d.id === activeDocId);
@@ -249,266 +171,427 @@ export const OriginalDocumentViewer: React.FC<OriginalDocumentViewerProps> = ({
     return currentFolderDocuments[0];
   }, [currentFolderDocuments, activeDocId]);
 
+  // Sync draftDoc when storeDoc changes (unless actively editing same doc with unsaved changes)
+  useEffect(() => {
+    if (!storeDoc) {
+      setDraftDoc(null);
+      setHasUnsavedChanges(false);
+      setSelectedCell(null);
+      setEditingCell(null);
+      return;
+    }
+    if (!draftDoc || draftDoc.id !== storeDoc.id || !hasUnsavedChanges) {
+      setDraftDoc(storeDoc);
+      if (draftDoc?.id !== storeDoc.id) {
+        setSelectedSheetIdx(0);
+        setCurrentPage(1);
+        setSelectedCell(null);
+        setEditingCell(null);
+        setHasUnsavedChanges(false);
+      }
+    }
+  }, [storeDoc]);
+
+  const currentDoc = draftDoc || storeDoc;
+
   // Active sheet
-  const currentSheet = useMemo(() => {
+  const currentSheet: UploadedDocumentSheet | null = useMemo(() => {
     if (!currentDoc || !currentDoc.sheets || currentDoc.sheets.length === 0) return null;
     return currentDoc.sheets[selectedSheetIdx] || currentDoc.sheets[0];
   }, [currentDoc, selectedSheetIdx]);
 
-  // Filtered rows in current sheet
-  const filteredRows = useMemo(() => {
-    if (!currentSheet || !currentSheet.rows) return [];
-    if (!searchFilter.trim()) return currentSheet.rows;
+  const isRawGrid = Boolean(currentSheet?.isRawGrid);
 
-    const query = searchFilter.toLowerCase().trim();
-    return currentSheet.rows.filter(row => 
-      row.some(cell => {
-        if (cell === null || cell === undefined) return false;
-        return String(cell).toLowerCase().includes(query);
-      })
+  // Sync formula bar when selectedCell changes
+  useEffect(() => {
+    if (!selectedCell || !currentSheet) {
+      setFormulaInput('');
+      return;
+    }
+    const { row, col } = selectedCell;
+    const key = `${row}-${col}`;
+    const formula = currentSheet.cellFormulas?.[key];
+    if (formula) {
+      setFormulaInput(`=${formula}`);
+    } else {
+      const val = currentSheet.rows[row]?.[col];
+      setFormulaInput(val !== null && val !== undefined ? String(val) : '');
+    }
+  }, [selectedCell, currentSheet]);
+
+  // Build fast lookup for merged cells on raw grid
+  const mergeLookup = useMemo(() => {
+    const masters = new Map<string, { rowSpan: number; colSpan: number }>();
+    const covered = new Set<string>();
+    if (!currentSheet?.merges || !isRawGrid) {
+      return { masters, covered };
+    }
+    for (const m of currentSheet.merges) {
+      const rowSpan = Math.max(1, m.endRow - m.startRow + 1);
+      const colSpan = Math.max(1, m.endCol - m.startCol + 1);
+      if (rowSpan === 1 && colSpan === 1) continue;
+      masters.set(`${m.startRow}-${m.startCol}`, { rowSpan, colSpan });
+      for (let r = m.startRow; r <= m.endRow; r++) {
+        for (let c = m.startCol; c <= m.endCol; c++) {
+          if (r === m.startRow && c === m.startCol) continue;
+          covered.add(`${r}-${c}`);
+        }
+      }
+    }
+    return { masters, covered };
+  }, [currentSheet?.merges, isRawGrid]);
+
+  // Filter rows preserving original row index for exact styling & edits
+  const indexedFilteredRows = useMemo(() => {
+    if (!currentSheet || !currentSheet.rows) return [];
+    const q = searchFilter.trim().toLowerCase();
+    const mapped = currentSheet.rows.map((row, idx) => ({ row, origIdx: idx }));
+    if (!q) return mapped;
+    return mapped.filter(({ row }) =>
+      row.some(cell => cell !== null && cell !== undefined && String(cell).toLowerCase().includes(q))
     );
   }, [currentSheet, searchFilter]);
 
-  // Pagination for large sheets
+  const totalPages = Math.ceil(indexedFilteredRows.length / rowsPerPage) || 1;
+
   const paginatedRows = useMemo(() => {
     const start = (currentPage - 1) * rowsPerPage;
-    return filteredRows.slice(start, start + rowsPerPage);
-  }, [filteredRows, currentPage]);
+    return indexedFilteredRows.slice(start, start + rowsPerPage);
+  }, [indexedFilteredRows, currentPage]);
 
-  const totalPages = Math.ceil(filteredRows.length / rowsPerPage) || 1;
+  // Apply mutation to draftDoc
+  const updateDraftSheet = useCallback((updater: (sheet: UploadedDocumentSheet) => UploadedDocumentSheet) => {
+    setDraftDoc(prev => {
+      if (!prev) return prev;
+      const updatedSheets = prev.sheets.map((s, idx) => idx === selectedSheetIdx ? updater(s) : s);
+      return {
+        ...prev,
+        sheets: updatedSheets,
+        totalRows: updatedSheets.reduce((acc, s) => acc + s.rows.length, 0),
+        totalColumns: Math.max(...updatedSheets.map(s => s.headers.length), 1),
+        updatedAt: new Date().toISOString()
+      };
+    });
+    setHasUnsavedChanges(true);
+  }, [selectedSheetIdx]);
 
-  // Helper to get Excel column letter (0 -> A, 1 -> B, 26 -> AA)
-  const getColLetter = (index: number): string => {
-    let letter = '';
-    let temp = index;
-    while (temp >= 0) {
-      letter = String.fromCharCode((temp % 26) + 65) + letter;
-      temp = Math.floor(temp / 26) - 1;
-    }
-    return letter;
-  };
-
-  // Download document as Excel
-  const handleDownloadOriginal = async (doc: UploadedDocument) => {
-    try {
-      const XLSX = await import('xlsx');
-      const wb = XLSX.utils.book_new();
-      doc.sheets.forEach(sheet => {
-        const fullData = [sheet.headers, ...sheet.rows];
-        const ws = XLSX.utils.aoa_to_sheet(fullData);
-        XLSX.utils.book_append_sheet(wb, ws, sheet.name.substring(0, 31) || 'Hoja');
-      });
-      XLSX.writeFile(wb, doc.name.endsWith('.xlsx') ? doc.name : `${doc.name}.xlsx`);
-    } catch (err) {
-      console.error('Error exporting document:', err);
-    }
-  };
-
-  // Open document in external app (Excel / PDF viewer)
-  const handleOpenExternalApp = (doc: UploadedDocument) => {
-    try {
-      if (doc.rawBase64) {
-        const base64Data = doc.rawBase64.includes(',') ? doc.rawBase64.split(',')[1] : doc.rawBase64;
-        const byteCharacters = atob(base64Data);
-        const byteNumbers = new Array(byteCharacters.length);
-        for (let i = 0; i < byteCharacters.length; i++) {
-          byteNumbers[i] = byteCharacters.charCodeAt(i);
+  const handleCellValueChange = (origRowIdx: number, colIdx: number, rawInput: string) => {
+    updateDraftSheet(sheet => {
+      const nextRows = sheet.rows.map((r, rIdx) => {
+        if (rIdx !== origRowIdx) return r;
+        const copy = [...r];
+        while (copy.length <= colIdx) copy.push('');
+        if (rawInput.startsWith('=')) {
+          copy[colIdx] = rawInput;
+        } else if (rawInput.trim() !== '' && !isNaN(Number(rawInput)) && !rawInput.startsWith('0')) {
+          copy[colIdx] = Number(rawInput);
+        } else {
+          copy[colIdx] = rawInput;
         }
-        const byteArray = new Uint8Array(byteNumbers);
-        const mime = doc.type === 'pdf' ? 'application/pdf' : 
-                     doc.type === 'excel' || doc.type === 'csv' ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' : 
-                     'application/octet-stream';
-        const blob = new Blob([byteArray], { type: mime });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = doc.name.endsWith('.xlsx') || doc.name.endsWith('.pdf') ? doc.name : `${doc.name}.xlsx`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        setTimeout(() => URL.revokeObjectURL(url), 2000);
+        return copy;
+      });
+      const nextFormulas = { ...(sheet.cellFormulas || {}) };
+      const key = `${origRowIdx}-${colIdx}`;
+      if (rawInput.startsWith('=')) {
+        nextFormulas[key] = rawInput.slice(1);
       } else {
-        handleDownloadOriginal(doc);
+        delete nextFormulas[key];
       }
+      return {
+        ...sheet,
+        rows: nextRows,
+        cellFormulas: nextFormulas
+      };
+    });
+  };
+
+  const handleToggleCellStyle = (styleUpdates: Partial<CellStyleInfo>) => {
+    if (!selectedCell || !currentSheet) return;
+    const key = `${selectedCell.row}-${selectedCell.col}`;
+    updateDraftSheet(sheet => {
+      const currentStyles = { ...(sheet.cellStyles || {}) };
+      const existing = currentStyles[key] || {};
+      const nextStyle: CellStyleInfo = { ...existing, ...styleUpdates };
+      if (styleUpdates.bgColor === '') delete nextStyle.bgColor;
+      currentStyles[key] = nextStyle;
+      return {
+        ...sheet,
+        cellStyles: currentStyles
+      };
+    });
+  };
+
+  const handleAddRow = () => {
+    if (!currentSheet) return;
+    updateDraftSheet(sheet => {
+      const emptyRow = new Array(Math.max(sheet.headers.length, 1)).fill('');
+      return {
+        ...sheet,
+        rows: [...sheet.rows, emptyRow],
+        totalRows: sheet.rows.length + 1
+      };
+    });
+  };
+
+  const handleDeleteRow = (origRowIdx: number) => {
+    if (!currentSheet || currentSheet.rows.length <= 1) return;
+    updateDraftSheet(sheet => {
+      const nextRows = sheet.rows.filter((_, idx) => idx !== origRowIdx);
+      const shiftedStyles: Record<string, CellStyleInfo> = {};
+      Object.entries(sheet.cellStyles || {}).forEach(([k, val]) => {
+        const [rStr, cStr] = k.split('-');
+        const r = Number(rStr);
+        if (r < origRowIdx) shiftedStyles[k] = val;
+        else if (r > origRowIdx) shiftedStyles[`${r - 1}-${cStr}`] = val;
+      });
+      return {
+        ...sheet,
+        rows: nextRows,
+        cellStyles: shiftedStyles,
+        totalRows: nextRows.length
+      };
+    });
+  };
+
+  const handleAddColumn = () => {
+    if (!currentSheet) return;
+    updateDraftSheet(sheet => {
+      const nextIdx = sheet.headers.length;
+      const newHeader = isRawGrid ? getExcelColLetter(nextIdx) : `Columna ${nextIdx + 1}`;
+      return {
+        ...sheet,
+        headers: [...sheet.headers, newHeader],
+        rows: sheet.rows.map(r => [...r, '']),
+        colWidths: sheet.colWidths ? [...sheet.colWidths, 130] : undefined,
+        totalColumns: nextIdx + 1
+      };
+    });
+  };
+
+  const handleAddSheet = () => {
+    if (!currentDoc) return;
+    const cols = 8;
+    const newSheet: UploadedDocumentSheet = {
+      name: `Hoja ${currentDoc.sheets.length + 1}`,
+      headers: Array.from({ length: cols }, (_, i) => getExcelColLetter(i)),
+      rows: Array.from({ length: 12 }, () => Array.from({ length: cols }, () => '')),
+      totalRows: 12,
+      totalColumns: cols,
+      colWidths: Array.from({ length: cols }, () => 130),
+      rowHeights: {},
+      merges: [],
+      cellStyles: {},
+      isRawGrid: true,
+      showGridLines: true
+    };
+    const nextIdx = currentDoc.sheets.length;
+    setDraftDoc(prev => prev ? {
+      ...prev,
+      sheets: [...prev.sheets, newSheet],
+      totalRows: prev.totalRows + 12,
+      updatedAt: new Date().toISOString()
+    } : prev);
+    setSelectedSheetIdx(nextIdx);
+    setCurrentPage(1);
+    setHasUnsavedChanges(true);
+  };
+
+  const handleSaveWorkbookToDb = async () => {
+    if (!currentDoc || !onUpdateDocument) return;
+    setIsSavingWorkbook(true);
+    try {
+      const rebuiltBase64 = await rebuildWorkbookBase64FromDoc(currentDoc);
+      const approxBytes = Math.round((rebuiltBase64.length * 3) / 4);
+      const docToSave: UploadedDocument = {
+        ...currentDoc,
+        rawBase64: rebuiltBase64,
+        sizeBytes: approxBytes || currentDoc.sizeBytes,
+        updatedAt: new Date().toISOString()
+      };
+      await onUpdateDocument(docToSave);
+      setDraftDoc(docToSave);
+      setHasUnsavedChanges(false);
+      notify(`Libro "${docToSave.name}" guardado permanentemente en PostgreSQL.`);
     } catch (err) {
-      console.error('Error opening file in external app:', err);
-      handleDownloadOriginal(doc);
+      console.error('Error guardando libro Excel:', err);
+      notify('No se pudo guardar el libro Excel. Revisa tu conexión.');
+    } finally {
+      setIsSavingWorkbook(false);
     }
   };
 
-  const handleUploadClick = () => {
-    onTriggerUpload();
+  const handleOpenInComputerExcel = async (doc: UploadedDocument) => {
+    try {
+      // If editing this document and has unsaved edits, rebuild from draft so PC sees latest edits
+      if (draftDoc && draftDoc.id === doc.id && hasUnsavedChanges) {
+        const rebuiltBase64 = await rebuildWorkbookBase64FromDoc(draftDoc);
+        await openDocumentInComputerExcel({ ...draftDoc, rawBase64: rebuiltBase64 });
+        return;
+      }
+      await openDocumentInComputerExcel(doc);
+    } catch (err) {
+      console.error('Error abriendo archivo en Excel de PC:', err);
+      notify('No se pudo abrir el archivo Excel.');
+    }
   };
 
   const handleDeleteClick = (docId: string, docName: string) => {
-    if (window.confirm(`¿Estás seguro de eliminar el documento "${docName}" del sistema?`)) {
+    if (window.confirm(`¿Estás seguro de eliminar permanentemente "${docName}" de la base de datos?`)) {
       onDeleteDocument(docId);
     }
   };
 
+  const handleDropFiles = async (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDraggingFiles(false);
+    const files = Array.from(e.dataTransfer.files || []).filter(f =>
+      /\.(xlsx|xls|csv)$/i.test(f.name)
+    );
+    if (files.length === 0) {
+      notify('Arrastra archivos Excel válidos (.xlsx, .xls o .csv).');
+      return;
+    }
+    if (onQuickUploadFiles) {
+      await onQuickUploadFiles(files);
+    } else {
+      onTriggerUpload();
+    }
+  };
+
+  const selectedCellStyle: CellStyleInfo = useMemo(() => {
+    if (!selectedCell || !currentSheet?.cellStyles) return {};
+    return currentSheet.cellStyles[`${selectedCell.row}-${selectedCell.col}`] || {};
+  }, [selectedCell, currentSheet]);
+
+  const buildBorderCss = (border?: { style?: string; color?: string }) => {
+    if (!border) return undefined;
+    const width = border.style === 'thick' ? '2px' : border.style === 'medium' ? '1.5px' : '1px';
+    const lineStyle = border.style === 'dashed' ? 'dashed' : border.style === 'dotted' ? 'dotted' : 'solid';
+    return `${width} ${lineStyle} ${border.color || '#94A3B8'}`;
+  };
+
   return (
-    <div className={`space-y-4 ${isFullscreen ? 'fixed inset-0 z-50 bg-slate-900 p-6 overflow-auto' : ''}`}>
-      
-      {/* Top Banner / Document Selector */}
-      <div className="bg-white rounded-2xl p-4 border border-slate-200/90 shadow-xs">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
-          
-          {/* Document switcher and info */}
-          <div className="flex items-center space-x-3">
-            <div className="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0">
-              <FileSpreadsheet className="w-5 h-5" />
-            </div>
-            <div>
-              <div className="flex items-center space-x-2">
-                <h3 className="text-sm font-bold text-slate-900">
-                  Visor de Documentos Originales
-                </h3>
-                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
-                  {documents.length} {documents.length === 1 ? 'documento' : 'documentos'}
-                </span>
-              </div>
-              <p className="text-xs text-slate-500">
-                Visualiza los archivos y tablas exactamente como aparecen en tu documento original
-              </p>
-            </div>
+    <div
+      onDragOver={(e) => { e.preventDefault(); setIsDraggingFiles(true); }}
+      onDragLeave={() => setIsDraggingFiles(false)}
+      onDrop={handleDropFiles}
+      className={`space-y-4 ${isFullscreen ? 'fixed inset-0 z-50 bg-slate-100 p-4 sm:p-6 overflow-auto' : ''} ${
+        isDraggingFiles ? 'ring-2 ring-emerald-500 rounded-2xl' : ''
+      }`}
+    >
+      {/* Top Action Header */}
+      <div className="bg-white rounded-2xl p-4 border border-slate-200 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="w-10 h-10 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700 flex items-center justify-center shrink-0">
+            <FileSpreadsheet className="w-5 h-5" />
           </div>
-
-          {/* Actions */}
-          <div className="flex flex-wrap items-center gap-2">
-            {/* Clean Imported Equipments Button */}
-            {canDeleteRecords && importedEquipmentsCount > 0 && onCleanImportedEquipments && (
-              <button
-                type="button"
-                onClick={() => {
-                  if (window.confirm(`¿Deseas eliminar los ${importedEquipmentsCount} equipos importados de Excel y restaurar el Parque de Bombas al catálogo oficial (12 unidades)?`)) {
-                    onCleanImportedEquipments();
-                  }
-                }}
-                className="inline-flex items-center space-x-1.5 px-3 py-2 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 text-xs font-semibold transition-colors"
-                title="Limpiar equipos importados de Excel del Parque de Bombas"
-              >
-                <Trash2 className="w-3.5 h-3.5 text-amber-600" />
-                <span>Limpiar {importedEquipmentsCount} equipos importados de Excel</span>
-              </button>
-            )}
-
-            {/* Clear All Documents Button */}
-            {canDeleteRecords && documents.length > 0 && onClearAllDocuments && (
-              <button
-                type="button"
-                onClick={() => {
-                  if (window.confirm(`¿Estás seguro de eliminar todos los ${documents.length} documentos de Excel cargados? Esta acción no se puede deshacer.`)) {
-                    onClearAllDocuments();
-                  }
-                }}
-                className="inline-flex items-center space-x-1.5 px-3 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-semibold transition-colors"
-                title="Eliminar todos los documentos cargados"
-              >
-                <Trash2 className="w-3.5 h-3.5 text-rose-600" />
-                <span>Eliminar {documents.length > 1 ? `todos (${documents.length})` : 'documento'}</span>
-              </button>
-            )}
-
-            {/* Upload Button */}
-            <button
-              type="button"
-              onClick={handleUploadClick}
-              className="inline-flex items-center space-x-1.5 px-4 py-2 rounded-xl text-xs font-bold transition-all shadow-xs active:scale-98 bg-emerald-600 hover:bg-emerald-700 text-white"
-            >
-              <Upload className="w-3.5 h-3.5" />
-              <span>Cargar Documento Excel</span>
-            </button>
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h3 className="text-sm font-bold text-slate-900">
+                Archivero de Carpetas y Estudio Excel
+              </h3>
+              <span className="text-[11px] font-semibold px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-800 border border-emerald-200 tabular-nums">
+                {documents.length} {documents.length === 1 ? 'archivo' : 'archivos'} • PostgreSQL
+              </span>
+            </div>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Organiza carpetas, abre tus Excel idénticos en el computador o edítalos aquí con colores y formato exacto
+            </p>
           </div>
-
         </div>
 
-        {/* Document list selector pills */}
-        {currentFolderDocuments.length > 0 && (
-          <div className="flex items-center space-x-2 mt-4 pt-3 border-t border-slate-100 overflow-x-auto pb-1">
-            <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider shrink-0">
-              Archivos {activeFolder ? `en "${activeFolder.name}"` : 'en Raíz'}:
-            </span>
-            {currentFolderDocuments.map((doc) => {
-              const isSelected = currentDoc?.id === doc.id;
-              return (
-                <div key={doc.id} className={`inline-flex items-center rounded-lg transition-all ${
-                  isSelected ? 'bg-emerald-600 text-white shadow-xs' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
-                }`}>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      onSelectDocument(doc.id);
-                      setSelectedSheetIdx(0);
-                      setCurrentPage(1);
-                    }}
-                    className="inline-flex items-center space-x-1.5 px-3 py-1.5 text-xs font-semibold whitespace-nowrap"
-                  >
-                    <FileSpreadsheet className="w-3.5 h-3.5" />
-                    <span className="max-w-[150px] truncate">{doc.name}</span>
-                    <span className={`text-[10px] px-1 rounded ${isSelected ? 'bg-emerald-700 text-emerald-100' : 'bg-slate-200 text-slate-600'}`}>
-                      {doc.totalRows} filas
-                    </span>
-                  </button>
-                  {canDeleteRecords && (
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleDeleteClick(doc.id, doc.name);
-                      }}
-                      className={`p-1.5 mr-1 rounded hover:bg-rose-500/20 transition-colors ${
-                        isSelected ? 'text-emerald-100 hover:text-rose-200' : 'text-slate-400 hover:text-rose-600'
-                      }`}
-                      title={`Eliminar "${doc.name}"`}
-                    >
-                      <Trash2 className="w-3 h-3" />
-                    </button>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        )}
+        <div className="flex flex-wrap items-center gap-2 shrink-0">
+          {canDeleteRecords && importedEquipmentsCount > 0 && onCleanImportedEquipments && (
+            <button
+              type="button"
+              onClick={() => {
+                if (window.confirm(`¿Deseas eliminar los ${importedEquipmentsCount} equipos importados de Excel y restaurar el Parque de Bombas?`)) {
+                  onCleanImportedEquipments();
+                }
+              }}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 text-xs font-semibold transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+            >
+              <Trash2 className="w-3.5 h-3.5 text-amber-600" />
+              <span>Limpiar {importedEquipmentsCount} equipos</span>
+            </button>
+          )}
+
+          {canDeleteRecords && documents.length > 0 && onClearAllDocuments && (
+            <button
+              type="button"
+              onClick={() => {
+                if (window.confirm(`¿Estás seguro de eliminar permanentemente los ${documents.length} documentos Excel guardados?`)) {
+                  onClearAllDocuments();
+                }
+              }}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-semibold transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+            >
+              <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+              <span>Vaciar ({documents.length})</span>
+            </button>
+          )}
+
+          {onTriggerCreateExcel && (
+            <button
+              type="button"
+              onClick={onTriggerCreateExcel}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+            >
+              <FilePlus2 className="w-3.5 h-3.5 text-emerald-400" />
+              <span>Nuevo Excel</span>
+            </button>
+          )}
+
+          <button
+            type="button"
+            onClick={onTriggerUpload}
+            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold transition-colors bg-emerald-600 hover:bg-emerald-700 text-white whitespace-nowrap shrink-0 cursor-pointer"
+          >
+            <Upload className="w-3.5 h-3.5" />
+            <span>Subir Excel {activeFolder ? `a "${activeFolder.name}"` : ''}</span>
+          </button>
+        </div>
       </div>
 
-      {/* Breadcrumb Navigation & Folders View (Root) */}
+      {/* Folder Breadcrumb or Folders Grid */}
       {activeFolderId ? (
-        <div className="bg-emerald-50/90 border border-emerald-200 rounded-2xl p-4 flex items-center justify-between shadow-xs">
-          <div className="flex items-center space-x-3">
+        <div className="bg-white border border-emerald-200 rounded-2xl p-3.5 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2.5 flex-wrap">
             <button
               type="button"
               onClick={() => onSelectFolder(null)}
-              className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-white hover:bg-emerald-100 text-emerald-800 border border-emerald-300 text-xs font-bold transition-colors shadow-xs"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-200 text-xs font-bold transition-colors cursor-pointer"
             >
               <ArrowLeft className="w-3.5 h-3.5" />
-              <span>Volver a Carpetas</span>
+              <span>Todas las Carpetas</span>
             </button>
-            <div className="flex items-center space-x-2 text-xs font-bold text-slate-700">
-              <span>📁 Archivero</span>
+            <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-600">
+              <span>Archivero</span>
               <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
-              <span className="text-emerald-700 flex items-center space-x-1 bg-white px-2.5 py-1 rounded-lg border border-emerald-200">
-                <FolderOpen className="w-3.5 h-3.5 text-amber-500" />
+              <span className="inline-flex items-center gap-1.5 bg-emerald-50 text-emerald-800 px-2.5 py-1 rounded-lg border border-emerald-200 font-bold">
+                <FolderOpen className="w-3.5 h-3.5 text-emerald-600" />
                 <span>{activeFolder?.name}</span>
               </span>
             </div>
           </div>
-          <span className="text-xs text-slate-500 font-medium">
-            {currentFolderDocuments.length} {currentFolderDocuments.length === 1 ? 'archivo' : 'archivos'} en esta carpeta
+
+          <span className="text-xs text-slate-500 font-medium tabular-nums">
+            {currentFolderDocuments.length} {currentFolderDocuments.length === 1 ? 'archivo Excel' : 'archivos Excel'} en esta carpeta
           </span>
         </div>
       ) : (
-        <div className="bg-white rounded-2xl p-4 border border-slate-200/90 shadow-xs space-y-3">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-2">
-              <Folder className="w-5 h-5 text-amber-500" />
+        <div className="bg-white rounded-2xl p-4 border border-slate-200 space-y-3">
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <div className="flex items-center gap-2">
+              <Folder className="w-4 h-4 text-amber-500" />
               <h4 className="text-sm font-bold text-slate-900">
-                Carpetas del Archivero ({folders.length})
+                Carpetas Guardadas ({folders.length})
               </h4>
             </div>
             <button
               type="button"
               onClick={() => setIsNewFolderModalOpen(true)}
-              className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition-colors shadow-xs"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition-colors whitespace-nowrap shrink-0 cursor-pointer"
             >
               <FolderPlus className="w-4 h-4" />
               <span>Nueva Carpeta</span>
@@ -516,49 +599,101 @@ export const OriginalDocumentViewer: React.FC<OriginalDocumentViewerProps> = ({
           </div>
 
           {folders.length === 0 ? (
-            <div className="text-center py-6 text-slate-400 text-xs">
-              No hay carpetas creadas. Crea una carpeta para organizar tus documentos exclusivamente aquí.
+            <div className="text-center py-5 text-slate-500 text-xs border border-dashed border-slate-200 rounded-xl bg-slate-50/50">
+              No hay carpetas creadas todavía. Crea una carpeta para organizar tus archivos Excel por equipos, zonas o años.
             </div>
           ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
               {folders.map(folder => {
                 const folderDocsCount = documents.filter(d => d.folderId === folder.id).length;
+                const colorKey = folder.color && FOLDER_COLOR_STYLES[folder.color] ? folder.color : 'amber';
+                const cStyle = FOLDER_COLOR_STYLES[colorKey];
+                const isRenaming = renamingFolderId === folder.id;
+
                 return (
-                  <div 
+                  <div
                     key={folder.id}
-                    onClick={() => onSelectFolder(folder.id)}
-                    className="group relative bg-slate-50 hover:bg-emerald-50/50 border border-slate-200 hover:border-emerald-300 rounded-xl p-3.5 cursor-pointer transition-all flex items-center justify-between shadow-xs"
+                    onClick={() => { if (!isRenaming) onSelectFolder(folder.id); }}
+                    className="group bg-slate-50/70 hover:bg-white border border-slate-200 hover:border-emerald-300 rounded-xl p-3.5 cursor-pointer transition-all flex items-center justify-between gap-2"
                   >
-                    <div className="flex items-center space-x-3 min-w-0">
-                      <div className="w-10 h-10 rounded-xl bg-amber-100 text-amber-600 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
+                    <div className="flex items-center gap-3 min-w-0 flex-1">
+                      <div className={`w-10 h-10 rounded-xl ${cStyle.bg} ${cStyle.text} border ${cStyle.border} flex items-center justify-center shrink-0`}>
                         <FolderOpen className="w-5 h-5" />
                       </div>
-                      <div className="min-w-0">
-                        <h5 className="text-xs font-bold text-slate-900 truncate group-hover:text-emerald-900">
-                          {folder.name}
-                        </h5>
-                        <p className="text-[10px] text-slate-500">
-                          {folderDocsCount} {folderDocsCount === 1 ? 'archivo' : 'archivos'}
-                        </p>
+                      <div className="min-w-0 flex-1">
+                        {isRenaming ? (
+                          <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                            <input
+                              type="text"
+                              value={renameFolderInput}
+                              onChange={(e) => setRenameFolderInput(e.target.value)}
+                              className="w-full px-2 py-1 text-xs font-bold border border-emerald-400 rounded-lg bg-white text-slate-900 focus:outline-none"
+                              autoFocus
+                              onKeyDown={async (e) => {
+                                if (e.key === 'Enter' && renameFolderInput.trim() && onUpdateFolder) {
+                                  await onUpdateFolder(folder.id, { name: renameFolderInput.trim() });
+                                  setRenamingFolderId(null);
+                                } else if (e.key === 'Escape') {
+                                  setRenamingFolderId(null);
+                                }
+                              }}
+                            />
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                if (renameFolderInput.trim() && onUpdateFolder) {
+                                  await onUpdateFolder(folder.id, { name: renameFolderInput.trim() });
+                                }
+                                setRenamingFolderId(null);
+                              }}
+                              className="p-1 bg-emerald-600 text-white rounded-md cursor-pointer"
+                            >
+                              <Check className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        ) : (
+                          <>
+                            <h5 className="text-xs font-bold text-slate-900 truncate group-hover:text-emerald-800">
+                              {folder.name}
+                            </h5>
+                            <p className="text-[11px] text-slate-500 tabular-nums">
+                              {folderDocsCount} {folderDocsCount === 1 ? 'archivo' : 'archivos'}
+                              {folder.description ? ` • ${folder.description}` : ''}
+                            </p>
+                          </>
+                        )}
                       </div>
                     </div>
 
-                    <div className="flex items-center space-x-1.5">
+                    <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
+                      {onUpdateFolder && !isRenaming && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setRenamingFolderId(folder.id);
+                            setRenameFolderInput(folder.name);
+                          }}
+                          className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-200/70 transition-colors cursor-pointer"
+                          title="Renombrar carpeta"
+                        >
+                          <Edit3 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
                       {canDeleteRecords && (
                         <button
                           type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onDeleteFolder(folder.id);
+                          onClick={() => {
+                            if (window.confirm(`¿Eliminar la carpeta "${folder.name}"? Los archivos que contenga pasarán a la raíz sin borrarse.`)) {
+                              onDeleteFolder(folder.id);
+                            }
                           }}
-                          className="inline-flex items-center space-x-1 px-2.5 py-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-bold border border-rose-200 transition-colors shadow-xs"
+                          className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
                           title={`Eliminar carpeta "${folder.name}"`}
                         >
-                          <Trash2 className="w-3.5 h-3.5 text-rose-600" />
-                          <span>Eliminar</span>
+                          <Trash2 className="w-3.5 h-3.5" />
                         </button>
                       )}
-                      <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-emerald-600" />
+                      <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-emerald-600 pointer-events-none" />
                     </div>
                   </div>
                 );
@@ -568,49 +703,107 @@ export const OriginalDocumentViewer: React.FC<OriginalDocumentViewerProps> = ({
         </div>
       )}
 
-      {/* Document Management Panel for Current View */}
+      {/* Files Grid in Current Directory */}
       {currentFolderDocuments.length > 0 && (
-        <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-xs space-y-3">
+        <div className="bg-white rounded-2xl p-4 border border-slate-200 space-y-3">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-2.5">
-            <div className="flex items-center space-x-2">
-              <FolderOpen className="w-4 h-4 text-emerald-600 shrink-0" />
+            <div className="flex items-center gap-2">
+              <FileSpreadsheet className="w-4 h-4 text-emerald-600 shrink-0" />
               <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wide">
-                Gestión de Archivos {activeFolder ? `en "${activeFolder.name}"` : 'en Raíz'} ({currentFolderDocuments.length})
+                Archivos Excel {activeFolder ? `en "${activeFolder.name}"` : 'en Raíz'} ({currentFolderDocuments.length})
               </h4>
             </div>
             <span className="text-[11px] text-slate-500">
-              Aquí puedes visualizar o eliminar individualmente cualquier archivo de este apartado.
+              Haz clic en un archivo para verlo/editarlo aquí o pulsa «Abrir en Excel» para lanzarlo en tu computador
             </span>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5">
-            {currentFolderDocuments.map((doc) => (
-              <div key={doc.id} className="flex items-center justify-between p-3 rounded-xl bg-slate-50 border border-slate-200 hover:border-slate-300 transition-all">
-                <div className="flex items-center space-x-2.5 min-w-0">
-                  <div className="w-8 h-8 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0">
-                    <FileSpreadsheet className="w-4 h-4" />
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+            {currentFolderDocuments.map((doc) => {
+              const isSelected = currentDoc?.id === doc.id;
+              return (
+                <div
+                  key={doc.id}
+                  onClick={() => {
+                    if (hasUnsavedChanges && draftDoc && draftDoc.id !== doc.id) {
+                      if (!window.confirm('Tienes cambios sin guardar en el libro actual. ¿Cambiar de archivo y descartar cambios no guardados?')) {
+                        return;
+                      }
+                      setHasUnsavedChanges(false);
+                    }
+                    onSelectDocument(doc.id);
+                    setSelectedSheetIdx(0);
+                    setCurrentPage(1);
+                  }}
+                  className={`p-3.5 rounded-xl border transition-all cursor-pointer flex flex-col justify-between gap-2.5 ${
+                    isSelected
+                      ? 'bg-emerald-50/60 border-emerald-500 ring-1 ring-emerald-500/30'
+                      : 'bg-slate-50/70 border-slate-200 hover:border-slate-300 hover:bg-white'
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${
+                        isSelected ? 'bg-emerald-600 text-white' : 'bg-emerald-100 text-emerald-700'
+                      }`}>
+                        <FileSpreadsheet className="w-4 h-4" />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-xs font-bold text-slate-900 truncate" title={doc.name}>
+                          {doc.name}
+                        </p>
+                        <p className="text-[11px] text-slate-500 tabular-nums">
+                          {doc.sheets.length} {doc.sheets.length === 1 ? 'hoja' : 'hojas'} • {doc.totalRows} filas • {new Date(doc.uploadDate).toLocaleDateString('es-ES')}
+                        </p>
+                      </div>
+                    </div>
+
+                    {canDeleteRecords && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeleteClick(doc.id, doc.name);
+                        }}
+                        className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors shrink-0 cursor-pointer"
+                        title={`Eliminar "${doc.name}"`}
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
                   </div>
-                  <div className="min-w-0">
-                    <p className="text-xs font-bold text-slate-900 truncate" title={doc.name}>
-                      {doc.name}
-                    </p>
-                    <p className="text-[10px] text-slate-500">
-                      {doc.totalRows} filas • {new Date(doc.uploadDate).toLocaleDateString('es-ES')}
-                    </p>
+
+                  <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-200/70" onClick={(e) => e.stopPropagation()}>
+                    <button
+                      type="button"
+                      onClick={() => handleOpenInComputerExcel(doc)}
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+                      title="Abrir inmediatamente en la aplicación Excel de tu computador (formato 100% original)"
+                    >
+                      <ExternalLink className="w-3 h-3" />
+                      <span>Abrir en Excel</span>
+                    </button>
+
+                    {onMoveDocument && folders.length > 0 && (
+                      <div className="flex items-center gap-1 min-w-0">
+                        <FolderInput className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                        <select
+                          value={doc.folderId || ''}
+                          onChange={(e) => onMoveDocument(doc.id, e.target.value || null)}
+                          className="text-[11px] font-semibold bg-white border border-slate-200 rounded-lg px-2 py-1 text-slate-700 max-w-[140px] truncate focus:outline-none focus:ring-1 focus:ring-emerald-500 cursor-pointer"
+                          title="Mover archivo a carpeta"
+                        >
+                          <option value="">Raíz (Sin carpeta)</option>
+                          {folders.map(f => (
+                            <option key={f.id} value={f.id}>📁 {f.name}</option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
                   </div>
                 </div>
-
-                <button
-                  type="button"
-                  onClick={() => handleDeleteClick(doc.id, doc.name)}
-                  className="inline-flex items-center space-x-1 px-2.5 py-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-bold border border-rose-200 transition-colors shrink-0 ml-2"
-                  title={`Eliminar "${doc.name}"`}
-                >
-                  <Trash2 className="w-3.5 h-3.5 text-rose-600" />
-                  <span>Eliminar</span>
-                </button>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}
@@ -618,63 +811,91 @@ export const OriginalDocumentViewer: React.FC<OriginalDocumentViewerProps> = ({
       {/* New Folder Modal */}
       {isNewFolderModalOpen && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-md w-full p-6 space-y-4 shadow-xl border border-slate-200 animate-in fade-in zoom-in-95 duration-200">
+          <div className="bg-white rounded-2xl max-w-md w-full p-5 space-y-4 shadow-xl border border-slate-200">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <div className="flex items-center space-x-2">
+              <div className="flex items-center gap-2">
                 <FolderPlus className="w-5 h-5 text-emerald-600" />
                 <h3 className="text-sm font-bold text-slate-900">Crear Nueva Carpeta</h3>
               </div>
               <button
                 type="button"
                 onClick={() => setIsNewFolderModalOpen(false)}
-                className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg"
+                className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg cursor-pointer"
               >
-                ✕
+                <X className="w-4 h-4" />
               </button>
             </div>
 
             <div className="space-y-3">
-              <label className="block text-xs font-semibold text-slate-700">
-                Nombre de la Carpeta
-              </label>
-              <input
-                type="text"
-                value={newFolderNameInput}
-                onChange={(e) => setNewFolderNameInput(e.target.value)}
-                placeholder="Ej. Planos Hidráulicos, Manuales 2026..."
-                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-xs text-slate-900"
-                autoFocus
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && newFolderNameInput.trim()) {
-                    onCreateFolder(newFolderNameInput.trim());
-                    setNewFolderNameInput('');
-                    setIsNewFolderModalOpen(false);
-                  }
-                }}
-              />
-              <p className="text-[11px] text-slate-500">
-                Esta carpeta se guardará exclusivamente en este apartado del archivero.
-              </p>
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Nombre de la Carpeta *
+                </label>
+                <input
+                  type="text"
+                  value={newFolderNameInput}
+                  onChange={(e) => setNewFolderNameInput(e.target.value)}
+                  placeholder="Ej. Cuarto de Bombas, Chillers 2026, Manuales..."
+                  className="w-full px-3.5 py-2 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-xs text-slate-900"
+                  autoFocus
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Descripción breve (opcional)
+                </label>
+                <input
+                  type="text"
+                  value={newFolderDesc}
+                  onChange={(e) => setNewFolderDesc(e.target.value)}
+                  placeholder="Ej. Hojas de vida y fichas técnicas"
+                  className="w-full px-3.5 py-2 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-xs text-slate-900"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                  Color identificador
+                </label>
+                <div className="flex items-center gap-2">
+                  {Object.entries(FOLDER_COLOR_STYLES).map(([key, style]) => (
+                    <button
+                      key={key}
+                      type="button"
+                      onClick={() => setNewFolderColor(key)}
+                      className={`w-7 h-7 rounded-full ${style.badge} transition-transform cursor-pointer flex items-center justify-center ${
+                        newFolderColor === key ? 'ring-2 ring-offset-2 ring-slate-900 scale-110' : 'opacity-75 hover:opacity-100'
+                      }`}
+                    >
+                      {newFolderColor === key && <Check className="w-3.5 h-3.5 text-white" />}
+                    </button>
+                  ))}
+                </div>
+              </div>
             </div>
 
-            <div className="flex items-center justify-end space-x-2 pt-3 border-t border-slate-100">
+            <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
               <button
                 type="button"
                 onClick={() => setIsNewFolderModalOpen(false)}
-                className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold transition-colors"
+                className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold transition-colors cursor-pointer"
               >
                 Cancelar
               </button>
               <button
                 type="button"
-                onClick={() => {
+                disabled={!newFolderNameInput.trim()}
+                onClick={async () => {
                   if (newFolderNameInput.trim()) {
-                    onCreateFolder(newFolderNameInput.trim());
+                    await onCreateFolder(newFolderNameInput.trim(), newFolderColor, newFolderDesc.trim() || undefined);
                     setNewFolderNameInput('');
+                    setNewFolderDesc('');
+                    setNewFolderColor('amber');
                     setIsNewFolderModalOpen(false);
                   }
                 }}
-                className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition-colors"
+                className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-bold transition-colors cursor-pointer"
               >
                 Crear Carpeta
               </button>
@@ -683,38 +904,40 @@ export const OriginalDocumentViewer: React.FC<OriginalDocumentViewerProps> = ({
         </div>
       )}
 
-      {/* Main Document Content */}
+      {/* Main Excel Viewer & Live Studio */}
       {currentDoc ? (
-        <div className="bg-white rounded-2xl border border-slate-200/90 shadow-sm overflow-hidden flex flex-col">
-          
+        <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden flex flex-col">
           {/* Document Header Bar */}
-          <div className="p-4 border-b border-slate-200 bg-slate-50/80 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div>
-              <div className="flex items-center space-x-2">
-                <h4 className="text-sm font-bold text-slate-900 flex items-center space-x-1.5">
-                  <span>{currentDoc.name}</span>
-                </h4>
-                <span className="text-[11px] text-slate-500 font-medium">
-                  • {new Date(currentDoc.uploadDate).toLocaleString('es-ES', { dateStyle: 'short', timeStyle: 'short' })}
+          <div className="p-4 border-b border-slate-200 bg-slate-50/70 flex flex-col xl:flex-row xl:items-center justify-between gap-3">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <h4 className="text-sm font-bold text-slate-900 truncate">{currentDoc.name}</h4>
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
+                  <Database className="w-3 h-3" />
+                  <span>PostgreSQL</span>
                 </span>
+                {hasUnsavedChanges && (
+                  <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-300">
+                    Cambios sin guardar
+                  </span>
+                )}
               </div>
-              <div className="flex items-center space-x-3 text-[11px] text-slate-500 mt-1">
-                <span className="flex items-center space-x-1">
+              <div className="flex items-center gap-2.5 text-[11px] text-slate-500 mt-1 flex-wrap tabular-nums">
+                <span className="flex items-center gap-1">
                   <User className="w-3 h-3 text-slate-400" />
-                  <span>Subido por: <strong>{currentDoc.uploadedBy}</strong></span>
+                  <span>Por <strong>{currentDoc.uploadedBy}</strong></span>
                 </span>
                 <span>•</span>
                 <span>{currentDoc.sheets.length} {currentDoc.sheets.length === 1 ? 'Hoja' : 'Hojas'}</span>
                 <span>•</span>
-                <span>{currentSheet?.rows.length || 0} Filas de datos</span>
+                <span>{currentSheet?.rows.length || 0} Filas</span>
                 <span>•</span>
                 <span>{currentSheet?.headers.length || 0} Columnas</span>
               </div>
             </div>
 
-            {/* Document Tools */}
-            <div className="flex items-center space-x-2">
-              {/* Search in document */}
+            {/* Document Toolbar */}
+            <div className="flex items-center gap-2 flex-wrap">
               <div className="relative">
                 <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
                 <input
@@ -724,72 +947,220 @@ export const OriginalDocumentViewer: React.FC<OriginalDocumentViewerProps> = ({
                     setSearchFilter(e.target.value);
                     setCurrentPage(1);
                   }}
-                  placeholder="Buscar en el documento..."
-                  className="pl-8 pr-3 py-1.5 text-xs rounded-lg border border-slate-200 bg-white focus:outline-hidden focus:ring-1 focus:ring-emerald-500 w-40 sm:w-56"
+                  placeholder="Buscar en la hoja..."
+                  className="pl-8 pr-3 py-1.5 text-xs rounded-lg border border-slate-200 bg-white focus:outline-none focus:ring-1 focus:ring-emerald-500 w-40 sm:w-48"
                 />
               </div>
 
-              {/* Toggle Excel Edit Mode */}
               <button
                 type="button"
-                onClick={() => setIsEditMode(!isEditMode)}
-                title="Modo Edición Interactiva de la Tabla"
-                className={`inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors shadow-xs ${
-                  isEditMode ? 'bg-amber-500 hover:bg-amber-600 text-white' : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200'
+                onClick={() => {
+                  setIsEditMode(prev => !prev);
+                  setEditingCell(null);
+                }}
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                  isEditMode
+                    ? 'bg-amber-500 hover:bg-amber-600 text-white'
+                    : 'bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-200'
                 }`}
               >
                 <Edit3 className="w-3.5 h-3.5" />
-                <span>{isEditMode ? 'Finalizar Edición' : 'Modo Edición'}</span>
+                <span>{isEditMode ? 'Salir de Edición' : 'Editar en App'}</span>
               </button>
 
-              {/* Open in external app (Excel / PDF) */}
+              {hasUnsavedChanges && onUpdateDocument && (
+                <button
+                  type="button"
+                  disabled={isSavingWorkbook}
+                  onClick={handleSaveWorkbookToDb}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white text-xs font-bold transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+                >
+                  {isSavingWorkbook ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                  <span>Guardar Cambios</span>
+                </button>
+              )}
+
               <button
                 type="button"
-                onClick={() => handleOpenExternalApp(currentDoc)}
-                title="Abrir este archivo en la aplicación externa (Excel o PDF)"
-                className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition-colors shadow-xs"
+                onClick={() => handleOpenInComputerExcel(currentDoc)}
+                title="Abrir directamente en Excel del computador con colores y formato original"
+                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition-colors whitespace-nowrap shrink-0 cursor-pointer"
               >
                 <ExternalLink className="w-3.5 h-3.5" />
-                <span>Abrir en App</span>
+                <span>Abrir en Excel (PC)</span>
               </button>
 
-              {/* Download original */}
-              <button
-                type="button"
-                onClick={() => handleDownloadOriginal(currentDoc)}
-                title="Descargar este archivo Excel"
-                className="p-2 rounded-lg text-slate-600 hover:bg-slate-200/80 border border-slate-200 bg-white"
-              >
-                <Download className="w-4 h-4" />
-              </button>
-
-              {/* Fullscreen toggle */}
               <button
                 type="button"
                 onClick={() => setIsFullscreen(!isFullscreen)}
-                title={isFullscreen ? 'Salir de pantalla completa' : 'Ver a pantalla completa'}
-                className="p-2 rounded-lg text-slate-600 hover:bg-slate-200/80 border border-slate-200 bg-white"
+                title={isFullscreen ? 'Salir de pantalla completa' : 'Pantalla completa'}
+                className="p-1.5 rounded-lg text-slate-600 hover:bg-slate-200/80 border border-slate-200 bg-white cursor-pointer"
               >
                 {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
-              </button>
-
-              {/* Delete Document (Admin) */}
-              <button
-                type="button"
-                onClick={() => handleDeleteClick(currentDoc.id, currentDoc.name)}
-                title="Eliminar este documento de Hojas de Vida"
-                className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-rose-700 hover:bg-rose-50 border border-rose-200 bg-white text-xs font-bold transition-colors"
-              >
-                <Trash2 className="w-3.5 h-3.5 text-rose-600" />
-                <span>Eliminar Documento</span>
               </button>
             </div>
           </div>
 
-          {/* Sheet Selector Tabs (Excel Style) */}
-          {currentDoc.sheets.length > 1 && (
-            <div className="px-4 py-2 bg-slate-100 border-b border-slate-200 flex items-center space-x-1.5 overflow-x-auto">
-              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mr-1">
+          {/* Excel Studio Formula + Style Ribbon */}
+          {(isEditMode || selectedCell) && currentSheet && (
+            <div className="px-3 py-2 bg-slate-50 border-b border-slate-200 space-y-2">
+              {/* Formula Bar */}
+              <div className="flex items-center gap-2">
+                <div className="px-2.5 py-1 rounded-md bg-white border border-slate-300 text-xs font-mono font-bold text-slate-700 min-w-[54px] text-center tabular-nums">
+                  {selectedCell ? `${getExcelColLetter(selectedCell.col)}${selectedCell.row + (isRawGrid ? 1 : 2)}` : '--'}
+                </div>
+                <span className="text-xs font-serif italic font-bold text-slate-400">fx</span>
+                <input
+                  type="text"
+                  disabled={!isEditMode || !selectedCell}
+                  value={formulaInput}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setFormulaInput(val);
+                    if (isEditMode && selectedCell) {
+                      handleCellValueChange(selectedCell.row, selectedCell.col, val);
+                    }
+                  }}
+                  placeholder={selectedCell ? (isEditMode ? 'Escribe valor o fórmula (ej: =SUMA(B2:B6))...' : 'Activa "Editar en App" para modificar esta celda') : 'Haz clic en una celda para inspeccionar su contenido'}
+                  className="flex-1 px-3 py-1 rounded-md border border-slate-300 bg-white text-xs font-mono text-slate-900 focus:outline-none focus:ring-1 focus:ring-emerald-500 disabled:bg-slate-100 disabled:text-slate-600"
+                />
+              </div>
+
+              {/* Formatting & Structure Ribbon (Edit Mode Only) */}
+              {isEditMode && (
+                <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-slate-200/70">
+                  <div className="flex items-center gap-1 bg-white border border-slate-200 rounded-lg p-0.5">
+                    <button
+                      type="button"
+                      disabled={!selectedCell}
+                      onClick={() => handleToggleCellStyle({ bold: !selectedCellStyle.bold })}
+                      className={`p-1.5 rounded text-xs cursor-pointer disabled:opacity-40 ${selectedCellStyle.bold ? 'bg-slate-900 text-white' : 'text-slate-700 hover:bg-slate-100'}`}
+                      title="Negrita"
+                    >
+                      <Bold className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      disabled={!selectedCell}
+                      onClick={() => handleToggleCellStyle({ italic: !selectedCellStyle.italic })}
+                      className={`p-1.5 rounded text-xs cursor-pointer disabled:opacity-40 ${selectedCellStyle.italic ? 'bg-slate-900 text-white' : 'text-slate-700 hover:bg-slate-100'}`}
+                      title="Cursiva"
+                    >
+                      <Italic className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      disabled={!selectedCell}
+                      onClick={() => handleToggleCellStyle({ underline: !selectedCellStyle.underline })}
+                      className={`p-1.5 rounded text-xs cursor-pointer disabled:opacity-40 ${selectedCellStyle.underline ? 'bg-slate-900 text-white' : 'text-slate-700 hover:bg-slate-100'}`}
+                      title="Subrayado"
+                    >
+                      <Underline className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+
+                  <div className="flex items-center gap-1 bg-white border border-slate-200 rounded-lg p-0.5">
+                    <button
+                      type="button"
+                      disabled={!selectedCell}
+                      onClick={() => handleToggleCellStyle({ align: 'left' })}
+                      className={`p-1.5 rounded cursor-pointer disabled:opacity-40 ${selectedCellStyle.align === 'left' ? 'bg-slate-900 text-white' : 'text-slate-700 hover:bg-slate-100'}`}
+                      title="Alinear a la izquierda"
+                    >
+                      <AlignLeft className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      disabled={!selectedCell}
+                      onClick={() => handleToggleCellStyle({ align: 'center' })}
+                      className={`p-1.5 rounded cursor-pointer disabled:opacity-40 ${selectedCellStyle.align === 'center' ? 'bg-slate-900 text-white' : 'text-slate-700 hover:bg-slate-100'}`}
+                      title="Centrar"
+                    >
+                      <AlignCenter className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      disabled={!selectedCell}
+                      onClick={() => handleToggleCellStyle({ align: 'right' })}
+                      className={`p-1.5 rounded cursor-pointer disabled:opacity-40 ${selectedCellStyle.align === 'right' ? 'bg-slate-900 text-white' : 'text-slate-700 hover:bg-slate-100'}`}
+                      title="Alinear a la derecha"
+                    >
+                      <AlignRight className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+
+                  {/* Background Fill Swatches */}
+                  <div className="flex items-center gap-1 bg-white border border-slate-200 rounded-lg px-2 py-1">
+                    <span className="text-[10px] font-bold text-slate-500 mr-1">Fondo:</span>
+                    {BG_COLOR_SWATCHES.map(sw => (
+                      <button
+                        key={sw.label}
+                        type="button"
+                        disabled={!selectedCell}
+                        onClick={() => handleToggleCellStyle({ bgColor: sw.value })}
+                        title={sw.label}
+                        style={{ backgroundColor: sw.value || '#FFFFFF' }}
+                        className={`w-4 h-4 rounded border border-slate-300 cursor-pointer disabled:opacity-40 ${
+                          sw.value === '' ? 'relative overflow-hidden' : ''
+                        } ${selectedCellStyle.bgColor === sw.value ? 'ring-2 ring-emerald-500' : ''}`}
+                      />
+                    ))}
+                  </div>
+
+                  {/* Text Color Swatches */}
+                  <div className="flex items-center gap-1 bg-white border border-slate-200 rounded-lg px-2 py-1">
+                    <span className="text-[10px] font-bold text-slate-500 mr-1">Texto:</span>
+                    {TEXT_COLOR_SWATCHES.map(sw => (
+                      <button
+                        key={sw.label}
+                        type="button"
+                        disabled={!selectedCell}
+                        onClick={() => handleToggleCellStyle({ textColor: sw.value })}
+                        title={sw.label}
+                        style={{ backgroundColor: sw.value }}
+                        className={`w-4 h-4 rounded-full border border-slate-300 cursor-pointer disabled:opacity-40 ${
+                          selectedCellStyle.textColor === sw.value ? 'ring-2 ring-emerald-500' : ''
+                        }`}
+                      />
+                    ))}
+                  </div>
+
+                  {/* Add Row / Col / Sheet */}
+                  <div className="flex items-center gap-1.5 ml-auto">
+                    <button
+                      type="button"
+                      onClick={handleAddRow}
+                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-white border border-slate-300 hover:bg-slate-100 text-slate-800 text-[11px] font-bold cursor-pointer whitespace-nowrap"
+                    >
+                      <Plus className="w-3 h-3" />
+                      <span>Fila</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleAddColumn}
+                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-white border border-slate-300 hover:bg-slate-100 text-slate-800 text-[11px] font-bold cursor-pointer whitespace-nowrap"
+                    >
+                      <Plus className="w-3 h-3" />
+                      <span>Columna</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleAddSheet}
+                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-white border border-slate-300 hover:bg-slate-100 text-slate-800 text-[11px] font-bold cursor-pointer whitespace-nowrap"
+                    >
+                      <Plus className="w-3 h-3" />
+                      <span>Hoja</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Sheet Tabs (Excel Style) */}
+          {(currentDoc.sheets.length > 1 || isEditMode) && (
+            <div className="px-4 py-2 bg-slate-100 border-b border-slate-200 flex items-center gap-1.5 overflow-x-auto">
+              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mr-1 shrink-0">
                 Hojas:
               </span>
               {currentDoc.sheets.map((sheet, idx) => (
@@ -799,195 +1170,168 @@ export const OriginalDocumentViewer: React.FC<OriginalDocumentViewerProps> = ({
                   onClick={() => {
                     setSelectedSheetIdx(idx);
                     setCurrentPage(1);
+                    setSelectedCell(null);
+                    setEditingCell(null);
                   }}
-                  className={`px-3 py-1 rounded-md text-xs font-semibold whitespace-nowrap transition-colors flex items-center space-x-1.5 ${
+                  className={`px-3 py-1 rounded-md text-xs font-semibold whitespace-nowrap transition-colors flex items-center gap-1.5 cursor-pointer ${
                     selectedSheetIdx === idx
-                      ? 'bg-white text-emerald-800 shadow-xs border border-slate-200'
+                      ? 'bg-white text-emerald-800 shadow-xs border border-slate-300'
                       : 'text-slate-600 hover:bg-slate-200'
                   }`}
                 >
                   <Table className="w-3 h-3 text-emerald-600" />
                   <span>{sheet.name || `Hoja ${idx + 1}`}</span>
-                  <span className="text-[10px] text-slate-400">({sheet.rows.length})</span>
+                  <span className="text-[10px] text-slate-400 tabular-nums">({sheet.rows.length})</span>
                 </button>
               ))}
             </div>
           )}
 
-          {/* Edit Control Bar (When in Edit Mode) */}
-          {isEditMode && (
-            <div className="px-4 py-2.5 bg-amber-50 border-b border-amber-200 flex flex-wrap items-center justify-between gap-3 text-xs text-amber-900">
-              <div className="flex items-center space-x-3">
-                <span className="font-bold flex items-center space-x-1.5">
-                  <Edit3 className="w-3.5 h-3.5 text-amber-700" />
-                  <span>Modo Edición Excel Activo</span>
-                </span>
-                <span className="text-[11px] text-amber-700 hidden sm:inline">
-                  (Haz clic en cualquier celda o encabezado para editar texto, añade filas/columnas o cambia temas)
-                </span>
-              </div>
-
-              <div className="flex items-center space-x-2 flex-wrap">
-                {/* Theme Selector */}
-                <div className="flex items-center space-x-1 bg-white/80 border border-amber-300 rounded-lg p-1">
-                  <Palette className="w-3.5 h-3.5 text-slate-500 ml-1" />
-                  <span className="text-[10px] font-bold text-slate-600 mr-1">Tema:</span>
-                  <button
-                    type="button"
-                    onClick={() => setHeaderTheme('emerald')}
-                    className={`px-2 py-0.5 rounded text-[10px] font-bold ${headerTheme === 'emerald' ? 'bg-emerald-600 text-white' : 'text-slate-600 hover:bg-slate-100'}`}
-                  >
-                    Verde
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setHeaderTheme('blue')}
-                    className={`px-2 py-0.5 rounded text-[10px] font-bold ${headerTheme === 'blue' ? 'bg-blue-600 text-white' : 'text-slate-600 hover:bg-slate-100'}`}
-                  >
-                    Azul
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setHeaderTheme('dark')}
-                    className={`px-2 py-0.5 rounded text-[10px] font-bold ${headerTheme === 'dark' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'}`}
-                  >
-                    Oscuro
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setHeaderTheme('amber')}
-                    className={`px-2 py-0.5 rounded text-[10px] font-bold ${headerTheme === 'amber' ? 'bg-amber-600 text-white' : 'text-slate-600 hover:bg-slate-100'}`}
-                  >
-                    Ámbar
-                  </button>
-                </div>
-
-                {/* Add Row */}
-                <button
-                  type="button"
-                  onClick={handleAddRow}
-                  className="inline-flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-white border border-amber-300 hover:bg-amber-100 text-amber-900 font-bold transition-colors shadow-xs"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>Añadir Fila</span>
-                </button>
-
-                {/* Add Column */}
-                <button
-                  type="button"
-                  onClick={handleAddColumn}
-                  className="inline-flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-white border border-amber-300 hover:bg-amber-100 text-amber-900 font-bold transition-colors shadow-xs"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>Añadir Columna</span>
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* Spreadsheet Table View (Exact representation) */}
-          <div className="overflow-x-auto max-h-[600px] select-text relative">
+          {/* Spreadsheet Canvas */}
+          <div className="overflow-auto max-h-[640px] bg-white relative select-text">
             {currentSheet && currentSheet.headers.length > 0 ? (
-              <table className="w-full border-collapse text-left font-sans text-xs">
-                {/* Excel Column Coordinates (A, B, C...) */}
+              <table className="border-collapse text-left font-sans text-xs w-max min-w-full">
                 <thead>
-                  <tr className="bg-slate-100 text-slate-500 border-b border-slate-200 text-[10px] font-mono select-none sticky top-0 z-20">
-                    <th className="w-12 px-2 py-1 border-r border-slate-200 text-center bg-slate-200/80 font-bold sticky left-0 z-30">
+                  {/* Excel Column Coordinates (A, B, C...) */}
+                  <tr className="bg-slate-100 text-slate-600 border-b border-slate-300 text-[10px] font-mono select-none sticky top-0 z-20">
+                    <th className="w-12 min-w-[48px] px-2 py-1.5 border-r border-slate-300 text-center bg-slate-200 font-bold sticky left-0 z-30">
                       #
                     </th>
-                    {currentSheet.headers.map((_, colIdx) => (
-                      <th key={colIdx} className="px-3 py-1 border-r border-slate-200 text-center font-bold bg-slate-100 min-w-[120px]">
-                        {getColLetter(colIdx)}
-                      </th>
-                    ))}
+                    {currentSheet.headers.map((_, colIdx) => {
+                      const colW = currentSheet.colWidths?.[colIdx];
+                      return (
+                        <th
+                          key={colIdx}
+                          style={colW ? { width: `${colW}px`, minWidth: `${colW}px` } : { minWidth: '115px' }}
+                          className="px-2 py-1.5 border-r border-slate-300 text-center font-bold bg-slate-100"
+                        >
+                          {getExcelColLetter(colIdx)}
+                        </th>
+                      );
+                    })}
                   </tr>
 
-                  {/* Header Row (Original Column Names from File) */}
-                  <tr className={`${theme.headerTr} border-b-2 font-bold text-xs sticky top-[24px] z-10 shadow-xs`}>
-                    <th className={`px-2 py-2.5 border-r text-center ${theme.headerIndex} sticky left-0 z-20`}>
-                      1
-                    </th>
-                    {currentSheet.headers.map((header, colIdx) => (
-                      <th key={colIdx} className="px-3 py-2.5 border-r border-slate-300/60 uppercase tracking-wider text-[11px] whitespace-nowrap">
-                        {isEditMode ? (
-                          <div className="flex items-center space-x-1">
-                            <input
-                              type="text"
-                              value={header || ''}
-                              onChange={(e) => handleHeaderEdit(colIdx, e.target.value)}
-                              className="bg-white border border-slate-300 px-2 py-0.5 rounded text-xs font-bold text-slate-900 w-full"
-                            />
-                            {currentSheet.headers.length > 1 && (
+                  {/* Legacy non-rawGrid Header Row */}
+                  {!isRawGrid && (
+                    <tr className="bg-emerald-50 text-emerald-950 border-b-2 border-emerald-300 font-bold text-xs sticky top-[25px] z-10">
+                      <th className="px-2 py-2 border-r border-emerald-200 text-center bg-emerald-100 sticky left-0 z-20 font-mono text-[10px]">
+                        1
+                      </th>
+                      {currentSheet.headers.map((header, colIdx) => (
+                        <th key={colIdx} className="px-3 py-2 border-r border-emerald-200/80 whitespace-nowrap">
+                          {header || `Columna ${colIdx + 1}`}
+                        </th>
+                      ))}
+                    </tr>
+                  )}
+                </thead>
+
+                <tbody className="bg-white">
+                  {paginatedRows.map(({ row, origIdx }) => {
+                    const displayRowNum = isRawGrid ? origIdx + 1 : origIdx + 2;
+                    const rowHeightPx = currentSheet.rowHeights?.[origIdx];
+
+                    return (
+                      <tr
+                        key={origIdx}
+                        style={rowHeightPx ? { height: `${rowHeightPx}px` } : undefined}
+                        className="group"
+                      >
+                        {/* Row Number */}
+                        <td className="px-2 py-1.5 border-r border-b border-slate-200 text-center font-mono text-[10px] text-slate-500 bg-slate-50 font-semibold sticky left-0 z-10 select-none">
+                          <div className="flex items-center justify-center gap-1">
+                            <span className="tabular-nums">{displayRowNum}</span>
+                            {isEditMode && currentSheet.rows.length > 1 && (
                               <button
                                 type="button"
-                                onClick={() => handleDeleteColumn(colIdx)}
-                                title="Eliminar esta columna"
-                                className="text-rose-600 hover:text-rose-800 p-1"
+                                onClick={() => handleDeleteRow(origIdx)}
+                                title="Eliminar fila"
+                                className="text-rose-500 hover:text-rose-700 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
                               >
-                                <Trash2 className="w-3.5 h-3.5" />
+                                <Trash2 className="w-3 h-3" />
                               </button>
                             )}
                           </div>
-                        ) : (
-                          <span>{header || `Columna ${colIdx + 1}`}</span>
-                        )}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-
-                {/* Data Rows */}
-                <tbody className="divide-y divide-slate-100 bg-white">
-                  {paginatedRows.map((row, rowIdx) => {
-                    const actualRowNum = (currentPage - 1) * rowsPerPage + rowIdx + 2;
-                    return (
-                      <tr key={rowIdx} className="hover:bg-blue-50/50 transition-colors group">
-                        {/* Row Index Column */}
-                        <td className="px-2 py-2 border-r border-slate-200 text-center font-mono text-[10px] text-slate-400 bg-slate-50 group-hover:bg-blue-100/50 group-hover:text-blue-700 font-semibold sticky left-0 z-10 flex items-center justify-between">
-                          <span>{actualRowNum}</span>
-                          {isEditMode && (
-                            <button
-                              type="button"
-                              onClick={() => handleDeleteRow(rowIdx)}
-                              title="Eliminar esta fila"
-                              className="text-rose-500 hover:text-rose-700 ml-1 opacity-60 group-hover:opacity-100"
-                            >
-                              <Trash2 className="w-3 h-3" />
-                            </button>
-                          )}
                         </td>
-                        {/* Cell Values */}
+
+                        {/* Cells */}
                         {currentSheet.headers.map((_, colIdx) => {
+                          if (isRawGrid && mergeLookup.covered.has(`${origIdx}-${colIdx}`)) {
+                            return null;
+                          }
+
+                          const mergeSpan = isRawGrid ? mergeLookup.masters.get(`${origIdx}-${colIdx}`) : undefined;
                           const cellVal = row[colIdx];
                           const displayVal = cellVal !== null && cellVal !== undefined ? String(cellVal) : '';
-                          const isNumeric = typeof cellVal === 'number' || (!isNaN(Number(cellVal)) && cellVal !== '');
-                          const absoluteRowIdx = (currentPage - 1) * rowsPerPage + rowIdx;
-                          const cellStyle = currentSheet.cellStyles?.[`${absoluteRowIdx}-${colIdx}`];
+                          const styleInfo = currentSheet.cellStyles?.[`${origIdx}-${colIdx}`];
+                          const isNumeric = typeof cellVal === 'number' || (displayVal !== '' && !isNaN(Number(displayVal)));
+                          const isSelected = selectedCell?.row === origIdx && selectedCell?.col === colIdx;
+                          const isEditingThis = isEditMode && editingCell?.row === origIdx && editingCell?.col === colIdx;
+                          const colW = currentSheet.colWidths?.[colIdx];
 
                           return (
-                            <td 
-                              key={colIdx} 
-                              style={{
-                                backgroundColor: cellStyle?.bgColor || undefined,
-                                color: cellStyle?.textColor || undefined,
-                                fontWeight: cellStyle?.bold ? 'bold' : undefined,
-                                textAlign: cellStyle?.align || (isNumeric ? 'right' : 'left')
+                            <td
+                              key={colIdx}
+                              colSpan={mergeSpan?.colSpan}
+                              rowSpan={mergeSpan?.rowSpan}
+                              onClick={() => {
+                                setSelectedCell({ row: origIdx, col: colIdx });
+                                if (isEditMode) {
+                                  setEditingCell({ row: origIdx, col: colIdx });
+                                }
                               }}
-                              className={`px-3 py-2 border-r border-slate-100 whitespace-nowrap max-w-[280px] ${
-                                !cellStyle?.textColor ? 'text-slate-800' : ''
-                              } ${isNumeric && !cellStyle?.align ? 'text-right font-mono' : ''}`}
+                              onDoubleClick={() => {
+                                setSelectedCell({ row: origIdx, col: colIdx });
+                                if (isEditMode) {
+                                  setEditingCell({ row: origIdx, col: colIdx });
+                                }
+                              }}
+                              style={{
+                                width: !mergeSpan && colW ? `${colW}px` : undefined,
+                                minWidth: !mergeSpan && colW ? `${colW}px` : undefined,
+                                backgroundColor: styleInfo?.bgColor || undefined,
+                                color: styleInfo?.textColor || undefined,
+                                fontWeight: styleInfo?.bold ? 700 : undefined,
+                                fontStyle: styleInfo?.italic ? 'italic' : undefined,
+                                textDecoration: styleInfo?.underline
+                                  ? 'underline'
+                                  : styleInfo?.strike
+                                  ? 'line-through'
+                                  : undefined,
+                                fontSize: styleInfo?.fontSize ? `${Math.max(10, Math.min(24, styleInfo.fontSize))}px` : undefined,
+                                textAlign: styleInfo?.align || (isNumeric ? 'right' : 'left'),
+                                verticalAlign: styleInfo?.valign || 'middle',
+                                borderTop: styleInfo?.borderTop || undefined,
+                                borderRight: styleInfo?.borderRight || undefined,
+                                borderBottom: styleInfo?.borderBottom || undefined,
+                                borderLeft: styleInfo?.borderLeft || undefined,
+                              }}
+                              className={`px-2.5 py-1.5 border-r border-b border-slate-200/80 ${
+                                styleInfo?.wrapText ? 'whitespace-pre-wrap break-words' : 'whitespace-nowrap'
+                              } ${!styleInfo?.textColor ? 'text-slate-800' : ''} ${
+                                isNumeric && !styleInfo?.align ? 'tabular-nums' : ''
+                              } ${isSelected ? 'ring-2 ring-inset ring-emerald-600' : ''} ${
+                                isEditMode ? 'cursor-cell' : 'cursor-default'
+                              }`}
                             >
-                              {isEditMode ? (
+                              {isEditingThis ? (
                                 <input
                                   type="text"
-                                  value={displayVal}
-                                  onChange={(e) => handleCellEdit(rowIdx, colIdx, e.target.value)}
-                                  className="w-full bg-slate-50 border border-slate-200 focus:bg-white focus:ring-1 focus:ring-emerald-500 px-2 py-1 rounded text-xs text-slate-900"
+                                  autoFocus
+                                  value={formulaInput}
+                                  onChange={(e) => {
+                                    setFormulaInput(e.target.value);
+                                    handleCellValueChange(origIdx, colIdx, e.target.value);
+                                  }}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter' || e.key === 'Escape') {
+                                      setEditingCell(null);
+                                    }
+                                  }}
+                                  className="w-full bg-white text-slate-900 border border-emerald-500 px-1.5 py-0.5 rounded text-xs focus:outline-none"
                                 />
                               ) : (
-                                <span className="truncate block" title={displayVal}>
-                                  {displayVal || <span className="text-slate-300 italic">-</span>}
-                                </span>
+                                <span title={displayVal}>{displayVal}</span>
                               )}
                             </td>
                           );
@@ -996,10 +1340,10 @@ export const OriginalDocumentViewer: React.FC<OriginalDocumentViewerProps> = ({
                     );
                   })}
 
-                  {filteredRows.length === 0 && (
+                  {indexedFilteredRows.length === 0 && (
                     <tr>
                       <td colSpan={currentSheet.headers.length + 1} className="p-8 text-center text-slate-400 text-xs">
-                        {searchFilter ? 'No hay filas que coincidan con el término de búsqueda.' : 'Esta hoja no contiene filas con datos.'}
+                        {searchFilter ? 'No hay filas que coincidan con el término buscado.' : 'Esta hoja no contiene filas todavía.'}
                       </td>
                     </tr>
                   )}
@@ -1007,32 +1351,31 @@ export const OriginalDocumentViewer: React.FC<OriginalDocumentViewerProps> = ({
               </table>
             ) : (
               <div className="p-12 text-center text-slate-400 text-xs">
-                No se han detectado columnas o datos en esta hoja.
+                No se detectaron columnas o celdas en esta hoja.
               </div>
             )}
           </div>
 
-          {/* Table Footer: Pagination & Stats */}
+          {/* Pagination & Footer */}
           <div className="p-3.5 bg-slate-50 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-slate-500">
-            <div className="flex items-center space-x-2">
+            <div className="flex items-center gap-2 tabular-nums">
               <span>
-                Mostrando {filteredRows.length > 0 ? (currentPage - 1) * rowsPerPage + 1 : 0} a {Math.min(currentPage * rowsPerPage, filteredRows.length)} de {filteredRows.length} filas
+                Mostrando {indexedFilteredRows.length > 0 ? (currentPage - 1) * rowsPerPage + 1 : 0} a {Math.min(currentPage * rowsPerPage, indexedFilteredRows.length)} de {indexedFilteredRows.length} filas
               </span>
               {searchFilter && (
                 <span className="text-emerald-700 font-semibold">
-                  (filtrado de {currentSheet?.rows.length || 0} filas totales)
+                  (filtrado de {currentSheet?.rows.length || 0} filas)
                 </span>
               )}
             </div>
 
-            {/* Pagination Controls */}
             {totalPages > 1 && (
-              <div className="flex items-center space-x-1.5">
+              <div className="flex items-center gap-1.5 tabular-nums">
                 <button
                   type="button"
                   disabled={currentPage <= 1}
                   onClick={() => setCurrentPage(p => Math.max(p - 1, 1))}
-                  className="px-2.5 py-1 rounded-md border border-slate-200 bg-white text-slate-700 disabled:opacity-40 hover:bg-slate-100 font-semibold"
+                  className="px-2.5 py-1 rounded-md border border-slate-200 bg-white text-slate-700 disabled:opacity-40 hover:bg-slate-100 font-semibold cursor-pointer"
                 >
                   Anterior
                 </button>
@@ -1043,43 +1386,51 @@ export const OriginalDocumentViewer: React.FC<OriginalDocumentViewerProps> = ({
                   type="button"
                   disabled={currentPage >= totalPages}
                   onClick={() => setCurrentPage(p => Math.min(p + 1, totalPages))}
-                  className="px-2.5 py-1 rounded-md border border-slate-200 bg-white text-slate-700 disabled:opacity-40 hover:bg-slate-100 font-semibold"
+                  className="px-2.5 py-1 rounded-md border border-slate-200 bg-white text-slate-700 disabled:opacity-40 hover:bg-slate-100 font-semibold cursor-pointer"
                 >
                   Siguiente
                 </button>
               </div>
             )}
           </div>
-
         </div>
       ) : (
         /* Empty State */
-        <div className="bg-white rounded-2xl p-12 border border-slate-200/90 text-center space-y-4">
-          <div className="w-16 h-16 rounded-2xl bg-emerald-50 text-emerald-600 border border-emerald-200 flex items-center justify-center mx-auto">
-            <FileSpreadsheet className="w-8 h-8" />
+        <div className="bg-white rounded-2xl p-10 border border-slate-200 text-center space-y-4">
+          <div className="w-14 h-14 rounded-2xl bg-emerald-50 text-emerald-600 border border-emerald-200 flex items-center justify-center mx-auto">
+            <FileSpreadsheet className="w-7 h-7" />
           </div>
           <div className="max-w-md mx-auto">
             <h3 className="text-base font-bold text-slate-900">
-              No hay documentos cargados en el sistema
+              {activeFolder ? `Carpeta "${activeFolder.name}" vacía` : 'Sube o crea archivos Excel aquí'}
             </h3>
             <p className="text-xs text-slate-500 mt-1.5 leading-relaxed">
-              Carga tus inventarios, hojas de cálculo de Excel (.xlsx, .xls, .csv) o documentación técnica para visualizarlos con total fidelidad en esta sección.
+              Arrastra tus archivos .xlsx / .xls / .csv o súbelos desde tu computador. Quedarán guardados permanentemente en PostgreSQL con sus colores, bordes y columnas originales.
             </p>
           </div>
 
-          <div className="pt-2">
+          <div className="flex flex-wrap items-center justify-center gap-2.5 pt-1">
             <button
               type="button"
-              onClick={handleUploadClick}
-              className="inline-flex items-center space-x-2 px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-sm transition-all"
+              onClick={onTriggerUpload}
+              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition-colors cursor-pointer"
             >
               <Upload className="w-4 h-4" />
-              <span>Cargar Primer Documento Excel</span>
+              <span>Subir Excel desde Computador</span>
             </button>
+            {onTriggerCreateExcel && (
+              <button
+                type="button"
+                onClick={onTriggerCreateExcel}
+                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold transition-colors cursor-pointer"
+              >
+                <FilePlus2 className="w-4 h-4 text-emerald-400" />
+                <span>Crear Nuevo Excel</span>
+              </button>
+            )}
           </div>
         </div>
       )}
-
     </div>
   );
 };

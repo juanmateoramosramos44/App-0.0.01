@@ -322,12 +322,14 @@ interface MaintenanceContextType {
   uploadedDocuments: UploadedDocument[];
   addUploadedDocument: (doc: Omit<UploadedDocument, 'id'>) => Promise<UploadedDocument>;
   updateUploadedDocument: (doc: UploadedDocument) => Promise<void>;
+  moveUploadedDocument: (docId: string, folderId: string | null) => Promise<void>;
   deleteUploadedDocument: (id: string) => Promise<void>;
   clearAllUploadedDocuments: () => Promise<void>;
 
   // Document Folders
   documentFolders: DocumentFolder[];
-  createDocumentFolder: (name: string, color?: string) => Promise<void>;
+  createDocumentFolder: (name: string, color?: string, description?: string) => Promise<void>;
+  updateDocumentFolder: (folderId: string, updates: Partial<DocumentFolder>) => Promise<void>;
   deleteDocumentFolder: (folderId: string) => Promise<void>;
   
   // Users
@@ -4049,13 +4051,19 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
   }, [settings]);
   useEffect(() => {
     const handle = setTimeout(() => {
-      try { localStorage.setItem(STORAGE_KEYS.DOCUMENTS, JSON.stringify(uploadedDocuments)); } catch (e) {}
+      idbSet(STORAGE_KEYS.DOCUMENTS, uploadedDocuments).catch(() => {});
+      const ok = safeSetItem(STORAGE_KEYS.DOCUMENTS, JSON.stringify(uploadedDocuments));
+      if (!ok) {
+        const lightweight = uploadedDocuments.map(d => ({ ...d, rawBase64: undefined }));
+        safeSetItem(STORAGE_KEYS.DOCUMENTS, JSON.stringify(lightweight));
+      }
     }, 300);
     return () => clearTimeout(handle);
   }, [uploadedDocuments]);
   useEffect(() => {
     const handle = setTimeout(() => {
-      try { localStorage.setItem('hotel_doc_folders', JSON.stringify(documentFolders)); } catch (e) {}
+      idbSet('hotel_doc_folders', documentFolders).catch(() => {});
+      safeSetItem('hotel_doc_folders', JSON.stringify(documentFolders));
     }, 300);
     return () => clearTimeout(handle);
   }, [documentFolders]);
@@ -5312,6 +5320,30 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
       }
     }).catch(() => {});
 
+    idbGet<UploadedDocument[]>(STORAGE_KEYS.DOCUMENTS).then(idbDocs => {
+      if (isInitialFetchDone.current) return;
+      if (Array.isArray(idbDocs) && idbDocs.length > 0) {
+        const deletedIds = getDeletedUploadedDocumentIds();
+        const filtered = idbDocs.filter(d => d && d.id && !deletedIds.has(d.id));
+        if (filtered.length > 0) {
+          uploadedDocumentsRef.current = filtered;
+          setUploadedDocuments(filtered);
+        }
+      }
+    }).catch(() => {});
+
+    idbGet<DocumentFolder[]>('hotel_doc_folders').then(idbFolders => {
+      if (isInitialFetchDone.current) return;
+      if (Array.isArray(idbFolders) && idbFolders.length > 0) {
+        const deletedIds = getDeletedDocumentFolderIds();
+        const filtered = idbFolders.filter(f => f && f.id && !deletedIds.has(f.id));
+        if (filtered.length > 0) {
+          documentFoldersRef.current = filtered;
+          setDocumentFolders(filtered);
+        }
+      }
+    }).catch(() => {});
+
     idbGet<HotelRequest[]>(STORAGE_KEYS.REQUESTS).then(idbReqs => {
       if (isInitialFetchDone.current) return;
       if (idbReqs && Array.isArray(idbReqs) && idbReqs.length > 0) {
@@ -5768,17 +5800,27 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
           serverDeletedList,
           data.uploadedDocuments
         );
-        const mergedDocs = mergeGenericAuthoritative(
+        const mergedDocsRaw = mergeGenericAuthoritative(
           uploadedDocumentsRef.current || [],
           data.uploadedDocuments,
           deletedDocIds,
           pendingCreations,
           true
         );
+        const localById = new Map<string, UploadedDocument>((uploadedDocumentsRef.current || []).map(d => [d.id, d]));
+        const serverById = new Map<string, UploadedDocument>((data.uploadedDocuments || []).map((d: UploadedDocument) => [d.id, d]));
+        const mergedDocs = mergedDocsRaw.map((doc: UploadedDocument) => {
+          if (doc.rawBase64) return doc;
+          const fallbackRaw = serverById.get(doc.id)?.rawBase64 || localById.get(doc.id)?.rawBase64;
+          return fallbackRaw ? { ...doc, rawBase64: fallbackRaw } : doc;
+        });
         if (JSON.stringify(mergedDocs) !== JSON.stringify(uploadedDocumentsRef.current)) {
           uploadedDocumentsRef.current = mergedDocs;
           setUploadedDocuments(mergedDocs);
-          localStorage.setItem(STORAGE_KEYS.DOCUMENTS, JSON.stringify(mergedDocs));
+          idbSet(STORAGE_KEYS.DOCUMENTS, mergedDocs).catch(() => {});
+          if (!safeSetItem(STORAGE_KEYS.DOCUMENTS, JSON.stringify(mergedDocs))) {
+            safeSetItem(STORAGE_KEYS.DOCUMENTS, JSON.stringify(mergedDocs.map(d => ({ ...d, rawBase64: undefined }))));
+          }
         }
       }
 
@@ -5798,7 +5840,8 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
         if (JSON.stringify(mergedFolders) !== JSON.stringify(documentFoldersRef.current)) {
           documentFoldersRef.current = mergedFolders;
           setDocumentFolders(mergedFolders);
-          localStorage.setItem('hotel_doc_folders', JSON.stringify(mergedFolders));
+          idbSet('hotel_doc_folders', mergedFolders).catch(() => {});
+          safeSetItem('hotel_doc_folders', JSON.stringify(mergedFolders));
         }
       }
 
@@ -6413,6 +6456,14 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
             pumpInspectionsRef.current = updated;
             setPumpInspections(updated);
             localStorage.setItem(STORAGE_KEYS.INSPECTIONS, JSON.stringify(updated));
+          } else if (payload && payload.type === 'uploaded_document_updated' && payload.document) {
+            if (payload.clientId && payload.clientId === clientSessionId.current) return;
+            const docItem = payload.document as UploadedDocument;
+            if (!docItem || !docItem.id || getDeletedUploadedDocumentIds().has(docItem.id)) return;
+            const updated = [docItem, ...(uploadedDocumentsRef.current || []).filter(d => d.id !== docItem.id)];
+            uploadedDocumentsRef.current = updated;
+            setUploadedDocuments(updated);
+            idbSet(STORAGE_KEYS.DOCUMENTS, updated).catch(() => {});
           } else if (payload && payload.type === 'uploaded_document_deleted' && payload.documentId) {
             const delId = payload.documentId;
             trackLocalDeletion(delId);
@@ -6420,7 +6471,17 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
             const updated = (uploadedDocumentsRef.current || []).filter(d => d.id !== delId);
             uploadedDocumentsRef.current = updated;
             setUploadedDocuments(updated);
-            localStorage.setItem(STORAGE_KEYS.DOCUMENTS, JSON.stringify(updated));
+            idbSet(STORAGE_KEYS.DOCUMENTS, updated).catch(() => {});
+            safeSetItem(STORAGE_KEYS.DOCUMENTS, JSON.stringify(updated.map(d => ({ ...d, rawBase64: undefined }))));
+          } else if (payload && payload.type === 'document_folder_updated' && payload.folder) {
+            if (payload.clientId && payload.clientId === clientSessionId.current) return;
+            const folderItem = payload.folder as DocumentFolder;
+            if (!folderItem || !folderItem.id || getDeletedDocumentFolderIds().has(folderItem.id)) return;
+            const updated = [folderItem, ...(documentFoldersRef.current || []).filter(f => f.id !== folderItem.id)];
+            documentFoldersRef.current = updated;
+            setDocumentFolders(updated);
+            idbSet('hotel_doc_folders', updated).catch(() => {});
+            safeSetItem('hotel_doc_folders', JSON.stringify(updated));
           } else if (payload && payload.type === 'document_folder_deleted' && payload.folderId) {
             const delId = payload.folderId;
             trackLocalDeletion(delId);
@@ -6431,8 +6492,9 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
             uploadedDocumentsRef.current = updatedDocs;
             setDocumentFolders(updatedFolders);
             setUploadedDocuments(updatedDocs);
-            localStorage.setItem('hotel_doc_folders', JSON.stringify(updatedFolders));
-            localStorage.setItem(STORAGE_KEYS.DOCUMENTS, JSON.stringify(updatedDocs));
+            idbSet('hotel_doc_folders', updatedFolders).catch(() => {});
+            idbSet(STORAGE_KEYS.DOCUMENTS, updatedDocs).catch(() => {});
+            safeSetItem('hotel_doc_folders', JSON.stringify(updatedFolders));
           } else if (payload && payload.type === 'bitacora_updated' && payload.entry) {
             const incomingEntry = payload.entry as BitacoraEntry;
             if (!incomingEntry || !incomingEntry.id) return;
@@ -6861,11 +6923,7 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
         workOrders: (workOrdersRef.current || []).filter(w => w && w.id && !delOrders.has(w.id) && !isRecentlyLocallyDeleted(w.id)),
         settings: settingsRef.current,
         uploadedDocuments: (uploadedDocumentsRef.current || [])
-          .filter(d => d && d.id && !delDocs.has(d.id) && !isRecentlyLocallyDeleted(d.id))
-          .map(doc => ({
-            ...doc,
-            rawBase64: doc.rawBase64 && doc.rawBase64.length > 50000 ? undefined : doc.rawBase64
-          })),
+          .filter(d => d && d.id && !delDocs.has(d.id) && !isRecentlyLocallyDeleted(d.id)),
         documentFolders: (documentFoldersRef.current || []).filter(f => f && f.id && !delFolders.has(f.id) && !isRecentlyLocallyDeleted(f.id)),
         users: (usersRef.current || []).filter(u => u && u.id && !delUsers.has(u.id) && !isRecentlyLocallyDeleted(u.id) && !FAKE_USER_IDS.has(u.id) && u.displayName !== 'Administrador Principal'),
         schedules: (schedulesRef.current || []).filter(s => s && s.id && !delSchedules.has(s.id) && !isRecentlyLocallyDeleted(s.id) && !isLegacyMockSchedule(s)),
@@ -8504,63 +8562,91 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
   };
 
   // -------------------------------------------------------------
-  // UPLOADED DOCUMENTS (Exact Original Documents)
+  // UPLOADED DOCUMENTS (Exact Original Documents in PostgreSQL)
   // -------------------------------------------------------------
   const addUploadedDocument = async (docData: Omit<UploadedDocument, 'id'>): Promise<UploadedDocument> => {
+    const nowIso = new Date().toISOString();
     const newDoc: UploadedDocument = {
       ...docData,
-      id: `doc-${Date.now()}`
+      id: `doc-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      updatedAt: docData.updatedAt || nowIso
     };
     unmarkDeletedUploadedDocumentId(newDoc.id);
     trackLocalCreation(newDoc.id);
     const updated = [newDoc, ...(uploadedDocumentsRef.current || []).filter(d => d.id !== newDoc.id)];
     uploadedDocumentsRef.current = updated;
     setUploadedDocuments(updated);
-    localStorage.setItem(STORAGE_KEYS.DOCUMENTS, JSON.stringify(updated));
-    notify(`Documento "${newDoc.name}" guardado correctamente`);
-
-    const serverDoc = { ...newDoc };
-    if (serverDoc.rawBase64 && serverDoc.rawBase64.length > 50000) {
-      serverDoc.rawBase64 = undefined;
+    idbSet(STORAGE_KEYS.DOCUMENTS, updated).catch(() => {});
+    if (!safeSetItem(STORAGE_KEYS.DOCUMENTS, JSON.stringify(updated))) {
+      safeSetItem(STORAGE_KEYS.DOCUMENTS, JSON.stringify(updated.map(d => ({ ...d, rawBase64: undefined }))));
     }
+
     try {
-      await fetch('/api/uploaded-documents', {
+      const res = await fetch('/api/uploaded-documents', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'X-Client-Id': clientSessionId.current
         },
-        body: JSON.stringify(serverDoc)
+        body: JSON.stringify(newDoc)
       });
-    } catch {}
+      if (res.ok) {
+        notify(`✅ "${newDoc.name}" guardado permanentemente en la base de datos`);
+      } else {
+        hasPendingLocalChanges.current = true;
+        notify(`⚠️ Guardado localmente; se sincronizará con PostgreSQL al reconectar`);
+      }
+    } catch {
+      hasPendingLocalChanges.current = true;
+    }
     return newDoc;
   };
 
   const updateUploadedDocument = async (updatedDoc: UploadedDocument) => {
-    const updated = (uploadedDocumentsRef.current || []).map(d => d.id === updatedDoc.id ? updatedDoc : d);
+    const stampedDoc: UploadedDocument = {
+      ...updatedDoc,
+      updatedAt: new Date().toISOString()
+    };
+    trackLocalCreation(stampedDoc.id);
+    const updated = (uploadedDocumentsRef.current || []).map(d => d.id === stampedDoc.id ? stampedDoc : d);
     uploadedDocumentsRef.current = updated;
     setUploadedDocuments(updated);
-    localStorage.setItem(STORAGE_KEYS.DOCUMENTS, JSON.stringify(updated));
-    notify('Documento actualizado correctamente');
-
-    const serverDoc = { ...updatedDoc };
-    if (serverDoc.rawBase64 && serverDoc.rawBase64.length > 50000) {
-      serverDoc.rawBase64 = undefined;
+    idbSet(STORAGE_KEYS.DOCUMENTS, updated).catch(() => {});
+    if (!safeSetItem(STORAGE_KEYS.DOCUMENTS, JSON.stringify(updated))) {
+      safeSetItem(STORAGE_KEYS.DOCUMENTS, JSON.stringify(updated.map(d => ({ ...d, rawBase64: undefined }))));
     }
+
     try {
-      await fetch('/api/uploaded-documents', {
+      const res = await fetch('/api/uploaded-documents', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'X-Client-Id': clientSessionId.current
         },
-        body: JSON.stringify(serverDoc)
+        body: JSON.stringify(stampedDoc)
       });
-    } catch {}
+      if (!res.ok) {
+        hasPendingLocalChanges.current = true;
+      }
+    } catch {
+      hasPendingLocalChanges.current = true;
+    }
+  };
+
+  const moveUploadedDocument = async (docId: string, folderId: string | null) => {
+    const existing = (uploadedDocumentsRef.current || []).find(d => d.id === docId);
+    if (!existing) return;
+    const updatedDoc: UploadedDocument = {
+      ...existing,
+      folderId: folderId || undefined,
+      updatedAt: new Date().toISOString()
+    };
+    await updateUploadedDocument(updatedDoc);
+    notify(folderId ? '📁 Archivo movido a la carpeta seleccionada' : '📁 Archivo movido al directorio principal');
   };
 
   const deleteUploadedDocument = async (id: string) => {
-    if (currentUser && !currentUser.permissions?.canDeleteRecords) {
+    if (currentUser && !currentUser.permissions?.canDeleteRecords && currentUser.role !== 'admin') {
       notify('Acceso restringido: No tienes permisos para eliminar documentos.');
       return;
     }
@@ -8569,7 +8655,8 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
     const updated = (uploadedDocumentsRef.current || []).filter(d => d.id !== id);
     uploadedDocumentsRef.current = updated;
     setUploadedDocuments(updated);
-    localStorage.setItem(STORAGE_KEYS.DOCUMENTS, JSON.stringify(updated));
+    idbSet(STORAGE_KEYS.DOCUMENTS, updated).catch(() => {});
+    safeSetItem(STORAGE_KEYS.DOCUMENTS, JSON.stringify(updated.map(d => ({ ...d, rawBase64: undefined }))));
     notify('Documento eliminado correctamente');
     try {
       await fetch(`/api/uploaded-documents/${id}`, {
@@ -8579,24 +8666,27 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
     } catch {}
   };
 
-  const createDocumentFolder = async (name: string, color?: string) => {
-    if (currentUser && !currentUser.permissions?.canEditSettings) {
-      notify('Acceso restringido: No tienes permisos para crear carpetas.');
-      return;
-    }
+  const createDocumentFolder = async (name: string, color?: string, description?: string) => {
+    const cleanName = name.trim();
+    if (!cleanName) return;
+    const nowIso = new Date().toISOString();
     const newFolder: DocumentFolder = {
-      id: `folder-${Date.now()}`,
-      name: name.trim(),
+      id: `folder-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      name: cleanName,
       color: color || 'emerald',
-      createdAt: new Date().toISOString()
+      description: description?.trim() || undefined,
+      createdBy: currentUser?.displayName || 'Usuario',
+      createdAt: nowIso,
+      updatedAt: nowIso
     };
     unmarkDeletedDocumentFolderId(newFolder.id);
     trackLocalCreation(newFolder.id);
     const updated = [newFolder, ...(documentFoldersRef.current || [])];
     documentFoldersRef.current = updated;
     setDocumentFolders(updated);
-    localStorage.setItem('hotel_doc_folders', JSON.stringify(updated));
-    notify(`Carpeta "${name}" creada correctamente`);
+    idbSet('hotel_doc_folders', updated).catch(() => {});
+    safeSetItem('hotel_doc_folders', JSON.stringify(updated));
+    notify(`📁 Carpeta "${cleanName}" guardada en la base de datos`);
     try {
       await fetch('/api/document-folders', {
         method: 'POST',
@@ -8606,11 +8696,44 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
         },
         body: JSON.stringify(newFolder)
       });
-    } catch {}
+    } catch {
+      hasPendingLocalChanges.current = true;
+    }
+  };
+
+  const updateDocumentFolder = async (folderId: string, updates: Partial<DocumentFolder>) => {
+    const nowIso = new Date().toISOString();
+    trackLocalCreation(folderId);
+    let updatedFolderObj: DocumentFolder | null = null;
+    const updated = (documentFoldersRef.current || []).map(f => {
+      if (f.id === folderId) {
+        updatedFolderObj = { ...f, ...updates, id: folderId, updatedAt: nowIso };
+        return updatedFolderObj;
+      }
+      return f;
+    });
+    if (!updatedFolderObj) return;
+    documentFoldersRef.current = updated;
+    setDocumentFolders(updated);
+    idbSet('hotel_doc_folders', updated).catch(() => {});
+    safeSetItem('hotel_doc_folders', JSON.stringify(updated));
+    try {
+      await fetch(`/api/document-folders/${folderId}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Client-Id': clientSessionId.current
+        },
+        body: JSON.stringify(updatedFolderObj)
+      });
+      notify('✅ Carpeta actualizada en la base de datos');
+    } catch {
+      hasPendingLocalChanges.current = true;
+    }
   };
 
   const deleteDocumentFolder = async (folderId: string) => {
-    if (currentUser && !currentUser.permissions?.canDeleteRecords) {
+    if (currentUser && !currentUser.permissions?.canDeleteRecords && currentUser.role !== 'admin') {
       notify('Acceso restringido: No tienes permisos para eliminar carpetas.');
       return;
     }
@@ -8622,8 +8745,9 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
     uploadedDocumentsRef.current = updatedDocs;
     setDocumentFolders(updatedFolders);
     setUploadedDocuments(updatedDocs);
-    localStorage.setItem('hotel_doc_folders', JSON.stringify(updatedFolders));
-    localStorage.setItem(STORAGE_KEYS.DOCUMENTS, JSON.stringify(updatedDocs));
+    idbSet('hotel_doc_folders', updatedFolders).catch(() => {});
+    idbSet(STORAGE_KEYS.DOCUMENTS, updatedDocs).catch(() => {});
+    safeSetItem('hotel_doc_folders', JSON.stringify(updatedFolders));
     notify('Carpeta eliminada correctamente');
     try {
       await fetch(`/api/document-folders/${folderId}`, {
@@ -11053,10 +11177,12 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
         uploadedDocuments,
         addUploadedDocument,
         updateUploadedDocument,
+        moveUploadedDocument,
         deleteUploadedDocument,
         clearAllUploadedDocuments,
         documentFolders,
         createDocumentFolder,
+        updateDocumentFolder,
         deleteDocumentFolder,
         pumpInspections,
         addPumpInspection,
