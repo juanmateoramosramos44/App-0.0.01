@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
 import { useMaintenance } from '../../context/MaintenanceContext';
@@ -356,38 +356,88 @@ export const TechnicianSchedulesView: React.FC = () => {
     }
   });
 
-  // 🔄 Real-time Bidirectional Synchronization of Schedule Personnel and Order with Cloud Firestore
+  const hasLoadedConfigFromServerRef = useRef(false);
+  const lastConfigUpdatedAtRef = useRef<number>(0);
+  const techOrderRef = useRef<string[]>(techOrder);
+  const schedulePersonnelRef = useRef(schedulePersonnel);
+  const prevUsersDisplayMapRef = useRef<Record<string, string> | null>(null);
+
+  useEffect(() => {
+    techOrderRef.current = techOrder;
+  }, [techOrder]);
+
+  useEffect(() => {
+    schedulePersonnelRef.current = schedulePersonnel;
+  }, [schedulePersonnel]);
+
+  // 🔄 Real-time Bidirectional Synchronization of Schedule Personnel and Order with PostgreSQL + SSE
   useEffect(() => {
     let isMounted = true;
+
+    const applyRemoteScheduleConfig = (data: any) => {
+      if (!isMounted || !data || typeof data !== 'object') return;
+      const remoteTs = Date.parse(data.updatedAt || '') || 0;
+      if (remoteTs > 0 && lastConfigUpdatedAtRef.current > 0 && remoteTs < lastConfigUpdatedAtRef.current) {
+        return; // Ignorar instantánea más antigua que el cambio local/remoto ya aplicado
+      }
+      if (remoteTs > lastConfigUpdatedAtRef.current) {
+        lastConfigUpdatedAtRef.current = remoteTs;
+      }
+      hasLoadedConfigFromServerRef.current = true;
+      if (Array.isArray(data.schedulePersonnel) && data.schedulePersonnel.length > 0) {
+        schedulePersonnelRef.current = data.schedulePersonnel;
+        setSchedulePersonnel(data.schedulePersonnel);
+        try {
+          localStorage.setItem('hotel_maint_schedule_personnel', JSON.stringify(data.schedulePersonnel));
+        } catch {}
+      }
+      if (Array.isArray(data.techOrder)) {
+        techOrderRef.current = data.techOrder;
+        setTechOrder(data.techOrder);
+        try {
+          localStorage.setItem('hotel_maint_tech_order', JSON.stringify(data.techOrder));
+        } catch {}
+      }
+    };
+
     const loadScheduleConfig = async () => {
       try {
-        const res = await fetch('/api/app-data/schedule_config');
+        const res = await fetch(`/api/app-data/schedule_config?_t=${Date.now()}`, { cache: 'no-store' });
         if (res.ok) {
           const data = await res.json();
           if (!isMounted) return;
-          if (Array.isArray(data.schedulePersonnel) && data.schedulePersonnel.length > 0) {
-            setSchedulePersonnel(data.schedulePersonnel);
-            try {
-              localStorage.setItem('hotel_maint_schedule_personnel', JSON.stringify(data.schedulePersonnel));
-            } catch {}
-          }
-          if (Array.isArray(data.techOrder) && data.techOrder.length > 0) {
-            setTechOrder(data.techOrder);
-            try {
-              localStorage.setItem('hotel_maint_tech_order', JSON.stringify(data.techOrder));
-            } catch {}
-          }
+          hasLoadedConfigFromServerRef.current = true;
+          applyRemoteScheduleConfig(data);
         }
       } catch (err) {
         console.warn('Schedule config fetch notice:', err);
       }
     };
 
+    const handleConfigEvent = (ev: Event) => {
+      const customEv = ev as CustomEvent;
+      if (customEv?.detail && isMounted) {
+        applyRemoteScheduleConfig(customEv.detail);
+      }
+    };
+
+    const handleVisibilityRefresh = () => {
+      if (document.visibilityState === 'visible') {
+        loadScheduleConfig();
+      }
+    };
+
     loadScheduleConfig();
+    window.addEventListener('hotel_schedule_config_updated', handleConfigEvent);
+    window.addEventListener('focus', loadScheduleConfig);
+    document.addEventListener('visibilitychange', handleVisibilityRefresh);
     const interval = setInterval(loadScheduleConfig, 25000);
 
     return () => {
       isMounted = false;
+      window.removeEventListener('hotel_schedule_config_updated', handleConfigEvent);
+      window.removeEventListener('focus', loadScheduleConfig);
+      document.removeEventListener('visibilitychange', handleVisibilityRefresh);
       clearInterval(interval);
     };
   }, []);
@@ -398,19 +448,33 @@ export const TechnicianSchedulesView: React.FC = () => {
     newOrder?: string[]
   ) => {
     try {
+      const nowIso = new Date().toISOString();
+      const nowTs = Date.parse(nowIso) || Date.now();
+      lastConfigUpdatedAtRef.current = Math.max(lastConfigUpdatedAtRef.current, nowTs);
+      const effectiveOrder = newOrder !== undefined ? newOrder : techOrderRef.current;
+
+      schedulePersonnelRef.current = newList;
+      techOrderRef.current = effectiveOrder;
       localStorage.setItem('hotel_maint_schedule_personnel', JSON.stringify(newList));
-      if (newOrder) {
-        localStorage.setItem('hotel_maint_tech_order', JSON.stringify(newOrder));
-      }
-      await fetch('/api/app-data/schedule_config', {
+      localStorage.setItem('hotel_maint_tech_order', JSON.stringify(effectiveOrder));
+
+      const res = await fetch(`/api/app-data/schedule_config?_t=${Date.now()}`, {
         method: 'POST',
+        cache: 'no-store',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           schedulePersonnel: newList,
-          techOrder: newOrder !== undefined ? newOrder : techOrder,
-          updatedAt: new Date().toISOString()
+          techOrder: effectiveOrder,
+          updatedAt: nowIso
         })
       });
+      if (res.ok) {
+        const saved = await res.json().catch(() => null);
+        if (saved?.data?.updatedAt) {
+          const savedTs = Date.parse(saved.data.updatedAt) || nowTs;
+          lastConfigUpdatedAtRef.current = Math.max(lastConfigUpdatedAtRef.current, savedTs);
+        }
+      }
     } catch (e) {
       console.warn('Error syncing schedule personnel to server:', e);
     }
@@ -420,25 +484,45 @@ export const TechnicianSchedulesView: React.FC = () => {
   const [editingTechId, setEditingTechId] = useState<string | null>(null);
   const [editingTechName, setEditingTechName] = useState<string>('');
 
-  // Sincronizar automáticamente el personal de turnos cuando se edita el nombre de un usuario en el sistema
+  // Sincronizar automáticamente el personal de turnos SOLO cuando cambia activamente el nombre de un usuario ya cargado (nunca al montar con datos locales viejos)
   useEffect(() => {
     if (!users || users.length === 0) return;
-    setSchedulePersonnel(prev => {
-      let hasChanges = false;
-      const synced = prev.map(p => {
-        const matched = users.find(u => u.id === p.id || (u.displayName && u.displayName.toLowerCase().trim() === p.displayName.toLowerCase().trim()));
-        if (matched && matched.displayName && matched.displayName !== p.displayName) {
-          hasChanges = true;
-          return { ...p, displayName: matched.displayName };
-        }
-        return p;
-      });
-      if (hasChanges) {
-        syncSchedulePersonnelCloud(synced);
-        return synced;
-      }
-      return prev;
+
+    const currentMap: Record<string, string> = {};
+    users.forEach(u => {
+      if (u && u.id && u.displayName) currentMap[u.id] = u.displayName;
     });
+
+    if (prevUsersDisplayMapRef.current === null) {
+      prevUsersDisplayMapRef.current = currentMap;
+      return;
+    }
+
+    const prevMap = prevUsersDisplayMapRef.current;
+    const renamedUsers = users.filter(
+      u => u && u.id && u.displayName && prevMap[u.id] && prevMap[u.id] !== u.displayName
+    );
+    prevUsersDisplayMapRef.current = currentMap;
+
+    if (renamedUsers.length === 0 || !hasLoadedConfigFromServerRef.current) return;
+
+    const currentList = schedulePersonnelRef.current;
+    let hasChanges = false;
+    const synced = currentList.map(p => {
+      const matched = renamedUsers.find(
+        u => u.id === p.id || (prevMap[u.id] && prevMap[u.id].toLowerCase().trim() === p.displayName.toLowerCase().trim())
+      );
+      if (matched && matched.displayName && matched.displayName !== p.displayName) {
+        hasChanges = true;
+        return { ...p, displayName: matched.displayName };
+      }
+      return p;
+    });
+
+    if (hasChanges) {
+      setSchedulePersonnel(synced);
+      syncSchedulePersonnelCloud(synced);
+    }
   }, [users]);
 
   const handleSaveTechName = async (techId: string) => {

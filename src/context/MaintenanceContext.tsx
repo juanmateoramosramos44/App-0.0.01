@@ -1269,7 +1269,7 @@ const mergeScheduleLists = (
     incomingList.forEach(processItem);
     if (localPendingIds && localPendingIds.size > 0) {
       (baseList || []).forEach(item => {
-        if (item && item.id && localPendingIds.has(item.id) && !deletedIds.has(item.id) && !isRecentlyLocallyDeleted(item.id) && !map.has(item.id)) {
+        if (item && item.id && localPendingIds.has(item.id) && !deletedIds.has(item.id) && !isRecentlyLocallyDeleted(item.id)) {
           processItem(item);
         }
       });
@@ -1333,7 +1333,7 @@ const mergeCronogramaLists = (
     incomingList.forEach(processItem);
     if (localPendingIds && localPendingIds.size > 0) {
       (baseList || []).forEach(item => {
-        if (item && item.id && localPendingIds.has(item.id) && !deletedIds.has(item.id) && !isRecentlyLocallyDeleted(item.id) && !map.has(item.id)) {
+        if (item && item.id && localPendingIds.has(item.id) && !deletedIds.has(item.id) && !isRecentlyLocallyDeleted(item.id)) {
           processItem(item);
         }
       });
@@ -1360,30 +1360,30 @@ const mergeGenericAuthoritative = <T extends { id: string }>(
   isServerAuthoritative: boolean = false
 ): T[] => {
   const map = new Map<string, T>();
+  const upsertByTime = (item: T) => {
+    if (!item || !item.id || deletedIds.has(item.id) || isRecentlyLocallyDeleted(item.id)) return;
+    const existing = map.get(item.id) as any;
+    if (!existing) {
+      map.set(item.id, item);
+    } else {
+      const inc = item as any;
+      const tEx = new Date(existing.updatedAt || existing.lastUpdated || existing.resolvedAt || existing.createdAt || 0).getTime() || 0;
+      const tIn = new Date(inc.updatedAt || inc.lastUpdated || inc.resolvedAt || inc.createdAt || 0).getTime() || 0;
+      map.set(item.id, tIn >= tEx ? item : existing);
+    }
+  };
   if (isServerAuthoritative && Array.isArray(incomingList)) {
-    incomingList.forEach(item => {
-      if (item && item.id && !deletedIds.has(item.id) && !isRecentlyLocallyDeleted(item.id)) {
-        map.set(item.id, item);
-      }
-    });
+    incomingList.forEach(upsertByTime);
     if (localPendingIds && localPendingIds.size > 0) {
       (baseList || []).forEach(item => {
-        if (item && item.id && localPendingIds.has(item.id) && !deletedIds.has(item.id) && !isRecentlyLocallyDeleted(item.id) && !map.has(item.id)) {
-          map.set(item.id, item);
+        if (item && item.id && localPendingIds.has(item.id) && !deletedIds.has(item.id) && !isRecentlyLocallyDeleted(item.id)) {
+          upsertByTime(item);
         }
       });
     }
   } else {
-    (incomingList || []).forEach(item => {
-      if (item && item.id && !deletedIds.has(item.id) && !isRecentlyLocallyDeleted(item.id)) {
-        map.set(item.id, item);
-      }
-    });
-    (baseList || []).forEach(item => {
-      if (item && item.id && !deletedIds.has(item.id) && !isRecentlyLocallyDeleted(item.id) && !map.has(item.id)) {
-        map.set(item.id, item);
-      }
-    });
+    (incomingList || []).forEach(upsertByTime);
+    (baseList || []).forEach(upsertByTime);
   }
   return Array.from(map.values());
 };
@@ -2166,7 +2166,7 @@ const mergeEquipmentLists = (
     incomingList.forEach(upsert);
     if (localPendingIds && localPendingIds.size > 0) {
       (baseList || []).forEach(e => {
-        if (e && e.id && localPendingIds.has(e.id) && !deletedIds.has(e.id) && !isRecentlyLocallyDeleted(e.id) && !map.has(e.id)) {
+        if (e && e.id && localPendingIds.has(e.id) && !deletedIds.has(e.id) && !isRecentlyLocallyDeleted(e.id)) {
           upsert(e);
         }
       });
@@ -2921,48 +2921,73 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
     return [];
   });
 
-  // Rondas del sistema (100% autoritarias desde el servidor 24/7, con carga instantánea sin parpadeo y memoria sincrónica real)
+  // Rondas del sistema (100% autoritarias desde el servidor 24/7, cero rondas fantasma en progreso desde caché antigua)
+  const getValidLocalActiveRound = (): DailyRound | null => {
+    try {
+      let saved = localStorage.getItem(STORAGE_KEYS.ACTIVE_ROUND);
+      if (!saved) {
+        saved = localStorage.getItem('active_round_draft_backup');
+      }
+      if (!saved) return null;
+      const parsed = JSON.parse(saved);
+      if (
+        !parsed ||
+        !parsed.id ||
+        parsed.status === 'completada' ||
+        Boolean(parsed.completedAt && parsed.technicianSignature) ||
+        getDeletedRoundIds().has(parsed.id)
+      ) {
+        localStorage.removeItem(STORAGE_KEYS.ACTIVE_ROUND);
+        localStorage.removeItem('active_round_draft_backup');
+        localStorage.removeItem('active_round_resume_lock');
+        return null;
+      }
+      if (parsed.status === 'en_progreso') {
+        try {
+          const userStr = localStorage.getItem('hotel_maint_current_user') || sessionStorage.getItem('hotel_maint_current_user');
+          if (userStr) {
+            const u = JSON.parse(userStr);
+            const belongsToOtherUser = Boolean(
+              u?.id &&
+              parsed.userId &&
+              parsed.userId !== u.id &&
+              normalizeStr(parsed.technicianName) !== normalizeStr(u.displayName || u.name)
+            );
+            if (belongsToOtherUser) {
+              localStorage.removeItem(STORAGE_KEYS.ACTIVE_ROUND);
+              localStorage.removeItem('active_round_draft_backup');
+              localStorage.removeItem('active_round_resume_lock');
+              return null;
+            }
+          }
+        } catch {}
+        return parsed;
+      }
+    } catch {}
+    return null;
+  };
+
+  const [activeRound, setActiveRound] = useState<DailyRound | null>(() => getValidLocalActiveRound());
+
   const [rounds, setRounds] = useState<DailyRound[]>(() => {
     const deletedIds = getDeletedRoundIds();
+    const localDraftId = activeRound?.id;
     const saved = localStorage.getItem(STORAGE_KEYS.ROUNDS);
     let baseList: DailyRound[] = [];
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length > 0) {
-          baseList = parsed.filter(r => r && r.id && !deletedIds.has(r.id));
+          baseList = parsed.filter(r => {
+            if (!r || !r.id || deletedIds.has(r.id)) return false;
+            // Nunca renderizar en arranque desde localStorage rondas 'en_progreso' de otros dispositivos hasta que el servidor confirme en vivo
+            if (r.status === 'en_progreso' && r.id !== localDraftId) return false;
+            return true;
+          });
         }
       } catch (e) { console.error(e); }
     }
     return baseList;
-  });
-
-  const [activeRound, setActiveRound] = useState<DailyRound | null>(() => {
-    try {
-      let saved = localStorage.getItem(STORAGE_KEYS.ACTIVE_ROUND);
-      if (!saved) {
-        saved = localStorage.getItem('active_round_draft_backup');
-      }
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (
-          !parsed ||
-          !parsed.id ||
-          parsed.status === 'completada' ||
-          Boolean(parsed.completedAt && parsed.technicianSignature) ||
-          getDeletedRoundIds().has(parsed.id)
-        ) {
-          localStorage.removeItem(STORAGE_KEYS.ACTIVE_ROUND);
-          localStorage.removeItem('active_round_draft_backup');
-          return null;
-        }
-
-        if (parsed.status === 'en_progreso') {
-          return parsed;
-        }
-      }
-    } catch (e) {}
-    return null;
   });
 
   const completedRoundIdsRef = useRef<Set<string>>(new Set());
@@ -5203,7 +5228,13 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
       if (isInitialFetchDone.current) return;
       if (idbRounds && Array.isArray(idbRounds) && idbRounds.length > 0) {
         const deletedIds = getDeletedRoundIds();
-        const cleanIdbRounds = idbRounds.filter(r => r && r.id && !deletedIds.has(r.id));
+        const localActiveId = activeRoundRef.current?.id;
+        const cleanIdbRounds = idbRounds.filter(r => {
+          if (!r || !r.id || deletedIds.has(r.id)) return false;
+          // No resucitar rondas 'en_progreso' antiguas desde IndexedDB antes de confirmar con PostgreSQL
+          if (r.status === 'en_progreso' && r.id !== localActiveId) return false;
+          return true;
+        });
 
         const merged = mergeRoundLists(roundsRef.current || [], cleanIdbRounds, deletedIds, activeRoundRef.current?.id);
         if (!areRoundsEqual(merged, roundsRef.current || [])) {
@@ -5216,18 +5247,21 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
     }).catch(() => {});
 
     idbGet<DailyRound>(STORAGE_KEYS.ACTIVE_ROUND).then(idbActive => {
+      if (isInitialFetchDone.current) return;
       if (idbActive) {
         const deletedIds = getDeletedRoundIds();
-        if (deletedIds.has(idbActive.id)) {
-          const canonical = (roundsRef.current || []).find(r => r && r.status === 'en_progreso' && isRoundActivelyBeingPerformed(r));
-          if (canonical) {
-            activeRoundRef.current = canonical;
-            setActiveRound(canonical);
-            safeSetItem(STORAGE_KEYS.ACTIVE_ROUND, JSON.stringify(canonical));
-            return;
-          }
+        const currUser = currentUserRef.current;
+        const belongsToOtherUser = Boolean(
+          currUser?.id &&
+          idbActive.userId &&
+          idbActive.userId !== currUser.id &&
+          normalizeStr(idbActive.technicianName) !== normalizeStr(currUser.displayName || currUser.name)
+        );
+        if (deletedIds.has(idbActive.id) || belongsToOtherUser) {
           idbRemove(STORAGE_KEYS.ACTIVE_ROUND).catch(() => {});
           localStorage.removeItem(STORAGE_KEYS.ACTIVE_ROUND);
+          localStorage.removeItem('active_round_draft_backup');
+          localStorage.removeItem('active_round_resume_lock');
           if (activeRoundRef.current?.id === idbActive.id) {
             activeRoundRef.current = null;
             setActiveRound(null);
@@ -5241,6 +5275,7 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
           idbRemove(STORAGE_KEYS.ACTIVE_ROUND).catch(() => {});
           localStorage.removeItem(STORAGE_KEYS.ACTIVE_ROUND);
           localStorage.removeItem('active_round_draft_backup');
+          localStorage.removeItem('active_round_resume_lock');
           if (activeRoundRef.current?.id === idbActive.id) {
             activeRoundRef.current = null;
             setActiveRound(null);
@@ -5532,6 +5567,7 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
             setActiveRound(null);
             localStorage.removeItem(STORAGE_KEYS.ACTIVE_ROUND);
             localStorage.removeItem('active_round_draft_backup');
+            localStorage.removeItem('active_round_resume_lock');
             idbRemove(STORAGE_KEYS.ACTIVE_ROUND).catch(() => {});
           }
         }
@@ -5945,7 +5981,35 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
       }
     };
 
-    // 1. Initial load from PostgreSQL server API
+    // 1. Consulta ultrarrápida (~20ms) de rondas realmente en curso en PostgreSQL (evita parpadeos de rondas fantasma al iniciar)
+    fetch(`/api/rounds/in-progress?_t=${Date.now()}`, { cache: 'no-store' })
+      .then(res => res.ok ? res.json() : null)
+      .then((liveRounds) => {
+        if (!Array.isArray(liveRounds)) return;
+        const deletedIds = getDeletedRoundIds();
+        const cleanLive = liveRounds.filter((r: any) => r && r.id && !deletedIds.has(r.id) && !isRecentlyLocallyDeleted(r.id));
+        const liveIds = new Set(cleanLive.map((r: any) => r.id));
+        const currentActiveId = activeRoundRef.current?.id;
+        const unsyncedIds = getUnsyncedRoundIds();
+
+        const filteredBase = (roundsRef.current || []).filter(r => {
+          if (!r || !r.id) return false;
+          if (r.status === 'en_progreso' && !liveIds.has(r.id) && r.id !== currentActiveId && !unsyncedIds.has(r.id)) {
+            return false;
+          }
+          return true;
+        });
+
+        const merged = mergeRoundLists(filteredBase, cleanLive, deletedIds, currentActiveId, getPendingLocalCreationIds());
+        if (!areRoundsEqual(merged, roundsRef.current || [])) {
+          roundsRef.current = merged;
+          setRounds(merged);
+          safeSetItem(STORAGE_KEYS.ROUNDS, JSON.stringify(merged));
+        }
+      })
+      .catch(() => {});
+
+    // 2. Initial full authoritative load from PostgreSQL server API
     fetch(`/api/data?_t=${Date.now()}`, { cache: 'no-store' })
       .then(res => res.json())
       .then(data => {
@@ -6070,6 +6134,19 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
             setRequests(updated);
             localStorage.setItem(STORAGE_KEYS.REQUESTS, JSON.stringify(updated));
             idbSet(STORAGE_KEYS.REQUESTS, updated).catch(() => {});
+          } else if (payload && payload.type === 'schedule_updated' && (payload.schedule || Array.isArray(payload.schedules))) {
+            const incomingItems: TechnicianSchedule[] = Array.isArray(payload.schedules)
+              ? payload.schedules
+              : [payload.schedule];
+            const deletedIds = getDeletedScheduleIds();
+            const validItems = incomingItems.filter(s => s && s.id && !deletedIds.has(s.id) && !isRecentlyLocallyDeleted(s.id));
+            if (validItems.length > 0) {
+              const merged = mergeScheduleLists(schedulesRef.current || [], validItems, deletedIds);
+              schedulesRef.current = merged;
+              setSchedules(merged);
+              localStorage.setItem(STORAGE_KEYS.SCHEDULES, JSON.stringify(merged));
+              idbSet(STORAGE_KEYS.SCHEDULES, merged).catch(() => {});
+            }
           } else if (payload && payload.type === 'schedule_deleted' && payload.scheduleId) {
             const delId = payload.scheduleId;
             trackLocalDeletion(delId);
@@ -6079,6 +6156,13 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
             setSchedules(updated);
             localStorage.setItem(STORAGE_KEYS.SCHEDULES, JSON.stringify(updated));
             idbSet(STORAGE_KEYS.SCHEDULES, updated).catch(() => {});
+          } else if (payload && payload.type === 'swap_updated' && payload.swap) {
+            const incomingSwap = payload.swap as ShiftSwapRequest;
+            if (!incomingSwap?.id || getDeletedShiftSwapIds().has(incomingSwap.id) || isRecentlyLocallyDeleted(incomingSwap.id)) return;
+            const merged = mergeGenericAuthoritative(shiftSwapRequestsRef.current || [], [incomingSwap], getDeletedShiftSwapIds());
+            shiftSwapRequestsRef.current = merged;
+            setShiftSwapRequests(merged);
+            localStorage.setItem(STORAGE_KEYS.SHIFT_SWAPS, JSON.stringify(merged));
           } else if (payload && payload.type === 'swap_deleted' && payload.swapId) {
             const delId = payload.swapId;
             trackLocalDeletion(delId);
@@ -6087,6 +6171,16 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
             shiftSwapRequestsRef.current = updated;
             setShiftSwapRequests(updated);
             localStorage.setItem(STORAGE_KEYS.SHIFT_SWAPS, JSON.stringify(updated));
+          } else if (payload && payload.type === 'request_updated' && payload.request) {
+            const incomingReq = payload.request as HotelRequest;
+            if (!incomingReq?.id || getDeletedRequestIds().has(incomingReq.id) || isRecentlyLocallyDeleted(incomingReq.id)) return;
+            const prevReqs = requestsRef.current || [];
+            const merged = mergeRequestLists(prevReqs, [incomingReq], getDeletedRequestIds());
+            checkAndNotifyNewRequests(merged, prevReqs);
+            requestsRef.current = merged;
+            setRequests(merged);
+            localStorage.setItem(STORAGE_KEYS.REQUESTS, JSON.stringify(merged));
+            idbSet(STORAGE_KEYS.REQUESTS, merged).catch(() => {});
           } else if (payload && payload.type === 'task_updated' && payload.task) {
             const incomingTask = payload.task as MaintenanceTask;
             if (getDeletedTaskIds().has(incomingTask.id) || isRecentlyLocallyDeleted(incomingTask.id)) return;
@@ -6142,6 +6236,13 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
               setRounds(cleanedRounds);
               safeSetItem(STORAGE_KEYS.ROUNDS, JSON.stringify(cleanedRounds));
             }
+          } else if (payload && payload.type === 'equipment_updated' && payload.equipment) {
+            const incomingEq = payload.equipment as Equipment;
+            if (!incomingEq?.id || getDeletedEquipmentIds().has(incomingEq.id) || isRecentlyLocallyDeleted(incomingEq.id)) return;
+            const merged = mergeEquipmentLists(equipmentsRef.current || [], [incomingEq], getDeletedEquipmentIds());
+            equipmentsRef.current = merged;
+            setEquipments(merged);
+            localStorage.setItem(STORAGE_KEYS.EQUIPMENT, JSON.stringify(merged));
           } else if (payload && payload.type === 'equipment_deleted' && payload.equipmentId) {
             const delId = payload.equipmentId;
             trackLocalDeletion(delId);
@@ -6213,10 +6314,10 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
           } else if (payload && payload.type === 'cronograma_updated' && payload.cronograma) {
             const item = payload.cronograma;
             if (getDeletedCronogramaIds().has(item.id) || isRecentlyLocallyDeleted(item.id)) return;
-            const updated = [item, ...(cronogramasRef.current || []).filter(c => c.id !== item.id)];
-            cronogramasRef.current = updated;
-            setCronogramas(updated);
-            localStorage.setItem(STORAGE_KEYS.CRONOGRAMAS, JSON.stringify(updated));
+            const merged = mergeCronogramaLists(cronogramasRef.current || [], [item], getDeletedCronogramaIds());
+            cronogramasRef.current = merged;
+            setCronogramas(merged);
+            localStorage.setItem(STORAGE_KEYS.CRONOGRAMAS, JSON.stringify(merged));
           } else if (payload && payload.type === 'meter_updated' && payload.meter) {
             const incomingMeter = payload.meter as MeterDefinition;
             if (getDeletedMeterIds().has(incomingMeter.id) || isRecentlyLocallyDeleted(incomingMeter.id)) return;
@@ -6267,6 +6368,13 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
             meterReadingsLogRef.current = updated;
             setMeterReadingsLog(updated);
             localStorage.setItem(STORAGE_KEYS.METER_READINGS_LOG, JSON.stringify(updated));
+          } else if (payload && payload.type === 'preventive_plan_updated' && payload.plan) {
+            const item = payload.plan as PreventivePlan;
+            if (!item?.id || getDeletedPreventivePlanIds().has(item.id) || isRecentlyLocallyDeleted(item.id)) return;
+            const merged = mergeGenericAuthoritative(preventivePlansRef.current || [], [item], getDeletedPreventivePlanIds());
+            preventivePlansRef.current = merged;
+            setPreventivePlans(merged);
+            localStorage.setItem(STORAGE_KEYS.PLANS, JSON.stringify(merged));
           } else if (payload && payload.type === 'preventive_plan_deleted' && payload.planId) {
             const delId = payload.planId;
             trackLocalDeletion(delId);
@@ -6275,6 +6383,13 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
             preventivePlansRef.current = updated;
             setPreventivePlans(updated);
             localStorage.setItem(STORAGE_KEYS.PLANS, JSON.stringify(updated));
+          } else if (payload && payload.type === 'work_order_updated' && payload.workOrder) {
+            const item = payload.workOrder as PreventiveWorkOrder;
+            if (!item?.id || getDeletedWorkOrderIds().has(item.id) || isRecentlyLocallyDeleted(item.id)) return;
+            const merged = mergeGenericAuthoritative(workOrdersRef.current || [], [item], getDeletedWorkOrderIds());
+            workOrdersRef.current = merged;
+            setWorkOrders(merged);
+            localStorage.setItem(STORAGE_KEYS.WORK_ORDERS, JSON.stringify(merged));
           } else if (payload && payload.type === 'work_order_deleted' && payload.workOrderId) {
             const delId = payload.workOrderId;
             trackLocalDeletion(delId);
@@ -6283,6 +6398,13 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
             workOrdersRef.current = updated;
             setWorkOrders(updated);
             localStorage.setItem(STORAGE_KEYS.WORK_ORDERS, JSON.stringify(updated));
+          } else if (payload && payload.type === 'pump_inspection_updated' && payload.inspection) {
+            const item = payload.inspection as PumpInspection;
+            if (!item?.id || getDeletedPumpInspectionIds().has(item.id) || isRecentlyLocallyDeleted(item.id)) return;
+            const merged = mergeGenericAuthoritative(pumpInspectionsRef.current || [], [item], getDeletedPumpInspectionIds());
+            pumpInspectionsRef.current = merged;
+            setPumpInspections(merged);
+            localStorage.setItem(STORAGE_KEYS.INSPECTIONS, JSON.stringify(merged));
           } else if (payload && payload.type === 'pump_inspection_deleted' && payload.inspectionId) {
             const delId = payload.inspectionId;
             trackLocalDeletion(delId);
@@ -6324,12 +6446,26 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
             setBitacora(nextList);
             safeSetItem(STORAGE_KEYS.BITACORA, JSON.stringify(nextList));
             idbSet(STORAGE_KEYS.BITACORA, nextList).catch(() => {});
+          } else if (payload && payload.type === 'settings_updated' && payload.settings) {
+            if (payload.clientId && payload.clientId === clientSessionId.current) return;
+            const sanitized = sanitizeSystemSettings(payload.settings, settingsRef.current || INITIAL_SETTINGS);
+            settingsRef.current = sanitized;
+            setSettings(sanitized);
+            localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(sanitized));
           } else if (payload && payload.type === 'app_data_updated' && payload.id === 'round_template' && payload.data && Array.isArray(payload.data.items)) {
             if (payload.clientId && payload.clientId === clientSessionId.current) return;
             const sanitized = payload.data.items.map(sanitizeCheckpointTemplate);
             roundTemplateRef.current = sanitized;
             setRoundTemplate(sanitized);
             localStorage.setItem('hotel_round_template', JSON.stringify(sanitized));
+          } else if (payload && payload.type === 'app_data_updated' && payload.id === 'schedule_config' && payload.data) {
+            if (Array.isArray(payload.data.schedulePersonnel)) {
+              try { localStorage.setItem('hotel_maint_schedule_personnel', JSON.stringify(payload.data.schedulePersonnel)); } catch {}
+            }
+            if (Array.isArray(payload.data.techOrder)) {
+              try { localStorage.setItem('hotel_maint_tech_order', JSON.stringify(payload.data.techOrder)); } catch {}
+            }
+            window.dispatchEvent(new CustomEvent('hotel_schedule_config_updated', { detail: payload.data }));
           } else if (payload && payload.type === 'data_updated') {
             if (payload.clientId && payload.clientId === clientSessionId.current) {
               return;
@@ -7133,12 +7269,14 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
     roundsChannel.current?.postMessage({ type: 'schedule_updated', schedule: newSchedule });
 
     try {
-      for (const old of replaced) {
-        fetch(`/api/schedules/${old.id}`, {
-          method: 'DELETE',
-          headers: { 'X-Client-Id': clientSessionId.current }
-        }).catch(() => {});
-      }
+      await Promise.all(
+        replaced.map(old =>
+          fetch(`/api/schedules/${old.id}`, {
+            method: 'DELETE',
+            headers: { 'X-Client-Id': clientSessionId.current }
+          }).catch(() => {})
+        )
+      );
       const res = await fetch('/api/schedules', {
         method: 'POST',
         headers: {
@@ -7155,6 +7293,7 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
   };
 
   const updateSchedule = async (id: string, data: Partial<TechnicianSchedule>) => {
+    trackLocalCreation(id);
     const updated = (schedulesRef.current || []).map(s => s.id === id ? { ...s, ...data, updatedAt: new Date().toISOString() } : s);
     schedulesRef.current = updated;
     setSchedules(updated);
@@ -7213,6 +7352,7 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
 
     const newGenerated: TechnicianSchedule[] = [];
     const targetTechs = users.filter(u => technicianIds.includes(u.id));
+    const batchNowIso = new Date().toISOString();
 
     let curr = new Date(start);
     let dayCount = 0;
@@ -7258,7 +7398,8 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
           assignedAreas: assignedAreas || ['Toda la Infraestructura'],
           isOnCall: shift === 'noche',
           status: 'programado',
-          createdAt: new Date().toISOString()
+          createdAt: batchNowIso,
+          updatedAt: batchNowIso
         });
       });
 
@@ -7292,14 +7433,16 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
     idbSet(STORAGE_KEYS.SCHEDULES, merged).catch(() => {});
 
     try {
-      for (const old of replacedItems) {
-        trackLocalDeletion(old.id);
-        markDeletedScheduleId(old.id);
-        fetch(`/api/schedules/${old.id}`, {
-          method: 'DELETE',
-          headers: { 'X-Client-Id': clientSessionId.current }
-        }).catch(() => {});
-      }
+      await Promise.all(
+        replacedItems.map(old => {
+          trackLocalDeletion(old.id);
+          markDeletedScheduleId(old.id);
+          return fetch(`/api/schedules/${old.id}`, {
+            method: 'DELETE',
+            headers: { 'X-Client-Id': clientSessionId.current }
+          }).catch(() => {});
+        })
+      );
       const res = await fetch('/api/schedules', {
         method: 'POST',
         headers: {
@@ -7347,6 +7490,7 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
   };
 
   const resolveShiftSwap = async (swapId: string, approved: boolean) => {
+    trackLocalCreation(swapId);
     const updated = (shiftSwapRequestsRef.current || shiftSwapRequests).map(s => {
       if (s.id === swapId) {
         return {
@@ -7433,6 +7577,7 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
   };
 
   const updateCronograma = async (id: string, data: Partial<Cronograma>) => {
+    trackLocalCreation(id);
     const updated = (cronogramasRef.current || []).map(c => c.id === id ? { ...c, ...data, updatedAt: new Date().toISOString() } : c);
     cronogramasRef.current = updated;
     setCronogramas(updated);
@@ -8227,7 +8372,8 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
   };
 
   const updateEquipment = async (id: string, data: Partial<Equipment>) => {
-    const updated = (equipmentsRef.current || []).map(item => item.id === id ? { ...item, ...data } : item);
+    trackLocalCreation(id);
+    const updated = (equipmentsRef.current || []).map(item => item.id === id ? { ...item, ...data, updatedAt: new Date().toISOString() } : item);
     equipmentsRef.current = updated;
     setEquipments(updated);
     localStorage.setItem(STORAGE_KEYS.EQUIPMENT, JSON.stringify(updated));
@@ -8807,14 +8953,17 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
   const syncedRoundChunksRef = useRef<Map<string, Set<string>>>(new Map());
 
   const getCheckpointPhotoHash = (chk: RoundCheckpoint): string => {
-    const pCount = (Array.isArray(chk.photos) ? chk.photos.length : 0) + (chk.photoUrl ? 1 : 0);
-    const pLen = (Array.isArray(chk.photos) ? chk.photos.reduce((s, u) => s + (u?.length || 0), 0) : 0) + (chk.photoUrl?.length || 0);
+    // Hashear EXCLUSIVAMENTE las fotos (no las cifras ni estados), para que editar números/notas jamás invalide las fotos ya subidas
+    const mainLen = chk.photoUrl?.length || 0;
+    const listCount = Array.isArray(chk.photos) ? chk.photos.length : 0;
+    const listLen = Array.isArray(chk.photos) ? chk.photos.reduce((s, u) => s + (u?.length || 0), 0) : 0;
     const fSig = (chk.measurementFields || []).map(f => {
-      const fpCount = (Array.isArray(f?.photos) ? f.photos.length : 0) + (f?.photoUrl ? 1 : 0);
-      const fpLen = (Array.isArray(f?.photos) ? f.photos.reduce((s, u) => s + (u?.length || 0), 0) : 0) + (f?.photoUrl?.length || 0);
-      return `${f?.value ?? ''}:${f?.statusValue ?? ''}:${fpCount}:${fpLen}`;
+      const fMainLen = f?.photoUrl?.length || 0;
+      const fListCount = Array.isArray(f?.photos) ? f.photos.length : 0;
+      const fListLen = Array.isArray(f?.photos) ? f.photos.reduce((s, u) => s + (u?.length || 0), 0) : 0;
+      return `${fMainLen}:${fListCount}:${fListLen}`;
     }).join(',');
-    return `chk:${chk.id}:${chk.currentValue ?? ''}:${chk.statusValue ?? ''}:${pCount}:${pLen}:${fSig}`;
+    return `chkphoto:${chk.id}:${mainLen}:${listCount}:${listLen}:${fSig}`;
   };
 
   const getRoundMetaLite = (round: DailyRound) => ({
@@ -8834,8 +8983,8 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
   const uploadSingleRoundChunk = async (
     roundId: string,
     bodyPayload: any,
-    timeoutMs: number = 25000,
-    retries: number = 2
+    timeoutMs: number = 20000,
+    retries: number = 1
   ): Promise<boolean> => {
     for (let attempt = 0; attempt <= retries; attempt++) {
       const controller = new AbortController();
@@ -8856,11 +9005,34 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
       } catch {
         clearTimeout(tId);
         if (attempt < retries) {
-          await new Promise(r => setTimeout(r, 800));
+          await new Promise(r => setTimeout(r, 500));
         }
       }
     }
     return false;
+  };
+
+  const syncSingleCheckpointPhotoInBackground = (round: DailyRound, chkId: string) => {
+    if (!round?.id || completedRoundIdsRef.current.has(round.id) || getDeletedRoundIds().has(round.id)) return;
+    const chk = (round.checkpoints || []).find(c => c && c.id === chkId);
+    if (!chk) return;
+    const hasChkPhoto = Boolean(chk.photoUrl || (chk.photos && chk.photos.length > 0) || (chk.measurementFields || []).some(f => f.photoUrl || (f.photos && f.photos.length > 0)));
+    if (!hasChkPhoto) return;
+
+    let syncedSet = syncedRoundChunksRef.current.get(round.id);
+    if (!syncedSet) {
+      syncedSet = new Set<string>();
+      syncedRoundChunksRef.current.set(round.id, syncedSet);
+    }
+    const hash = getCheckpointPhotoHash(chk);
+    if (syncedSet.has(hash)) return;
+
+    const metaLite = getRoundMetaLite(round);
+    uploadSingleRoundChunk(round.id, { roundMeta: metaLite, checkpoint: chk, skipBroadcast: true }, 20000, 1).then(ok => {
+      if (ok) {
+        syncedSet?.add(hash);
+      }
+    }).catch(() => {});
   };
 
   const buildLightweightRoundPayload = (round: DailyRound, stripSyncedPhotos: boolean): any => {
@@ -8919,17 +9091,24 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
         syncedRoundChunksRef.current.set(roundToSync.id, syncedSet);
       }
 
-      // Subir de forma individual los checkpoints con fotos aún no confirmados (paquetes pequeños ~60 KB aptos para señal mínima)
+      // Subir en paralelo acotado (de a 3 paquetes livianos ~60 KB) las fotos aún no confirmadas
       const metaLite = getRoundMetaLite(roundToSync);
-      for (const chk of roundToSync.checkpoints || []) {
-        if (!chk) continue;
+      const pendingPhotoChunks = (roundToSync.checkpoints || []).filter(chk => {
+        if (!chk) return false;
         const hasChkPhoto = Boolean(chk.photoUrl || (chk.photos && chk.photos.length > 0) || (chk.measurementFields || []).some(f => f.photoUrl || (f.photos && f.photos.length > 0)));
-        if (!hasChkPhoto) continue;
-        const hash = getCheckpointPhotoHash(chk);
-        if (!syncedSet.has(hash)) {
-          const ok = await uploadSingleRoundChunk(roundToSync.id, { roundMeta: metaLite, checkpoint: chk }, 20000, 1);
-          if (ok) syncedSet.add(hash);
-        }
+        return hasChkPhoto && !syncedSet!.has(getCheckpointPhotoHash(chk));
+      });
+
+      for (let i = 0; i < pendingPhotoChunks.length; i += 3) {
+        if (completedRoundIdsRef.current.has(roundToSync.id)) return;
+        const batch = pendingPhotoChunks.slice(i, i + 3);
+        await Promise.all(
+          batch.map(async (chk) => {
+            const hash = getCheckpointPhotoHash(chk);
+            const ok = await uploadSingleRoundChunk(roundToSync.id, { roundMeta: metaLite, checkpoint: chk, skipBroadcast: true }, 18000, 1);
+            if (ok) syncedSet!.add(hash);
+          })
+        );
       }
 
       if (completedRoundIdsRef.current.has(roundToSync.id)) return;
@@ -8948,11 +9127,11 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
     if (immediate) {
       syncActiveRoundTimeoutRef.current = setTimeout(() => {
         executeSync();
-      }, 350);
+      }, 250);
     } else {
       syncActiveRoundTimeoutRef.current = setTimeout(() => {
         executeSync();
-      }, 2200);
+      }, 1800);
     }
   };
 
@@ -9225,6 +9404,9 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
       }
       queueUpdateRounds(updatedList, immediate);
 
+      if ((photoUrl !== undefined || photosOverride !== undefined) && photoAction !== 'remove') {
+        syncSingleCheckpointPhotoInBackground(updated, chkId);
+      }
       syncActiveRoundToCloud(updated, immediate);
       return updated;
     });
@@ -9334,6 +9516,9 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
       }
       queueUpdateRounds(updatedList, immediate);
 
+      if ((photoUrl !== undefined || photosOverride !== undefined) && photoAction !== 'remove') {
+        syncSingleCheckpointPhotoInBackground(updated, chkId);
+      }
       syncActiveRoundToCloud(updated, immediate);
       return updated;
     });
@@ -9749,7 +9934,7 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
 
     const expectedPhotoCount = collectRoundPhotoUrls(completed).length;
 
-    // FASE 1: Subida progresiva por tramos pequeños (~50-120 KB cada punto con fotos) para garantizar carga al 100% con señal mínima
+    // FASE 1: Subida paralela acotada (lotes de 3 tramos pequeños ~50-100 KB con fallback secuencial) para cerrar mucho más rápido incluso con señal mínima
     let syncedSet = syncedRoundChunksRef.current.get(completed.id);
     if (!syncedSet) {
       syncedSet = new Set<string>();
@@ -9759,22 +9944,41 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
     const metaForChunks = getRoundMetaLite(currentActive);
     let allPhotoCheckpointsSynced = true;
 
-    for (const chk of completed.checkpoints || []) {
-      if (!chk) continue;
+    const unsyncedPhotoCheckpoints = (completed.checkpoints || []).filter(chk => {
+      if (!chk) return false;
       const hasChkPhoto = Boolean(chk.photoUrl || (chk.photos && chk.photos.length > 0) || (chk.measurementFields || []).some(f => f.photoUrl || (f.photos && f.photos.length > 0)));
-      if (!hasChkPhoto) continue;
+      return hasChkPhoto && !syncedSet!.has(getCheckpointPhotoHash(chk));
+    });
+
+    const failedBatchChunks: RoundCheckpoint[] = [];
+    for (let i = 0; i < unsyncedPhotoCheckpoints.length; i += 3) {
+      const batch = unsyncedPhotoCheckpoints.slice(i, i + 3);
+      await Promise.all(
+        batch.map(async (chk) => {
+          const hash = getCheckpointPhotoHash(chk);
+          const ok = await uploadSingleRoundChunk(completed.id, { roundMeta: metaForChunks, checkpoint: chk, skipBroadcast: true }, 18000, 1);
+          if (ok) {
+            syncedSet!.add(hash);
+          } else {
+            failedBatchChunks.push(chk);
+          }
+        })
+      );
+    }
+
+    // Reintento secuencial 1-a-1 solo para tramos que fallaron bajo señal muy débil
+    for (const chk of failedBatchChunks) {
       const hash = getCheckpointPhotoHash(chk);
-      if (!syncedSet.has(hash)) {
-        const ok = await uploadSingleRoundChunk(completed.id, { roundMeta: metaForChunks, checkpoint: chk }, 28000, 2);
-        if (ok) {
-          syncedSet.add(hash);
-        } else {
-          allPhotoCheckpointsSynced = false;
-        }
+      if (syncedSet.has(hash)) continue;
+      const ok = await uploadSingleRoundChunk(completed.id, { roundMeta: metaForChunks, checkpoint: chk, skipBroadcast: true }, 25000, 2);
+      if (ok) {
+        syncedSet.add(hash);
+      } else {
+        allPhotoCheckpointsSynced = false;
       }
     }
 
-    // Sincronizar medidores generales y anomalías si tienen fotos antes del commit final
+    // Sincronizar medidores generales y anomalías en paralelo si tienen fotos antes del commit final
     const mrHasPhotos = Boolean(
       completed.meterReadings?.waterMeterPhotoUrl ||
       (completed.meterReadings as any)?.waterMeterPhotos?.length ||
@@ -9784,16 +9988,16 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
       (completed.meterReadings as any)?.gasMeterPhotos?.length ||
       (completed.meterReadings?.customMeters && Object.values(completed.meterReadings.customMeters).some((cm: any) => cm?.photoUrl || cm?.photos?.length))
     );
-    let metersSyncedInChunk = false;
-    if (mrHasPhotos) {
-      metersSyncedInChunk = await uploadSingleRoundChunk(completed.id, { roundMeta: metaForChunks, meterReadings: completed.meterReadings }, 28000, 2);
-    }
-
     const anomHasPhotos = (completed.anomalies || []).some(a => a?.photoUrl || (a?.photos && a.photos.length > 0));
-    let anomaliesSyncedInChunk = false;
-    if (anomHasPhotos) {
-      anomaliesSyncedInChunk = await uploadSingleRoundChunk(completed.id, { roundMeta: metaForChunks, anomalies: completed.anomalies }, 28000, 2);
-    }
+
+    const [metersSyncedInChunk, anomaliesSyncedInChunk] = await Promise.all([
+      mrHasPhotos
+        ? uploadSingleRoundChunk(completed.id, { roundMeta: metaForChunks, meterReadings: completed.meterReadings, skipBroadcast: true }, 24000, 2)
+        : Promise.resolve(false),
+      anomHasPhotos
+        ? uploadSingleRoundChunk(completed.id, { roundMeta: metaForChunks, anomalies: completed.anomalies, skipBroadcast: true }, 24000, 2)
+        : Promise.resolve(false)
+    ]);
 
     const buildCommitPayload = (useLightweight: boolean) => {
       if (!useLightweight) return completed;

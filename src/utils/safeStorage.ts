@@ -124,34 +124,39 @@ export function isQuotaExceededError(err: any): boolean {
  * for the localStorage copy only. The full intact data remains in IndexedDB,
  * memory state, server data.json, and Firestore.
  */
-function compactRoundsForLocalStorage(roundsJsonString: string): string {
+function stripAllBase64ImagesRecursively(obj: any): void {
+  if (!obj || typeof obj !== 'object') return;
+  if (Array.isArray(obj)) {
+    obj.forEach(stripAllBase64ImagesRecursively);
+    return;
+  }
+  for (const k of Object.keys(obj)) {
+    const val = obj[k];
+    if (typeof val === 'string' && (val.startsWith('data:image/') || val.includes('cached_in_db'))) {
+      delete obj[k];
+    } else if (Array.isArray(val) && (k === 'photos' || k.endsWith('Photos'))) {
+      const kept = val.filter((u: any) => typeof u === 'string' && !u.startsWith('data:image/') && !u.includes('cached_in_db'));
+      if (kept.length > 0) {
+        obj[k] = kept;
+      } else {
+        delete obj[k];
+      }
+    } else if (val && typeof val === 'object') {
+      stripAllBase64ImagesRecursively(val);
+    }
+  }
+}
+
+function compactRoundsForLocalStorage(roundsJsonString: string, keepRecentPhotos: boolean = true): string {
   try {
     const rounds = JSON.parse(roundsJsonString);
     if (!Array.isArray(rounds)) return roundsJsonString;
 
-    const stripPhotosRecursively = (obj: any) => {
-      if (!obj || typeof obj !== 'object') return;
-      if (Array.isArray(obj)) {
-        obj.forEach(stripPhotosRecursively);
-        return;
-      }
-      for (const k of Object.keys(obj)) {
-        if (k === 'photoUrl' && typeof obj[k] === 'string' && (obj[k].startsWith('data:image/') || obj[k].includes('cached_in_db'))) {
-          delete obj[k];
-        } else if (typeof obj[k] === 'object') {
-          stripPhotosRecursively(obj[k]);
-        }
-      }
-    };
-
     const cloned = rounds.map((round: any, idx: number) => {
-      // Keep photos only for active in-progress rounds and recent rounds
-      if (round.status === 'en_progreso' || idx === 0) return round;
-      const copy = { ...round };
-      if (copy.checkpoints && Array.isArray(copy.checkpoints)) {
-        copy.checkpoints = JSON.parse(JSON.stringify(copy.checkpoints));
-        stripPhotosRecursively(copy.checkpoints);
-      }
+      if (!round || typeof round !== 'object') return round;
+      if (keepRecentPhotos && (round.status === 'en_progreso' || idx === 0)) return round;
+      const copy = JSON.parse(JSON.stringify(round));
+      stripAllBase64ImagesRecursively(copy);
       return copy;
     });
 
@@ -224,31 +229,28 @@ export function safeSetItem(key: string, value: string): boolean {
       // 2. Specific handling for hotel_maint_rounds
       if (key === 'hotel_maint_rounds') {
         try {
-          const compacted = compactRoundsForLocalStorage(value);
+          const compacted = compactRoundsForLocalStorage(value, true);
           nativeSetItem(key, compacted);
           return true;
         } catch (err2: any) {
           try {
-            const parsed = JSON.parse(value);
-            if (Array.isArray(parsed)) {
-              const allCleaned = parsed.map((r: any) => {
-                const copy = { ...r };
-                if (copy.checkpoints && Array.isArray(copy.checkpoints)) {
-                  copy.checkpoints = copy.checkpoints.map((c: any) => ({
-                    ...c,
-                    photoUrl: (c.photoUrl && (c.photoUrl.startsWith('data:image/') || c.photoUrl.includes('cached_in_db'))) ? undefined : c.photoUrl,
-                    measurementFields: c.measurementFields?.map((f: any) => ({
-                      ...f,
-                      photoUrl: (f.photoUrl && (f.photoUrl.startsWith('data:image/') || f.photoUrl.includes('cached_in_db'))) ? undefined : f.photoUrl
-                    }))
-                  }));
-                }
-                return copy;
-              });
-              nativeSetItem(key, JSON.stringify(allCleaned));
-              return true;
-            }
+            // Strip ALL base64 images from every round for localStorage only (IndexedDB retains 100% of photos)
+            const ultraCompacted = compactRoundsForLocalStorage(value, false);
+            nativeSetItem(key, ultraCompacted);
+            return true;
           } catch (err3) {
+            try {
+              const parsed = JSON.parse(value);
+              if (Array.isArray(parsed)) {
+                const minimalRounds = parsed.slice(0, 60).map((r: any) => {
+                  const copy = JSON.parse(JSON.stringify(r));
+                  stripAllBase64ImagesRecursively(copy);
+                  return copy;
+                });
+                nativeSetItem(key, JSON.stringify(minimalRounds));
+                return true;
+              }
+            } catch {}
             console.warn('[safeStorage] localStorage full for hotel_maint_rounds; preserved in IndexedDB.');
             return false;
           }

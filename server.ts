@@ -601,6 +601,11 @@ async function loadPostgresIntoMemory(client: any) {
     if (tplQ.rows.length > 0 && Array.isArray(tplQ.rows[0].data?.items)) {
       memoryCache.roundTemplate = tplQ.rows[0].data.items;
     }
+    const schedCfgQ = await client.query('SELECT data FROM app_data WHERE id = $1', ['schedule_config']);
+    if (schedCfgQ.rows.length > 0 && schedCfgQ.rows[0].data) {
+      if (!memoryCache.appData) memoryCache.appData = {};
+      memoryCache.appData['schedule_config'] = schedCfgQ.rows[0].data;
+    }
     syncRoundAnomaliesToIncidents(memoryCache);
     scheduleSaveToDisk();
     console.log('[PostgreSQL] Loaded authoritative records from PostgreSQL into memory cache.');
@@ -1465,7 +1470,7 @@ function mergeAppData(incoming: any) {
     current.rounds = deduped;
   }
 
-  // 4. Equipments (Non-destructive merge by ID)
+  // 4. Equipments (Timestamp-aware non-destructive merge by ID)
   if (Array.isArray(incoming.equipments)) {
     const existingEqMap = new Map<string, any>();
     for (const cur of (current.equipments || [])) {
@@ -1474,7 +1479,14 @@ function mergeAppData(incoming: any) {
     }
     for (const eqItem of incoming.equipments) {
       if (!eqItem || !eqItem.id || deletedIdsSet.has(eqItem.id)) continue;
-      existingEqMap.set(eqItem.id, eqItem);
+      const existing = existingEqMap.get(eqItem.id);
+      if (!existing) {
+        existingEqMap.set(eqItem.id, eqItem);
+      } else {
+        const tExisting = new Date(existing.updatedAt || existing.lastUpdated || existing.createdAt || 0).getTime() || 0;
+        const tIncoming = new Date(eqItem.updatedAt || eqItem.lastUpdated || eqItem.createdAt || 0).getTime() || 0;
+        existingEqMap.set(eqItem.id, tIncoming >= tExisting ? { ...existing, ...eqItem } : { ...eqItem, ...existing });
+      }
     }
     current.equipments = Array.from(existingEqMap.values());
   }
@@ -1531,7 +1543,7 @@ function mergeAppData(incoming: any) {
     current.tasks = mergedTasks;
   }
 
-  // 6. Other collections (pumpInspections, preventivePlans, workOrders, users, uploadedDocuments, documentFolders)
+  // 6. Other collections (Timestamp-safe merge so stale clients never revert newer PostgreSQL records)
   const otherArrayKeys = [
     'pumpInspections',
     'preventivePlans',
@@ -1551,10 +1563,17 @@ function mergeAppData(incoming: any) {
       }
       for (const item of incoming[key]) {
         if (!item || !item.id || deletedIdsSet.has(item.id)) continue;
-        if (key === 'users' && Array.isArray(item.visibleSections) && !item.visibleSections.includes('tareas')) {
-          existingMap.set(item.id, { ...item, visibleSections: [...item.visibleSections, 'tareas'] });
+        const existing = existingMap.get(item.id);
+        let chosen = item;
+        if (existing) {
+          const tExisting = new Date(existing.updatedAt || existing.lastUpdated || existing.resolvedAt || existing.createdAt || 0).getTime() || 0;
+          const tIncoming = new Date(item.updatedAt || item.lastUpdated || item.resolvedAt || item.createdAt || 0).getTime() || 0;
+          chosen = tIncoming >= tExisting ? { ...existing, ...item } : { ...item, ...existing };
+        }
+        if (key === 'users' && Array.isArray(chosen.visibleSections) && !chosen.visibleSections.includes('tareas')) {
+          existingMap.set(item.id, { ...chosen, visibleSections: [...chosen.visibleSections, 'tareas'] });
         } else {
-          existingMap.set(item.id, item);
+          existingMap.set(item.id, chosen);
         }
       }
       current[key] = Array.from(existingMap.values());
@@ -1888,8 +1907,17 @@ app.post("/api/audit/repair", (req, res) => {
 app.post("/api/data", async (req, res) => {
   const clientId = req.headers['x-client-id'] || null;
   await getAuthoritativeDeletedIdsSet();
-  mergeAppData(req.body);
-  await persistMemoryToPostgres(req.body);
+  const mergedSnapshot = mergeAppData(req.body);
+  // Persist the timestamp-merged authoritative records (never raw stale client payload) for every key included in req.body
+  const mergedForBody: Record<string, any> = {};
+  if (req.body && typeof req.body === 'object') {
+    for (const k of Object.keys(req.body)) {
+      if (mergedSnapshot && mergedSnapshot[k] !== undefined) {
+        mergedForBody[k] = mergedSnapshot[k];
+      }
+    }
+  }
+  await persistMemoryToPostgres(mergedForBody);
   broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
   res.json({ status: "success" });
 });
@@ -2591,6 +2619,39 @@ app.delete("/api/tasks/:id", async (req, res) => {
   res.json({ status: "deleted", id });
 });
 
+app.get("/api/rounds/in-progress", async (_req, res) => {
+  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+  res.setHeader("Pragma", "no-cache");
+  res.setHeader("Expires", "0");
+
+  const deletedSet = await getAuthoritativeDeletedIdsSet();
+  const filterInProgress = (list: any[]) =>
+    (list || []).filter((r: any) =>
+      r &&
+      r.id &&
+      !deletedSet.has(r.id) &&
+      r.status === 'en_progreso' &&
+      !(r.completedAt && r.technicianSignature)
+    );
+
+  if (pgPool) {
+    try {
+      const q = await pgPool.query(
+        `SELECT id, data FROM rounds WHERE (data->>'status') = 'en_progreso' ORDER BY updated_at DESC`
+      );
+      const pgLive = (q.rows || [])
+        .map((r: any) => (r && r.data && typeof r.data === 'object') ? { ...r.data, id: r.data.id || r.id } : null)
+        .filter(Boolean);
+      return res.json(filterInProgress(pgLive));
+    } catch (e) {
+      console.warn("[PostgreSQL] Notice loading in-progress rounds:", (e as any)?.message || e);
+    }
+  }
+
+  const store = getCachedData();
+  return res.json(filterInProgress(store.rounds || []));
+});
+
 app.get("/api/rounds/:id", async (req, res) => {
   res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
   const { id } = req.params;
@@ -2648,7 +2709,7 @@ app.post("/api/rounds/:id/checkpoint", async (req, res) => {
     }
   }
 
-  const { roundMeta, checkpoint, meterReadings, anomalies } = body;
+  const { roundMeta, checkpoint, meterReadings, anomalies, skipBroadcast } = body;
   const nowIso = new Date().toISOString();
 
   if (!existing) {
@@ -2769,12 +2830,14 @@ app.post("/api/rounds/:id/checkpoint", async (req, res) => {
   scheduleSaveToDisk();
 
   const clientId = req.headers['x-client-id'] || null;
-  broadcastSse({
-    type: nextRound.status === 'completada' ? 'round_completed' : 'round_updated',
-    round: nextRound,
-    clientId,
-    time: Date.now()
-  });
+  if (!skipBroadcast) {
+    broadcastSse({
+      type: nextRound.status === 'completada' ? 'round_completed' : 'round_updated',
+      round: nextRound,
+      clientId,
+      time: Date.now()
+    });
+  }
 
   res.json({ success: true, id, checkpointId: checkpoint?.id });
 });
@@ -3133,6 +3196,7 @@ app.put("/api/equipments/:id", async (req, res) => {
   await pgUpsert('equipments', id, item, false);
   scheduleSaveToDisk();
   const clientId = req.headers['x-client-id'] || null;
+  broadcastSse({ type: 'equipment_updated', equipment: item, clientId, time: Date.now() });
   broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
   res.json({ status: "success", equipment: item });
 });
@@ -3216,6 +3280,7 @@ app.post("/api/preventive-plans", async (req, res) => {
   await pgUpsert('preventive_plans', item.id, item, Boolean(item.forceRestore));
   scheduleSaveToDisk();
   const clientId = req.headers['x-client-id'] || null;
+  broadcastSse({ type: 'preventive_plan_updated', plan: item, clientId, time: Date.now() });
   broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
   res.json({ status: "success", plan: item });
 });
@@ -3231,6 +3296,7 @@ app.put("/api/preventive-plans/:id", async (req, res) => {
   await pgUpsert('preventive_plans', id, item, false);
   scheduleSaveToDisk();
   const clientId = req.headers['x-client-id'] || null;
+  broadcastSse({ type: 'preventive_plan_updated', plan: item, clientId, time: Date.now() });
   broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
   res.json({ status: "success", plan: item });
 });
@@ -3274,6 +3340,7 @@ app.post("/api/work-orders", async (req, res) => {
   await pgUpsert('work_orders', item.id, item, Boolean(item.forceRestore));
   scheduleSaveToDisk();
   const clientId = req.headers['x-client-id'] || null;
+  broadcastSse({ type: 'work_order_updated', workOrder: item, clientId, time: Date.now() });
   broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
   res.json({ status: "success", workOrder: item });
 });
@@ -3289,6 +3356,7 @@ app.put("/api/work-orders/:id", async (req, res) => {
   await pgUpsert('work_orders', id, item, false);
   scheduleSaveToDisk();
   const clientId = req.headers['x-client-id'] || null;
+  broadcastSse({ type: 'work_order_updated', workOrder: item, clientId, time: Date.now() });
   broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
   res.json({ status: "success", workOrder: item });
 });
@@ -3332,6 +3400,7 @@ app.post("/api/pump-inspections", async (req, res) => {
   await pgUpsert('pump_inspections', item.id, item, Boolean(item.forceRestore));
   scheduleSaveToDisk();
   const clientId = req.headers['x-client-id'] || null;
+  broadcastSse({ type: 'pump_inspection_updated', inspection: item, clientId, time: Date.now() });
   broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
   res.json({ status: "success", inspection: item });
 });
@@ -3347,6 +3416,7 @@ app.put("/api/pump-inspections/:id", async (req, res) => {
   await pgUpsert('pump_inspections', id, item, false);
   scheduleSaveToDisk();
   const clientId = req.headers['x-client-id'] || null;
+  broadcastSse({ type: 'pump_inspection_updated', inspection: item, clientId, time: Date.now() });
   broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
   res.json({ status: "success", inspection: item });
 });
@@ -3390,6 +3460,7 @@ app.post("/api/shift-swaps", async (req, res) => {
   await pgUpsert('shift_swaps', item.id, item, Boolean(item.forceRestore));
   scheduleSaveToDisk();
   const clientId = req.headers['x-client-id'] || null;
+  broadcastSse({ type: 'swap_updated', swap: item, clientId, time: Date.now() });
   broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
   res.json({ status: "success", swap: item });
 });
@@ -3405,6 +3476,7 @@ app.put("/api/shift-swaps/:id", async (req, res) => {
   await pgUpsert('shift_swaps', id, item, false);
   scheduleSaveToDisk();
   const clientId = req.headers['x-client-id'] || null;
+  broadcastSse({ type: 'swap_updated', swap: item, clientId, time: Date.now() });
   broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
   res.json({ status: "success", swap: item });
 });
@@ -3901,6 +3973,7 @@ app.post("/api/requests", async (req, res) => {
   await pgUpsert('requests', item.id, item, Boolean(item.forceRestore));
   scheduleSaveToDisk();
   const clientId = req.headers['x-client-id'] || null;
+  broadcastSse({ type: 'request_updated', request: item, clientId, time: Date.now() });
   broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
   res.json({ status: "success", request: item });
 });
@@ -3916,6 +3989,7 @@ app.put("/api/requests/:id", async (req, res) => {
   await pgUpsert('requests', id, item, false);
   scheduleSaveToDisk();
   const clientId = req.headers['x-client-id'] || null;
+  broadcastSse({ type: 'request_updated', request: item, clientId, time: Date.now() });
   broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
   res.json({ status: "success", request: item });
 });
@@ -3974,17 +4048,51 @@ app.post("/api/schedules", async (req, res) => {
   const store = getCachedData();
   if (!Array.isArray(store.schedules)) store.schedules = [];
   const deletedSet = await getAuthoritativeDeletedIdsSet();
-  for (const item of items) {
-    if (!item || !item.id || (deletedSet.has(item.id) && !item.forceRestore)) continue;
+  const savedItems: any[] = [];
+  const nowIso = new Date().toISOString();
+  for (const rawItem of items) {
+    if (!rawItem || !rawItem.id || (deletedSet.has(rawItem.id) && !rawItem.forceRestore)) continue;
+    const item = { ...rawItem, updatedAt: rawItem.updatedAt || nowIso };
     const idx = store.schedules.findIndex((s: any) => s.id === item.id);
-    if (idx >= 0) store.schedules[idx] = { ...store.schedules[idx], ...item };
-    else store.schedules.push(item);
-    await pgUpsert('schedules', item.id, item, Boolean(item.forceRestore));
+    let savedItem = item;
+    if (idx >= 0) {
+      const existing = store.schedules[idx];
+      const tExisting = new Date(existing.updatedAt || existing.createdAt || 0).getTime() || 0;
+      const tIncoming = new Date(item.updatedAt || item.createdAt || 0).getTime() || 0;
+      savedItem = tIncoming >= tExisting ? { ...existing, ...item } : { ...item, ...existing };
+      store.schedules[idx] = savedItem;
+    } else {
+      store.schedules.push(savedItem);
+    }
+    await pgUpsert('schedules', savedItem.id, savedItem, Boolean(rawItem.forceRestore));
+    savedItems.push(savedItem);
   }
   scheduleSaveToDisk();
   const clientId = req.headers['x-client-id'] || null;
+  if (savedItems.length > 0) {
+    broadcastSse({ type: 'schedule_updated', schedules: savedItems, schedule: savedItems[0], clientId, time: Date.now() });
+  }
   broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
-  res.json({ status: "success", count: items.length });
+  res.json({ status: "success", count: savedItems.length, schedules: savedItems });
+});
+app.put("/api/schedules/:id", async (req, res) => {
+  const { id } = req.params;
+  if (await isIdDeletedInServer(id)) return res.status(410).json({ error: "Deleted", id });
+  const store = getCachedData();
+  if (!Array.isArray(store.schedules)) store.schedules = [];
+  const idx = store.schedules.findIndex((s: any) => s.id === id);
+  const nowIso = new Date().toISOString();
+  const item = idx >= 0
+    ? { ...store.schedules[idx], ...req.body, id, updatedAt: req.body?.updatedAt || nowIso }
+    : { ...req.body, id, updatedAt: req.body?.updatedAt || nowIso };
+  if (idx >= 0) store.schedules[idx] = item;
+  else store.schedules.push(item);
+  await pgUpsert('schedules', id, item, false);
+  scheduleSaveToDisk();
+  const clientId = req.headers['x-client-id'] || null;
+  broadcastSse({ type: 'schedule_updated', schedules: [item], schedule: item, clientId, time: Date.now() });
+  broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
+  res.json({ status: "success", schedule: item });
 });
 
 // 6. Equipments
@@ -4017,6 +4125,7 @@ app.post("/api/equipments", async (req, res) => {
   await pgUpsert('equipments', item.id, item, Boolean(item.forceRestore));
   scheduleSaveToDisk();
   const clientId = req.headers['x-client-id'] || null;
+  broadcastSse({ type: 'equipment_updated', equipment: item, clientId, time: Date.now() });
   broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
   res.json({ status: "success", equipment: item });
 });
@@ -4265,16 +4374,21 @@ app.put("/api/cronogramas/:id", async (req, res) => {
 
 // 9. App Data & Singletons (schedule_config, app_version, round_template)
 app.get("/api/app-data/:id", async (req, res) => {
+  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+  res.setHeader("Pragma", "no-cache");
+  res.setHeader("Expires", "0");
   const { id } = req.params;
   const store = getCachedData();
   if (!store.appData) store.appData = {};
+  if (pgPool) {
+    const dbData = await pgGet('app_data', id);
+    if (dbData) {
+      store.appData[id] = dbData;
+      return res.json(dbData);
+    }
+  }
   if (store.appData[id]) {
     return res.json(store.appData[id]);
-  }
-  const dbData = await pgGet('app_data', id);
-  if (dbData) {
-    store.appData[id] = dbData;
-    return res.json(dbData);
   }
   res.json({});
 });
@@ -4283,7 +4397,16 @@ app.post("/api/app-data/:id", async (req, res) => {
   const payload = req.body || {};
   const store = getCachedData();
   if (!store.appData) store.appData = {};
-  store.appData[id] = { ...store.appData[id], ...payload };
+  let existing = store.appData[id];
+  if (!existing && pgPool) {
+    existing = await pgGet('app_data', id);
+  }
+  const tExisting = existing?.updatedAt ? new Date(existing.updatedAt).getTime() || 0 : 0;
+  const tIncoming = payload?.updatedAt ? new Date(payload.updatedAt).getTime() || 0 : Date.now();
+  if (existing && payload?.updatedAt && tExisting > tIncoming) {
+    return res.json({ status: "ignored_older", data: existing });
+  }
+  store.appData[id] = { ...(existing || {}), ...payload, updatedAt: payload?.updatedAt || new Date().toISOString() };
   await pgUpsert('app_data', id, store.appData[id]);
   scheduleSaveToDisk();
   const clientId = req.headers['x-client-id'] || null;
@@ -4293,6 +4416,7 @@ app.post("/api/app-data/:id", async (req, res) => {
 
 // 10. Settings
 app.get("/api/settings", (_req, res) => {
+  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
   const store = getCachedData();
   res.json(store.settings || {});
 });
@@ -4302,6 +4426,7 @@ app.post("/api/settings", async (req, res) => {
   await pgUpsert('settings', 'app_settings', store.settings);
   scheduleSaveToDisk();
   const clientId = req.headers['x-client-id'] || null;
+  broadcastSse({ type: 'settings_updated', settings: store.settings, clientId, time: Date.now() });
   broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
   res.json({ status: "success", settings: store.settings });
 });
