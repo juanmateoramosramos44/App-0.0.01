@@ -59,7 +59,7 @@ interface OriginalDocumentViewerProps {
   onCleanImportedEquipments?: () => void;
   importedEquipmentsCount?: number;
   folders: DocumentFolder[];
-  onCreateFolder: (name: string, color?: string, description?: string) => Promise<void> | void;
+  onCreateFolder: (name: string, color?: string, description?: string, parentFolderId?: string | null) => Promise<DocumentFolder | void> | void;
   onUpdateFolder?: (folderId: string, updates: Partial<DocumentFolder>) => Promise<void> | void;
   onDeleteFolder: (folderId: string) => void;
   activeFolderId: string | null;
@@ -130,6 +130,7 @@ export const OriginalDocumentViewer: React.FC<OriginalDocumentViewerProps> = ({
   const [newFolderNameInput, setNewFolderNameInput] = useState('');
   const [newFolderColor, setNewFolderColor] = useState('amber');
   const [newFolderDesc, setNewFolderDesc] = useState('');
+  const [newFolderParentId, setNewFolderParentId] = useState<string | null>(null);
 
   // Rename folder inline
   const [renamingFolderId, setRenamingFolderId] = useState<string | null>(null);
@@ -147,11 +148,90 @@ export const OriginalDocumentViewer: React.FC<OriginalDocumentViewerProps> = ({
   const [editingCell, setEditingCell] = useState<{ row: number; col: number } | null>(null);
   const [formulaInput, setFormulaInput] = useState<string>('');
 
+  // Fast folder lookup & recursive tree helpers (infinite nesting depth)
+  const folderMap = useMemo(() => {
+    const map = new Map<string, DocumentFolder>();
+    for (const f of folders) {
+      if (f && f.id) map.set(f.id, f);
+    }
+    return map;
+  }, [folders]);
+
+  const getEffectiveParentId = useCallback((f: DocumentFolder): string | null => {
+    if (!f.parentFolderId || f.parentFolderId === f.id) return null;
+    return folderMap.has(f.parentFolderId) ? f.parentFolderId : null;
+  }, [folderMap]);
+
   // Active folder object
   const activeFolder = useMemo(() => {
     if (!activeFolderId) return null;
-    return folders.find(f => f.id === activeFolderId) || null;
-  }, [folders, activeFolderId]);
+    return folderMap.get(activeFolderId) || null;
+  }, [folderMap, activeFolderId]);
+
+  const breadcrumbTrail = useMemo(() => {
+    const trail: DocumentFolder[] = [];
+    const visited = new Set<string>();
+    let currId: string | null = activeFolderId;
+    while (currId && !visited.has(currId)) {
+      const f = folderMap.get(currId);
+      if (!f) break;
+      visited.add(currId);
+      trail.unshift(f);
+      currId = getEffectiveParentId(f);
+    }
+    return trail;
+  }, [activeFolderId, folderMap, getEffectiveParentId]);
+
+  const getDescendantFolderIds = useCallback((rootId: string): Set<string> => {
+    const result = new Set<string>([rootId]);
+    const queue: string[] = [rootId];
+    while (queue.length > 0) {
+      const curr = queue.shift()!;
+      for (const f of folders) {
+        if (getEffectiveParentId(f) === curr && !result.has(f.id)) {
+          result.add(f.id);
+          queue.push(f.id);
+        }
+      }
+    }
+    return result;
+  }, [folders, getEffectiveParentId]);
+
+  const childFolders = useMemo(() => {
+    const targetParent = activeFolderId || null;
+    return folders.filter(f => getEffectiveParentId(f) === targetParent);
+  }, [folders, activeFolderId, getEffectiveParentId]);
+
+  const flattenedFolderOptions = useMemo(() => {
+    const list: { folder: DocumentFolder; depth: number; label: string }[] = [];
+    const visited = new Set<string>();
+    const walk = (parentId: string | null, depth: number) => {
+      const children = folders.filter(f => getEffectiveParentId(f) === parentId);
+      for (const child of children) {
+        if (visited.has(child.id)) continue;
+        visited.add(child.id);
+        const prefix = depth > 0 ? `${'— '.repeat(depth)}📁 ` : '📁 ';
+        list.push({ folder: child, depth, label: `${prefix}${child.name}` });
+        walk(child.id, depth + 1);
+      }
+    };
+    walk(null, 0);
+    // Safety net for any disconnected cycle
+    for (const f of folders) {
+      if (!visited.has(f.id)) {
+        list.push({ folder: f, depth: 0, label: `📁 ${f.name}` });
+      }
+    }
+    return list;
+  }, [folders, getEffectiveParentId]);
+
+  const openNewFolderModal = useCallback((parentId: string | null) => {
+    setNewFolderParentId(parentId);
+    setNewFolderNameInput('');
+    setNewFolderDesc('');
+    setNewFolderColor('amber');
+    setIsNewFolderModalOpen(true);
+  }, []);
 
   // Documents in current view (Root vs Folder)
   const currentFolderDocuments = useMemo(() => {
@@ -553,69 +633,115 @@ export const OriginalDocumentViewer: React.FC<OriginalDocumentViewerProps> = ({
         </div>
       </div>
 
-      {/* Folder Breadcrumb or Folders Grid */}
-      {activeFolderId ? (
+      {/* Folder Breadcrumb (when inside a folder/subfolder) */}
+      {activeFolderId && (
         <div className="bg-white border border-emerald-200 rounded-2xl p-3.5 flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-2.5 flex-wrap">
+          <div className="flex items-center gap-2 flex-wrap">
             <button
               type="button"
-              onClick={() => onSelectFolder(null)}
+              onClick={() => onSelectFolder(activeFolder ? getEffectiveParentId(activeFolder) : null)}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-200 text-xs font-bold transition-colors cursor-pointer"
+              title="Subir un nivel"
             >
               <ArrowLeft className="w-3.5 h-3.5" />
-              <span>Todas las Carpetas</span>
+              <span>{activeFolder && getEffectiveParentId(activeFolder) ? 'Subir Nivel' : 'Raíz'}</span>
             </button>
-            <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-600">
-              <span>Archivero</span>
-              <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
-              <span className="inline-flex items-center gap-1.5 bg-emerald-50 text-emerald-800 px-2.5 py-1 rounded-lg border border-emerald-200 font-bold">
-                <FolderOpen className="w-3.5 h-3.5 text-emerald-600" />
-                <span>{activeFolder?.name}</span>
-              </span>
-            </div>
+
+            <nav className="flex items-center gap-1 text-xs font-semibold text-slate-600 flex-wrap" aria-label="Ruta de carpetas">
+              <button
+                type="button"
+                onClick={() => onSelectFolder(null)}
+                className="px-2 py-1 rounded-lg hover:bg-slate-100 text-slate-700 hover:text-emerald-700 font-bold transition-colors cursor-pointer"
+              >
+                Archivero
+              </button>
+              {breadcrumbTrail.map((crumb, idx) => {
+                const isLast = idx === breadcrumbTrail.length - 1;
+                return (
+                  <React.Fragment key={crumb.id}>
+                    <ChevronRight className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                    {isLast ? (
+                      <span className="inline-flex items-center gap-1.5 bg-emerald-50 text-emerald-800 px-2.5 py-1 rounded-lg border border-emerald-200 font-bold">
+                        <FolderOpen className="w-3.5 h-3.5 text-emerald-600" />
+                        <span>{crumb.name}</span>
+                      </span>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => onSelectFolder(crumb.id)}
+                        className="inline-flex items-center gap-1 px-2 py-1 rounded-lg hover:bg-emerald-50 text-slate-700 hover:text-emerald-800 font-bold transition-colors cursor-pointer"
+                      >
+                        <Folder className="w-3.5 h-3.5 text-amber-500" />
+                        <span>{crumb.name}</span>
+                      </button>
+                    )}
+                  </React.Fragment>
+                );
+              })}
+            </nav>
           </div>
 
-          <span className="text-xs text-slate-500 font-medium tabular-nums">
-            {currentFolderDocuments.length} {currentFolderDocuments.length === 1 ? 'archivo Excel' : 'archivos Excel'} en esta carpeta
-          </span>
-        </div>
-      ) : (
-        <div className="bg-white rounded-2xl p-4 border border-slate-200 space-y-3">
-          <div className="flex items-center justify-between gap-2 flex-wrap">
-            <div className="flex items-center gap-2">
-              <Folder className="w-4 h-4 text-amber-500" />
-              <h4 className="text-sm font-bold text-slate-900">
-                Carpetas Guardadas ({folders.length})
-              </h4>
-            </div>
+          <div className="flex items-center gap-3 flex-wrap">
+            <span className="text-xs text-slate-500 font-medium tabular-nums">
+              {childFolders.length} {childFolders.length === 1 ? 'subcarpeta' : 'subcarpetas'} • {currentFolderDocuments.length} {currentFolderDocuments.length === 1 ? 'archivo' : 'archivos'}
+            </span>
             <button
               type="button"
-              onClick={() => setIsNewFolderModalOpen(true)}
+              onClick={() => openNewFolderModal(activeFolderId)}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition-colors whitespace-nowrap shrink-0 cursor-pointer"
             >
-              <FolderPlus className="w-4 h-4" />
-              <span>Nueva Carpeta</span>
+              <FolderPlus className="w-3.5 h-3.5" />
+              <span>+ Nueva Subcarpeta</span>
             </button>
           </div>
+        </div>
+      )}
 
-          {folders.length === 0 ? (
-            <div className="text-center py-5 text-slate-500 text-xs border border-dashed border-slate-200 rounded-xl bg-slate-50/50">
-              No hay carpetas creadas todavía. Crea una carpeta para organizar tus archivos Excel por equipos, zonas o años.
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-              {folders.map(folder => {
-                const folderDocsCount = documents.filter(d => d.folderId === folder.id).length;
-                const colorKey = folder.color && FOLDER_COLOR_STYLES[folder.color] ? folder.color : 'amber';
-                const cStyle = FOLDER_COLOR_STYLES[colorKey];
-                const isRenaming = renamingFolderId === folder.id;
+      {/* Folders / Subfolders Grid (Root shows root folders; inside a folder shows its subfolders) */}
+      <div className="bg-white rounded-2xl p-4 border border-slate-200 space-y-3">
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <div className="flex items-center gap-2">
+            <Folder className="w-4 h-4 text-amber-500" />
+            <h4 className="text-sm font-bold text-slate-900">
+              {activeFolder
+                ? `Subcarpetas en "${activeFolder.name}" (${childFolders.length})`
+                : `Carpetas Guardadas (${childFolders.length})`}
+            </h4>
+          </div>
+          <button
+            type="button"
+            onClick={() => openNewFolderModal(activeFolderId || null)}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+          >
+            <FolderPlus className="w-4 h-4" />
+            <span>{activeFolder ? 'Nueva Subcarpeta' : 'Nueva Carpeta'}</span>
+          </button>
+        </div>
 
-                return (
-                  <div
-                    key={folder.id}
-                    onClick={() => { if (!isRenaming) onSelectFolder(folder.id); }}
-                    className="group bg-slate-50/70 hover:bg-white border border-slate-200 hover:border-emerald-300 rounded-xl p-3.5 cursor-pointer transition-all flex items-center justify-between gap-2"
-                  >
+        {childFolders.length === 0 ? (
+          <div className="text-center py-5 text-slate-500 text-xs border border-dashed border-slate-200 rounded-xl bg-slate-50/50">
+            {activeFolder
+              ? `No hay subcarpetas dentro de "${activeFolder.name}". Pulsa "Nueva Subcarpeta" para organizar aún más este directorio.`
+              : 'No hay carpetas creadas todavía. Crea una carpeta para organizar tus archivos Excel por equipos, zonas o años.'}
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {childFolders.map(folder => {
+              const descendantSet = getDescendantFolderIds(folder.id);
+              const directSubfoldersCount = folders.filter(f => getEffectiveParentId(f) === folder.id).length;
+              const directDocsCount = documents.filter(d => d.folderId === folder.id).length;
+              const totalNestedDocsCount = documents.filter(d => d.folderId && descendantSet.has(d.folderId)).length;
+              const colorKey = folder.color && FOLDER_COLOR_STYLES[folder.color] ? folder.color : 'amber';
+              const cStyle = FOLDER_COLOR_STYLES[colorKey];
+              const isRenaming = renamingFolderId === folder.id;
+
+              return (
+                <div
+                  key={folder.id}
+                  onClick={() => { if (!isRenaming) onSelectFolder(folder.id); }}
+                  className="group bg-slate-50/70 hover:bg-white border border-slate-200 hover:border-emerald-300 rounded-xl p-3.5 cursor-pointer transition-all flex flex-col justify-between gap-2.5"
+                >
+                  <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-3 min-w-0 flex-1">
                       <div className={`w-10 h-10 rounded-xl ${cStyle.bg} ${cStyle.text} border ${cStyle.border} flex items-center justify-center shrink-0`}>
                         <FolderOpen className="w-5 h-5" />
@@ -656,8 +782,10 @@ export const OriginalDocumentViewer: React.FC<OriginalDocumentViewerProps> = ({
                             <h5 className="text-xs font-bold text-slate-900 truncate group-hover:text-emerald-800">
                               {folder.name}
                             </h5>
-                            <p className="text-[11px] text-slate-500 tabular-nums">
-                              {folderDocsCount} {folderDocsCount === 1 ? 'archivo' : 'archivos'}
+                            <p className="text-[11px] text-slate-500 tabular-nums truncate">
+                              {directSubfoldersCount > 0
+                                ? `${directSubfoldersCount} ${directSubfoldersCount === 1 ? 'subcarpeta' : 'subcarpetas'} • ${totalNestedDocsCount} ${totalNestedDocsCount === 1 ? 'archivo' : 'archivos'}`
+                                : `${directDocsCount} ${directDocsCount === 1 ? 'archivo' : 'archivos'}`}
                               {folder.description ? ` • ${folder.description}` : ''}
                             </p>
                           </>
@@ -683,7 +811,8 @@ export const OriginalDocumentViewer: React.FC<OriginalDocumentViewerProps> = ({
                         <button
                           type="button"
                           onClick={() => {
-                            if (window.confirm(`¿Eliminar la carpeta "${folder.name}"? Los archivos que contenga pasarán a la raíz sin borrarse.`)) {
+                            const targetDest = getEffectiveParentId(folder) ? 'la carpeta superior' : 'la raíz';
+                            if (window.confirm(`¿Eliminar la carpeta "${folder.name}"? Sus subcarpetas y archivos pasarán a ${targetDest} sin borrarse.`)) {
                               onDeleteFolder(folder.id);
                             }
                           }}
@@ -696,12 +825,37 @@ export const OriginalDocumentViewer: React.FC<OriginalDocumentViewerProps> = ({
                       <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-emerald-600 pointer-events-none" />
                     </div>
                   </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      )}
+
+                  {onUpdateFolder && folders.length > 1 && (
+                    <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-200/70" onClick={(e) => e.stopPropagation()}>
+                      <span className="text-[10px] font-semibold text-slate-400 inline-flex items-center gap-1">
+                        <FolderInput className="w-3 h-3" />
+                        <span>Mover a:</span>
+                      </span>
+                      <select
+                        value={getEffectiveParentId(folder) || ''}
+                        onChange={(e) => {
+                          const nextParent = e.target.value || null;
+                          onUpdateFolder(folder.id, { parentFolderId: nextParent });
+                        }}
+                        className="text-[11px] font-semibold bg-white border border-slate-200 rounded-lg px-2 py-0.5 text-slate-700 max-w-[160px] truncate focus:outline-none focus:ring-1 focus:ring-emerald-500 cursor-pointer"
+                        title="Mover carpeta dentro de otra carpeta"
+                      >
+                        <option value="">Raíz (Sin carpeta padre)</option>
+                        {flattenedFolderOptions
+                          .filter(opt => !descendantSet.has(opt.folder.id))
+                          .map(opt => (
+                            <option key={opt.folder.id} value={opt.folder.id}>{opt.label}</option>
+                          ))}
+                      </select>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
 
       {/* Files Grid in Current Directory */}
       {currentFolderDocuments.length > 0 && (
@@ -790,12 +944,12 @@ export const OriginalDocumentViewer: React.FC<OriginalDocumentViewerProps> = ({
                         <select
                           value={doc.folderId || ''}
                           onChange={(e) => onMoveDocument(doc.id, e.target.value || null)}
-                          className="text-[11px] font-semibold bg-white border border-slate-200 rounded-lg px-2 py-1 text-slate-700 max-w-[140px] truncate focus:outline-none focus:ring-1 focus:ring-emerald-500 cursor-pointer"
-                          title="Mover archivo a carpeta"
+                          className="text-[11px] font-semibold bg-white border border-slate-200 rounded-lg px-2 py-1 text-slate-700 max-w-[160px] truncate focus:outline-none focus:ring-1 focus:ring-emerald-500 cursor-pointer"
+                          title="Mover archivo a carpeta o subcarpeta"
                         >
                           <option value="">Raíz (Sin carpeta)</option>
-                          {folders.map(f => (
-                            <option key={f.id} value={f.id}>📁 {f.name}</option>
+                          {flattenedFolderOptions.map(opt => (
+                            <option key={opt.folder.id} value={opt.folder.id}>{opt.label}</option>
                           ))}
                         </select>
                       </div>
@@ -808,14 +962,34 @@ export const OriginalDocumentViewer: React.FC<OriginalDocumentViewerProps> = ({
         </div>
       )}
 
-      {/* New Folder Modal */}
+      {/* New Folder / Subfolder Modal (Auto-closes immediately on submit & keeps activeFolderId) */}
       {isNewFolderModalOpen && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-md w-full p-5 space-y-4 shadow-xl border border-slate-200">
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              const cleanName = newFolderNameInput.trim();
+              if (!cleanName) return;
+              const targetParent = newFolderParentId ?? activeFolderId ?? null;
+              const chosenColor = newFolderColor;
+              const chosenDesc = newFolderDesc.trim() || undefined;
+              // Close immediately without blocking UX & preserve current working folder
+              setNewFolderNameInput('');
+              setNewFolderDesc('');
+              setNewFolderColor('amber');
+              setIsNewFolderModalOpen(false);
+              Promise.resolve(onCreateFolder(cleanName, chosenColor, chosenDesc, targetParent)).catch((err) => {
+                console.error('Error creating folder:', err);
+              });
+            }}
+            className="bg-white rounded-2xl max-w-md w-full p-5 space-y-4 shadow-xl border border-slate-200"
+          >
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <div className="flex items-center gap-2">
                 <FolderPlus className="w-5 h-5 text-emerald-600" />
-                <h3 className="text-sm font-bold text-slate-900">Crear Nueva Carpeta</h3>
+                <h3 className="text-sm font-bold text-slate-900">
+                  {newFolderParentId ? 'Crear Nueva Subcarpeta' : 'Crear Nueva Carpeta'}
+                </h3>
               </div>
               <button
                 type="button"
@@ -829,10 +1003,27 @@ export const OriginalDocumentViewer: React.FC<OriginalDocumentViewerProps> = ({
             <div className="space-y-3">
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Nombre de la Carpeta *
+                  Ubicación / Carpeta Padre
+                </label>
+                <select
+                  value={newFolderParentId || ''}
+                  onChange={(e) => setNewFolderParentId(e.target.value || null)}
+                  className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                >
+                  <option value="">Raíz del Archivero (Carpeta Principal)</option>
+                  {flattenedFolderOptions.map(opt => (
+                    <option key={opt.folder.id} value={opt.folder.id}>{opt.label}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Nombre de la {newFolderParentId ? 'Subcarpeta' : 'Carpeta'} *
                 </label>
                 <input
                   type="text"
+                  required
                   value={newFolderNameInput}
                   onChange={(e) => setNewFolderNameInput(e.target.value)}
                   placeholder="Ej. Cuarto de Bombas, Chillers 2026, Manuales..."
@@ -884,23 +1075,14 @@ export const OriginalDocumentViewer: React.FC<OriginalDocumentViewerProps> = ({
                 Cancelar
               </button>
               <button
-                type="button"
+                type="submit"
                 disabled={!newFolderNameInput.trim()}
-                onClick={async () => {
-                  if (newFolderNameInput.trim()) {
-                    await onCreateFolder(newFolderNameInput.trim(), newFolderColor, newFolderDesc.trim() || undefined);
-                    setNewFolderNameInput('');
-                    setNewFolderDesc('');
-                    setNewFolderColor('amber');
-                    setIsNewFolderModalOpen(false);
-                  }
-                }}
                 className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-bold transition-colors cursor-pointer"
               >
-                Crear Carpeta
+                {newFolderParentId ? 'Crear Subcarpeta' : 'Crear Carpeta'}
               </button>
             </div>
-          </div>
+          </form>
         </div>
       )}
 

@@ -336,6 +336,7 @@ export interface HotelInfo {
 export interface DocumentFolder {
   id: string;
   name: string;
+  parentFolderId?: string | null;
   color?: string;
   description?: string;
   createdBy?: string;

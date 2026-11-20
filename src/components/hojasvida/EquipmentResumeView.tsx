@@ -95,16 +95,42 @@ export const EquipmentResumeView: React.FC = () => {
   const [activeDocId, setActiveDocId] = useState<string>('');
   const [activeFolderId, setActiveFolderId] = useState<string | null>(null);
 
-  const handleCreateFolder = async (name: string, color?: string, description?: string) => {
-    await createDocumentFolder(name, color, description);
+  const handleCreateFolder = async (name: string, color?: string, description?: string, parentFolderId?: string | null) => {
+    return await createDocumentFolder(name, color, description, parentFolderId ?? null);
   };
 
   const handleDeleteFolder = async (folderId: string) => {
     if (activeFolderId === folderId) {
-      setActiveFolderId(null);
+      const deleted = documentFolders.find(f => f.id === folderId);
+      setActiveFolderId(deleted?.parentFolderId || null);
     }
     deleteDocumentFolder(folderId); // background
   };
+
+  const flattenedFolderOptions = useMemo(() => {
+    const folderMap = new Map(documentFolders.map(f => [f.id, f]));
+    const getParent = (f: DocumentFolder) =>
+      f.parentFolderId && f.parentFolderId !== f.id && folderMap.has(f.parentFolderId) ? f.parentFolderId : null;
+    const list: { id: string; label: string }[] = [];
+    const visited = new Set<string>();
+    const walk = (parentId: string | null, depth: number) => {
+      for (const f of documentFolders) {
+        if (getParent(f) === parentId && !visited.has(f.id)) {
+          visited.add(f.id);
+          const prefix = depth > 0 ? `${'— '.repeat(depth)}📁 ` : '📁 ';
+          list.push({ id: f.id, label: `${prefix}${f.name}` });
+          walk(f.id, depth + 1);
+        }
+      }
+    };
+    walk(null, 0);
+    for (const f of documentFolders) {
+      if (!visited.has(f.id)) {
+        list.push({ id: f.id, label: `📁 ${f.name}` });
+      }
+    }
+    return list;
+  }, [documentFolders]);
 
   // Selected Equipment for Hoja de Vida
   const [selectedEqId, setSelectedEqId] = useState<string>(equipments[0]?.id || '');
@@ -390,7 +416,7 @@ export const EquipmentResumeView: React.FC = () => {
       }
 
       if (lastSaved) {
-        setActiveFolderId(targetFolderId || null);
+        setActiveFolderId(targetFolderId || activeFolderId || null);
         setActiveDocId(lastSaved.id);
         setActiveSubTab('visor_documentos');
       }
@@ -1294,8 +1320,8 @@ export const EquipmentResumeView: React.FC = () => {
                   className="px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500 sm:min-w-[240px]"
                 >
                   <option value="">Raíz del Archivero (Sin carpeta)</option>
-                  {documentFolders.map(f => (
-                    <option key={f.id} value={f.id}>📁 {f.name}</option>
+                  {flattenedFolderOptions.map(opt => (
+                    <option key={opt.id} value={opt.id}>{opt.label}</option>
                   ))}
                 </select>
               </div>
@@ -1535,8 +1561,8 @@ export const EquipmentResumeView: React.FC = () => {
                   className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs font-semibold text-slate-800"
                 >
                   <option value="">Raíz del Archivero (Sin carpeta)</option>
-                  {documentFolders.map(f => (
-                    <option key={f.id} value={f.id}>📁 {f.name}</option>
+                  {flattenedFolderOptions.map(opt => (
+                    <option key={opt.id} value={opt.id}>{opt.label}</option>
                   ))}
                 </select>
               </div>

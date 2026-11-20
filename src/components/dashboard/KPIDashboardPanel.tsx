@@ -49,8 +49,11 @@ export const KPIDashboardPanel: React.FC = () => {
     stateAuditResult, 
     runStateAudit,
     currentUser,
-    isAdmin: ctxIsAdmin
+    isAdmin: ctxIsAdmin,
+    isInitialSyncDone
   } = useMaintenance();
+
+  const isKpiHydrating = !isInitialSyncDone && rounds.length === 0 && tasks.length === 0 && meters.length === 0 && incidents.length === 0 && requests.length === 0;
 
   const [activeTab, setActiveTab] = useState<DashboardTab>('resumen');
   // Default to 'all' (Historial Completo) so 100% of PostgreSQL records are visible without date exclusion
@@ -551,7 +554,9 @@ export const KPIDashboardPanel: React.FC = () => {
             <span>Base de Datos PostgreSQL Conectada:</span>
           </span>
           <span className="text-slate-700 font-bold">
-            {dbTotals.totalTasks} tareas ({dbTotals.inProgressTasks} en progreso) • {dbTotals.totalRounds} rondas • {dbTotals.totalIncidents} fallas ({dbTotals.resolvedIncidents} OK) • {dbTotals.totalRequests} solicitudes • {dbTotals.totalMeters} contadores
+            {isKpiHydrating
+              ? 'Sincronizando registros desde PostgreSQL...'
+              : `${dbTotals.totalTasks} tareas (${dbTotals.inProgressTasks} en progreso) • ${dbTotals.totalRounds} rondas • ${dbTotals.totalIncidents} fallas (${dbTotals.resolvedIncidents} OK) • ${dbTotals.totalRequests} solicitudes • ${dbTotals.totalMeters} contadores`}
           </span>
         </div>
 
@@ -638,11 +643,15 @@ export const KPIDashboardPanel: React.FC = () => {
             </span>
           </div>
           <div className="mt-2.5 flex items-baseline space-x-1.5">
-            <span className="text-2xl font-black text-slate-900">{dbTotals.totalRounds}</span>
+            {isKpiHydrating ? (
+              <span className="h-7 w-12 rounded-md bg-slate-200 animate-pulse inline-block" />
+            ) : (
+              <span className="text-2xl font-black text-slate-900">{dbTotals.totalRounds}</span>
+            )}
             <span className="text-xs text-slate-500">en base de datos</span>
           </div>
           <div className="text-[11px] text-emerald-700 font-semibold mt-1">
-            {dbTotals.completedRounds} completadas
+            {isKpiHydrating ? 'Cargando...' : `${dbTotals.completedRounds} completadas`}
           </div>
         </div>
 
@@ -657,11 +666,15 @@ export const KPIDashboardPanel: React.FC = () => {
               Contadores
             </span>
             <span className="text-[10px] bg-teal-100 text-teal-800 px-1.5 py-0.5 rounded font-black">
-              {dbTotals.totalMeters} activos
+              {isKpiHydrating ? '—' : `${dbTotals.totalMeters} activos`}
             </span>
           </div>
           <div className="mt-2.5 flex items-baseline space-x-1.5">
-            <span className="text-2xl font-black text-slate-900">{dbTotals.totalReadings}</span>
+            {isKpiHydrating ? (
+              <span className="h-7 w-12 rounded-md bg-slate-200 animate-pulse inline-block" />
+            ) : (
+              <span className="text-2xl font-black text-slate-900">{dbTotals.totalReadings}</span>
+            )}
             <span className="text-xs text-slate-500">lecturas registradas</span>
           </div>
           <div className="text-[11px] text-teal-700 font-semibold mt-1">
@@ -684,11 +697,15 @@ export const KPIDashboardPanel: React.FC = () => {
             </span>
           </div>
           <div className="mt-2.5 flex items-baseline space-x-1.5">
-            <span className="text-2xl font-black text-slate-900">{dbTotals.totalIncidents}</span>
+            {isKpiHydrating ? (
+              <span className="h-7 w-12 rounded-md bg-slate-200 animate-pulse inline-block" />
+            ) : (
+              <span className="text-2xl font-black text-slate-900">{dbTotals.totalIncidents}</span>
+            )}
             <span className="text-xs text-slate-500">reportadas</span>
           </div>
           <div className="text-[11px] text-emerald-700 font-semibold mt-1">
-            {dbTotals.resolvedIncidents} solucionadas (100% OK)
+            {isKpiHydrating ? 'Cargando...' : `${dbTotals.resolvedIncidents} solucionadas (100% OK)`}
           </div>
         </div>
 
@@ -703,15 +720,19 @@ export const KPIDashboardPanel: React.FC = () => {
               Solicitudes
             </span>
             <span className="text-[10px] bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded font-black">
-              {dbTotals.pendingReqs} pend.
+              {isKpiHydrating ? '—' : `${dbTotals.pendingReqs} pend.`}
             </span>
           </div>
           <div className="mt-2.5 flex items-baseline space-x-1.5">
-            <span className="text-2xl font-black text-slate-900">{dbTotals.totalRequests}</span>
+            {isKpiHydrating ? (
+              <span className="h-7 w-12 rounded-md bg-slate-200 animate-pulse inline-block" />
+            ) : (
+              <span className="text-2xl font-black text-slate-900">{dbTotals.totalRequests}</span>
+            )}
             <span className="text-xs text-slate-500">solicitudes</span>
           </div>
           <div className="text-[11px] text-slate-600 font-semibold mt-1">
-            {dbTotals.resolvedReqs} resueltas • {dbTotals.inProgressReqs} en proceso
+            {isKpiHydrating ? 'Cargando...' : `${dbTotals.resolvedReqs} resueltas • ${dbTotals.inProgressReqs} en proceso`}
           </div>
         </div>
 
@@ -726,11 +747,15 @@ export const KPIDashboardPanel: React.FC = () => {
               Tareas
             </span>
             <span className="text-[10px] bg-purple-100 text-purple-800 px-1.5 py-0.5 rounded font-black">
-              {dbTotals.totalTasks} totales
+              {isKpiHydrating ? '—' : `${dbTotals.totalTasks} totales`}
             </span>
           </div>
           <div className="mt-2 flex items-baseline space-x-1.5">
-            <span className="text-2xl font-black text-slate-900">{dbTotals.totalTasks}</span>
+            {isKpiHydrating ? (
+              <span className="h-7 w-12 rounded-md bg-slate-200 animate-pulse inline-block" />
+            ) : (
+              <span className="text-2xl font-black text-slate-900">{dbTotals.totalTasks}</span>
+            )}
             <span className="text-xs text-slate-500">en PostgreSQL</span>
           </div>
           
@@ -738,10 +763,10 @@ export const KPIDashboardPanel: React.FC = () => {
           <div className="mt-1 flex flex-col gap-0.5">
             <div className="inline-flex items-center gap-1.5 text-blue-700 bg-blue-100/80 px-2 py-0.5 rounded-md font-black text-[11px] w-fit">
               <span className="w-2 h-2 rounded-full bg-blue-600 animate-pulse" />
-              <span>{dbTotals.inProgressTasks} en progreso</span>
+              <span>{isKpiHydrating ? 'Sincronizando...' : `${dbTotals.inProgressTasks} en progreso`}</span>
             </div>
             <div className="text-[10px] text-slate-500 font-medium">
-              {dbTotals.pendingTasks} pendientes • {dbTotals.completedTasks} completadas
+              {isKpiHydrating ? 'Cargando...' : `${dbTotals.pendingTasks} pendientes • ${dbTotals.completedTasks} completadas`}
             </div>
           </div>
         </div>

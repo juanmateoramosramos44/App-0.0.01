@@ -306,7 +306,8 @@ export const TechnicianSchedulesView: React.FC = () => {
     deleteUser,
     currentUser, 
     settings,
-    notify 
+    notify,
+    isInitialSyncDone
   } = useMaintenance();
 
   const [activeViewMode, setActiveViewMode] = useState<'matriz' | 'calendario' | 'cobertura' | 'permutas'>('matriz');
@@ -1481,15 +1482,19 @@ export const TechnicianSchedulesView: React.FC = () => {
       return;
     }
 
+    const payload = { ...formData };
+    const targetEditId = editingSchedule?.id;
+    // Cierre instantáneo del modal al guardar sin esperar latencia de red
+    setIsAddEditModalOpen(false);
+
     try {
-      if (editingSchedule) {
-        await updateSchedule(editingSchedule.id, formData);
-        notify(`✅ Horario de ${formData.technicianName} actualizado.`);
+      if (targetEditId) {
+        await updateSchedule(targetEditId, payload);
+        notify(`✅ Horario de ${payload.technicianName} actualizado.`);
       } else {
-        await addSchedule(formData);
-        notify(`✅ Horario programado para ${formData.technicianName}.`);
+        await addSchedule(payload);
+        notify(`✅ Horario programado para ${payload.technicianName}.`);
       }
-      setIsAddEditModalOpen(false);
     } catch (err) {
       notify('Error al guardar el horario.');
     }
@@ -1502,10 +1507,13 @@ export const TechnicianSchedulesView: React.FC = () => {
       return;
     }
 
+    const payload = { ...bulkData };
+    // Cierre instantáneo del modal al generar programación masiva
+    setIsBulkModalOpen(false);
+
     try {
-      await bulkGenerateSchedules(bulkData);
+      await bulkGenerateSchedules(payload);
       notify(`⚡ Programación quincenal generada con éxito.`);
-      setIsBulkModalOpen(false);
     } catch (err) {
       notify('Error al generar la programación masiva.');
     }
@@ -1520,19 +1528,22 @@ export const TechnicianSchedulesView: React.FC = () => {
 
     const sched = schedules.find(s => s.id === swapData.scheduleId);
     const targetTech = users.find(u => u.id === swapData.targetTechnicianId);
+    const payload = {
+      scheduleId: swapData.scheduleId,
+      requesterId: currentUser?.id || 'usr-anon',
+      requesterName: currentUser?.displayName || 'Técnico',
+      targetTechnicianId: swapData.targetTechnicianId,
+      targetTechnicianName: targetTech?.displayName || 'Técnico Destino',
+      date: sched?.date || getHotelCurrentDateIso(),
+      reason: swapData.reason || 'Cambio quincenal por asuntos personales'
+    };
+
+    // Cierre instantáneo del modal al enviar la solicitud de permuta
+    setIsSwapModalOpen(false);
 
     try {
-      await requestShiftSwap({
-        scheduleId: swapData.scheduleId,
-        requesterId: currentUser?.id || 'usr-anon',
-        requesterName: currentUser?.displayName || 'Técnico',
-        targetTechnicianId: swapData.targetTechnicianId,
-        targetTechnicianName: targetTech?.displayName || 'Técnico Destino',
-        date: sched?.date || getHotelCurrentDateIso(),
-        reason: swapData.reason || 'Cambio quincenal por asuntos personales'
-      });
+      await requestShiftSwap(payload);
       notify('🔄 Solicitud de permuta enviada.');
-      setIsSwapModalOpen(false);
     } catch (err) {
       notify('Error al enviar la solicitud de permuta.');
     }
@@ -1653,7 +1664,7 @@ export const TechnicianSchedulesView: React.FC = () => {
               <h3 className="text-sm font-semibold text-slate-200 flex items-center gap-2">
                 <span>Técnicos De Turno Ahora Mismo</span>
                 <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                  {activeTechniciansNow.length} de servicio
+                  {!isInitialSyncDone && schedules.length === 0 ? 'Sincronizando...' : `${activeTechniciansNow.length} de servicio`}
                 </span>
               </h3>
               <p className="text-xs text-slate-400 mt-0.5">
@@ -1666,29 +1677,35 @@ export const TechnicianSchedulesView: React.FC = () => {
           <div className="flex items-center gap-2 overflow-x-auto pb-1 sm:pb-0">
             <div className="px-3 py-1.5 bg-amber-500/10 border border-amber-500/20 rounded-xl text-xs font-medium text-amber-300 shrink-0 flex items-center gap-1.5">
               <span>🌅 Mañana:</span>
-              <span className="font-bold">{todayStats.morningCount}</span>
+              <span className="font-bold">{!isInitialSyncDone && schedules.length === 0 ? '—' : todayStats.morningCount}</span>
             </div>
             <div className="px-3 py-1.5 bg-teal-500/10 border border-teal-500/20 rounded-xl text-xs font-medium text-teal-300 shrink-0 flex items-center gap-1.5">
               <span>👔 Supervisor:</span>
-              <span className="font-bold">{todayStats.supervisorCount}</span>
+              <span className="font-bold">{!isInitialSyncDone && schedules.length === 0 ? '—' : todayStats.supervisorCount}</span>
             </div>
             <div className="px-3 py-1.5 bg-emerald-500/10 border border-emerald-500/20 rounded-xl text-xs font-medium text-emerald-300 shrink-0 flex items-center gap-1.5">
               <span>🏢 Turno Intermedio:</span>
-              <span className="font-bold">{todayStats.intermediateCount}</span>
+              <span className="font-bold">{!isInitialSyncDone && schedules.length === 0 ? '—' : todayStats.intermediateCount}</span>
             </div>
             <div className="px-3 py-1.5 bg-blue-500/10 border border-blue-500/20 rounded-xl text-xs font-medium text-blue-300 shrink-0 flex items-center gap-1.5">
               <span>☀️ Tarde:</span>
-              <span className="font-bold">{todayStats.afternoonCount}</span>
+              <span className="font-bold">{!isInitialSyncDone && schedules.length === 0 ? '—' : todayStats.afternoonCount}</span>
             </div>
             <div className="px-3 py-1.5 bg-purple-500/10 border border-purple-500/20 rounded-xl text-xs font-medium text-purple-300 shrink-0 flex items-center gap-1.5">
               <span>🌙 Noche:</span>
-              <span className="font-bold">{todayStats.nightCount}</span>
+              <span className="font-bold">{!isInitialSyncDone && schedules.length === 0 ? '—' : todayStats.nightCount}</span>
             </div>
           </div>
         </div>
 
         {/* ACTIVE TECHNICIANS BADGES */}
-        {activeTechniciansNow.length > 0 ? (
+        {!isInitialSyncDone && schedules.length === 0 ? (
+          <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 pt-3 border-t border-slate-800">
+            {[1, 2, 3].map(idx => (
+              <div key={idx} className="bg-slate-800/60 border border-slate-700/60 p-3 rounded-xl h-16 animate-pulse" />
+            ))}
+          </div>
+        ) : activeTechniciansNow.length > 0 ? (
           <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 pt-3 border-t border-slate-800">
             {activeTechniciansNow.map(tech => (
               <div 

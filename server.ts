@@ -303,6 +303,11 @@ async function initPostgresSchema() {
           updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
       `);
+      try {
+        await client.query(`ALTER TABLE document_folders ADD COLUMN IF NOT EXISTS parent_folder_id TEXT;`);
+      } catch (alterErr) {
+        console.warn("[PostgreSQL] Notice ensuring parent_folder_id column:", (alterErr as any)?.message || alterErr);
+      }
       pgAvailable = true;
       console.log("[PostgreSQL] All tables verified / created successfully.");
       await syncMemoryToPostgresIfEmpty(client);
@@ -652,31 +657,138 @@ async function isIdDeletedInServer(id: string, extraCode?: string): Promise<bool
   return false;
 }
 
-async function pgUpsert(table: string, id: string, data: any, clearDeletion: boolean = false) {
-  if (!pgPool) return;
-  try {
-    if (!clearDeletion && table !== 'settings' && table !== 'app_data') {
-      const delCheck = await pgPool.query('SELECT 1 FROM deleted_ids WHERE id = $1 LIMIT 1', [id]);
-      if (delCheck.rows && delCheck.rows.length > 0) {
-        return;
-      }
-    }
-    await pgPool.query(
-      `INSERT INTO ${table} (id, data, updated_at) 
-       VALUES ($1, $2, CURRENT_TIMESTAMP) 
-       ON CONFLICT (id) 
-       DO UPDATE SET data = EXCLUDED.data, updated_at = CURRENT_TIMESTAMP`,
-      [id, JSON.stringify(data)]
-    );
-    if (clearDeletion) {
-      await pgPool.query(`DELETE FROM deleted_ids WHERE id = $1`, [id]);
-      if (memoryCache && Array.isArray(memoryCache.deletedIds)) {
-        memoryCache.deletedIds = memoryCache.deletedIds.filter((dId: string) => dId !== id);
-      }
-    }
-  } catch (err) {
-    console.warn(`[PostgreSQL] Notice on ${table} (falling back to JSON store):`, (err as any)?.message || err);
+function safeParseTs(val: any): number {
+  if (!val) return 0;
+  if (typeof val === 'number') return isFinite(val) ? val : 0;
+  if (val instanceof Date) return isNaN(val.getTime()) ? 0 : val.getTime();
+  const s = String(val).trim();
+  if (!s) return 0;
+  const isoLike = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(s) ? s.replace(' ', 'T') : s;
+  const t = new Date(isoLike).getTime();
+  return isNaN(t) ? 0 : t;
+}
+
+function monotonicUpdatedAt(existing: any, incomingUpdatedAt?: any): string {
+  const prevTs = existing
+    ? Math.max(
+        safeParseTs(existing.updatedAt),
+        safeParseTs(existing.lastUpdated),
+        safeParseTs(existing.resolvedAt),
+        safeParseTs(existing.createdAt)
+      )
+    : 0;
+  const incTs = safeParseTs(incomingUpdatedAt);
+  const nextTs = Math.max(Date.now(), prevTs + 1, incTs);
+  return new Date(nextTs).toISOString();
+}
+
+function getCanonicalScheduleTechKeyServer(id?: string, name?: string): string {
+  const cleanId = String(id || '').trim();
+  const normName = String(name || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\/.*$/, '')
+    .replace(/tecnico|supervisor|operador|mantenimiento|ingenieria/gi, '')
+    .trim();
+
+  if (cleanId === 'pers-1' || cleanId === 'usr-1789230683226' || normName.includes('juan mateo') || normName === 'mateo') return 'tech_juan_mateo';
+  if (cleanId === 'pers-2' || cleanId === 'usr-1789246875257' || normName.includes('machado') || normName.includes('fernely')) return 'tech_ferney_machado';
+  if (cleanId === 'pers-3' || cleanId === 'usr-1789435937593' || normName.includes('carlos manuel')) return 'tech_carlos_manuel';
+  if (cleanId === 'pers-4' || cleanId === 'usr-1789437863324' || normName.includes('alonso')) return 'tech_ferney_alonso';
+  if (
+    cleanId === 'pers-5' ||
+    cleanId === 'usr-1790809958615-592' ||
+    cleanId === 'usr-1790620816372' ||
+    cleanId === 'usr-1790632899774' ||
+    normName.includes('adrian')
+  ) {
+    return 'tech_adrian';
   }
+
+  return cleanId.toLowerCase() || normName;
+}
+
+function findMatchingCheckpointIndexServer(
+  list: any[],
+  target: any,
+  usedIndices?: Set<number>
+): number {
+  if (!Array.isArray(list) || !target) return -1;
+  // Pass 1: exact checkpoint ID match
+  if (target.id) {
+    const idIdx = list.findIndex((c: any, idx: number) => c && c.id === target.id && (!usedIndices || !usedIndices.has(idx)));
+    if (idIdx >= 0) return idIdx;
+  }
+  const targetTitle = String(target.title || '').trim().toLowerCase();
+  const targetArea = String(target.area || '').trim().toLowerCase();
+  if (!targetTitle) return -1;
+  // Pass 2: exact title + area match (excluding already matched entries)
+  if (targetArea) {
+    const taIdx = list.findIndex(
+      (c: any, idx: number) =>
+        c &&
+        (!usedIndices || !usedIndices.has(idx)) &&
+        String(c.title || '').trim().toLowerCase() === targetTitle &&
+        String(c.area || '').trim().toLowerCase() === targetArea
+    );
+    if (taIdx >= 0) return taIdx;
+  }
+  // Pass 3: title-only match (excluding already matched entries)
+  return list.findIndex(
+    (c: any, idx: number) =>
+      c &&
+      (!usedIndices || !usedIndices.has(idx)) &&
+      String(c.title || '').trim().toLowerCase() === targetTitle
+  );
+}
+
+async function pgUpsert(table: string, id: string, data: any, clearDeletion: boolean = false): Promise<boolean> {
+  if (!pgPool) return true;
+  const payloadJson = JSON.stringify(data);
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      if (!clearDeletion && table !== 'settings' && table !== 'app_data') {
+        const delCheck = await pgPool.query('SELECT 1 FROM deleted_ids WHERE id = $1 LIMIT 1', [id]);
+        if (delCheck.rows && delCheck.rows.length > 0) {
+          return true;
+        }
+      }
+      if (table === 'document_folders') {
+        const parentFolderId = data && data.parentFolderId ? String(data.parentFolderId) : null;
+        await pgPool.query(
+          `INSERT INTO document_folders (id, data, parent_folder_id, updated_at) 
+           VALUES ($1, $2, $3, CURRENT_TIMESTAMP) 
+           ON CONFLICT (id) 
+           DO UPDATE SET data = EXCLUDED.data, parent_folder_id = EXCLUDED.parent_folder_id, updated_at = CURRENT_TIMESTAMP`,
+          [id, payloadJson, parentFolderId]
+        );
+      } else {
+        await pgPool.query(
+          `INSERT INTO ${table} (id, data, updated_at) 
+           VALUES ($1, $2, CURRENT_TIMESTAMP) 
+           ON CONFLICT (id) 
+           DO UPDATE SET data = EXCLUDED.data, updated_at = CURRENT_TIMESTAMP`,
+          [id, payloadJson]
+        );
+      }
+      if (clearDeletion) {
+        await pgPool.query(`DELETE FROM deleted_ids WHERE id = $1`, [id]);
+        if (memoryCache && Array.isArray(memoryCache.deletedIds)) {
+          memoryCache.deletedIds = memoryCache.deletedIds.filter((dId: string) => dId !== id);
+        }
+      }
+      return true;
+    } catch (err) {
+      if (attempt === 0) {
+        await new Promise(resolve => setTimeout(resolve, 120));
+        continue;
+      }
+      console.error(`[PostgreSQL] Upsert error on ${table}/${id}:`, (err as any)?.message || err);
+      return false;
+    }
+  }
+  return false;
 }
 
 async function pgDelete(table: string, id: string) {
@@ -1570,8 +1682,20 @@ function mergeAppData(incoming: any) {
         const existing = existingMap.get(item.id);
         let chosen: any = cleanItem;
         if (existing) {
-          const tExisting = new Date(existing.updatedAt || existing.lastUpdated || existing.resolvedAt || existing.uploadDate || existing.createdAt || 0).getTime() || 0;
-          const tIncoming = new Date(cleanItem.updatedAt || cleanItem.lastUpdated || cleanItem.resolvedAt || cleanItem.uploadDate || cleanItem.createdAt || 0).getTime() || 0;
+          const tExisting = Math.max(
+            safeParseTs(existing.updatedAt),
+            safeParseTs(existing.lastUpdated),
+            safeParseTs(existing.resolvedAt),
+            safeParseTs(existing.uploadDate),
+            safeParseTs(existing.createdAt)
+          );
+          const tIncoming = Math.max(
+            safeParseTs(cleanItem.updatedAt),
+            safeParseTs(cleanItem.lastUpdated),
+            safeParseTs(cleanItem.resolvedAt),
+            safeParseTs(cleanItem.uploadDate),
+            safeParseTs(cleanItem.createdAt)
+          );
           chosen = tIncoming >= tExisting ? { ...existing, ...cleanItem } : { ...cleanItem, ...existing };
           if (key === 'uploadedDocuments' && !chosen.rawBase64 && (existing.rawBase64 || cleanItem.rawBase64)) {
             chosen.rawBase64 = cleanItem.rawBase64 || existing.rawBase64;
@@ -1583,7 +1707,25 @@ function mergeAppData(incoming: any) {
           existingMap.set(item.id, chosen);
         }
       }
-      current[key] = Array.from(existingMap.values());
+      if (key === 'schedules') {
+        const dedupByTechDate = new Map<string, any>();
+        for (const s of existingMap.values()) {
+          if (!s || !s.date) continue;
+          const techKey = getCanonicalScheduleTechKeyServer(s.technicianId, s.technicianName);
+          const tdKey = `${s.date}__${techKey}`;
+          const prev = dedupByTechDate.get(tdKey);
+          if (!prev) {
+            dedupByTechDate.set(tdKey, s);
+          } else {
+            const tPrev = Math.max(safeParseTs(prev.updatedAt), safeParseTs(prev.createdAt));
+            const tCur = Math.max(safeParseTs(s.updatedAt), safeParseTs(s.createdAt));
+            if (tCur >= tPrev) dedupByTechDate.set(tdKey, s);
+          }
+        }
+        current[key] = Array.from(dedupByTechDate.values());
+      } else {
+        current[key] = Array.from(existingMap.values());
+      }
     }
   }
 
@@ -1800,7 +1942,8 @@ app.get("/api/data", async (req, res) => {
         qDocumentFolders,
         qBitacora,
         qSettings,
-        qTemplate
+        qTemplate,
+        qScheduleConfig
       ] = await Promise.all([
         pgPool.query('SELECT id FROM deleted_ids').catch(() => null),
         pgPool.query('SELECT id, data FROM rounds ORDER BY updated_at DESC').catch(() => null),
@@ -1821,8 +1964,9 @@ app.get("/api/data", async (req, res) => {
         pgPool.query('SELECT id, data FROM document_folders ORDER BY updated_at DESC').catch(() => null),
         pgPool.query('SELECT id, data FROM bitacora_tecnica ORDER BY updated_at DESC').catch(() => null),
         pgPool.query('SELECT data FROM settings WHERE id = $1 LIMIT 1', ['app_settings']).catch(() => null),
-        pgPool.query('SELECT data FROM app_data WHERE id = $1 LIMIT 1', ['round_template']).catch(() => null)
-      ]);
+        pgPool.query('SELECT data FROM app_data WHERE id = $1 LIMIT 1', ['round_template']).catch(() => null),
+        pgPool.query('SELECT data FROM app_data WHERE id = $1 LIMIT 1', ['schedule_config']).catch(() => null)
+      ] as any);
 
       const pgDeletedSet = new Set<string>((qDeleted?.rows || []).map((r: any) => r.id).filter(Boolean));
       const memoryDeleted = new Set<string>(data.deletedIds || []);
@@ -1882,6 +2026,11 @@ app.get("/api/data", async (req, res) => {
       if (pgBitacora) data.bitacora = pgBitacora;
       if (qSettings?.rows?.[0]?.data) data.settings = qSettings.rows[0].data;
       if (Array.isArray(qTemplate?.rows?.[0]?.data?.items)) data.roundTemplate = qTemplate.rows[0].data.items;
+      if (qScheduleConfig?.rows?.[0]?.data) {
+        if (!data.appData) data.appData = {};
+        data.appData['schedule_config'] = qScheduleConfig.rows[0].data;
+        data.scheduleConfig = qScheduleConfig.rows[0].data;
+      }
 
       data.deletedIds = Array.from(allDeleted);
       scheduleSaveToDisk();
@@ -1890,7 +2039,7 @@ app.get("/api/data", async (req, res) => {
     }
   }
 
-  res.json({ ...(data || {}), serverVersion: SERVER_BUILD_TIME });
+  res.json({ ...(data || {}), serverVersion: SERVER_BUILD_TIME, serverTime: Date.now() });
 });
 
 app.get("/api/audit", (req, res) => {
@@ -2737,7 +2886,7 @@ app.post("/api/rounds/:id/checkpoint", async (req, res) => {
   let updatedCheckpoints = Array.isArray(existing.checkpoints) ? [...existing.checkpoints] : [];
 
   if (checkpoint && typeof checkpoint === 'object' && checkpoint.id) {
-    const cIdx = updatedCheckpoints.findIndex((c: any) => c && (c.id === checkpoint.id || (checkpoint.title && c.title === checkpoint.title)));
+    const cIdx = findMatchingCheckpointIndexServer(updatedCheckpoints, checkpoint);
     const ec = cIdx >= 0 ? updatedCheckpoints[cIdx] : null;
     const mergedChkPhotos = mergeUniquePhotosServer(ec?.photos, ec?.photoUrl, checkpoint.photos, checkpoint.photoUrl);
     const photoUrl = mergedChkPhotos[mergedChkPhotos.length - 1] || checkpoint.photoUrl || ec?.photoUrl;
@@ -2910,8 +3059,12 @@ app.post("/api/rounds", async (req, res) => {
     let savedRound: any;
     if (idx >= 0) {
       const existing = current.rounds[idx];
-      const mergedCheckpoints = (round.checkpoints || existing.checkpoints || []).map((rc: any) => {
-        const ec = (existing.checkpoints || []).find((c: any) => c && (c.id === rc.id || c.title === rc.title));
+      const existingCheckpoints = Array.isArray(existing.checkpoints) ? existing.checkpoints : [];
+      const usedExistingIndices = new Set<number>();
+      const mergedCheckpoints = (round.checkpoints || existingCheckpoints || []).map((rc: any) => {
+        const matchIdx = findMatchingCheckpointIndexServer(existingCheckpoints, rc, usedExistingIndices);
+        if (matchIdx >= 0) usedExistingIndices.add(matchIdx);
+        const ec = matchIdx >= 0 ? existingCheckpoints[matchIdx] : null;
         const mergedChkPhotos = mergeUniquePhotosServer(ec?.photos, ec?.photoUrl, rc.photos, rc.photoUrl);
         const photoUrl = mergedChkPhotos[mergedChkPhotos.length - 1] || rc.photoUrl || ec?.photoUrl;
 
@@ -3462,30 +3615,35 @@ app.post("/api/shift-swaps", async (req, res) => {
   const store = getCachedData();
   if (!Array.isArray(store.shiftSwaps)) store.shiftSwaps = [];
   const idx = store.shiftSwaps.findIndex((s: any) => s.id === item.id);
-  if (idx >= 0) store.shiftSwaps[idx] = { ...store.shiftSwaps[idx], ...item };
-  else store.shiftSwaps.push(item);
-  await pgUpsert('shift_swaps', item.id, item, Boolean(item.forceRestore));
+  const existing = idx >= 0 ? store.shiftSwaps[idx] : null;
+  const savedSwap = { ...(existing || {}), ...item, updatedAt: monotonicUpdatedAt(existing, item.updatedAt) };
+  if (idx >= 0) store.shiftSwaps[idx] = savedSwap;
+  else store.shiftSwaps.push(savedSwap);
+  const pgOk = await pgUpsert('shift_swaps', savedSwap.id, savedSwap, Boolean(item.forceRestore));
+  if (pgPool && !pgOk) return res.status(503).json({ error: "PostgreSQL save failed" });
   scheduleSaveToDisk();
   const clientId = req.headers['x-client-id'] || null;
-  broadcastSse({ type: 'swap_updated', swap: item, clientId, time: Date.now() });
+  broadcastSse({ type: 'swap_updated', swap: savedSwap, clientId, time: Date.now() });
   broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
-  res.json({ status: "success", swap: item });
+  res.json({ status: "success", swap: savedSwap });
 });
 app.put("/api/shift-swaps/:id", async (req, res) => {
   const { id } = req.params;
   if (await isIdDeletedInServer(id)) return res.status(410).json({ error: "Deleted", id });
-  const item = { ...req.body, id };
   const store = getCachedData();
   if (!Array.isArray(store.shiftSwaps)) store.shiftSwaps = [];
   const idx = store.shiftSwaps.findIndex((s: any) => s.id === id);
-  if (idx >= 0) store.shiftSwaps[idx] = { ...store.shiftSwaps[idx], ...item };
-  else store.shiftSwaps.push(item);
-  await pgUpsert('shift_swaps', id, item, false);
+  const existing = idx >= 0 ? store.shiftSwaps[idx] : null;
+  const savedSwap = { ...(existing || {}), ...(req.body || {}), id, updatedAt: monotonicUpdatedAt(existing, req.body?.updatedAt) };
+  if (idx >= 0) store.shiftSwaps[idx] = savedSwap;
+  else store.shiftSwaps.push(savedSwap);
+  const pgOk = await pgUpsert('shift_swaps', id, savedSwap, false);
+  if (pgPool && !pgOk) return res.status(503).json({ error: "PostgreSQL save failed" });
   scheduleSaveToDisk();
   const clientId = req.headers['x-client-id'] || null;
-  broadcastSse({ type: 'swap_updated', swap: item, clientId, time: Date.now() });
+  broadcastSse({ type: 'swap_updated', swap: savedSwap, clientId, time: Date.now() });
   broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
-  res.json({ status: "success", swap: item });
+  res.json({ status: "success", swap: savedSwap });
 });
 
 // Uploaded Documents
@@ -3546,19 +3704,27 @@ app.post("/api/uploaded-documents", async (req, res) => {
   for (const k of Object.keys(item)) {
     if (item[k] !== undefined) cleanItem[k] = item[k];
   }
-  cleanItem.updatedAt = cleanItem.updatedAt || new Date().toISOString();
 
   const idx = store.uploadedDocuments.findIndex((d: any) => d.id === item.id);
   const existing = idx >= 0 ? store.uploadedDocuments[idx] : (pgPool ? await pgGet('uploaded_documents', item.id) : null);
-  const savedDoc = existing ? { ...existing, ...cleanItem } : cleanItem;
+  const savedDoc = {
+    ...(existing || {}),
+    ...cleanItem,
+    id: item.id,
+    updatedAt: monotonicUpdatedAt(existing, cleanItem.updatedAt)
+  };
   if (!savedDoc.rawBase64 && existing?.rawBase64) {
     savedDoc.rawBase64 = existing.rawBase64;
+  }
+
+  const pgOk = await pgUpsert('uploaded_documents', savedDoc.id, savedDoc, Boolean(item.forceRestore));
+  if (pgPool && !pgOk) {
+    return res.status(503).json({ error: "PostgreSQL save failed for uploaded document" });
   }
 
   if (idx >= 0) store.uploadedDocuments[idx] = savedDoc;
   else store.uploadedDocuments.unshift(savedDoc);
 
-  await pgUpsert('uploaded_documents', savedDoc.id, savedDoc, Boolean(item.forceRestore));
   scheduleSaveToDisk();
   const clientId = req.headers['x-client-id'] || null;
   broadcastSse({ type: 'uploaded_document_updated', document: savedDoc, clientId, time: Date.now() });
@@ -3592,6 +3758,24 @@ app.get("/api/document-folders", async (_req, res) => {
   }
   res.json(store.documentFolders || []);
 });
+function wouldCreateFolderCycleServer(folders: any[], folderId: string, candidateParentId: string | null | undefined): boolean {
+  if (!candidateParentId) return false;
+  if (candidateParentId === folderId) return true;
+  const byId = new Map<string, any>();
+  for (const f of folders) {
+    if (f && f.id) byId.set(f.id, f);
+  }
+  let curr: string | null | undefined = candidateParentId;
+  const visited = new Set<string>([folderId]);
+  while (curr) {
+    if (visited.has(curr)) return true;
+    visited.add(curr);
+    const parentObj = byId.get(curr);
+    curr = parentObj?.parentFolderId || null;
+  }
+  return false;
+}
+
 app.post("/api/document-folders", async (req, res) => {
   const item = req.body;
   if (!item || !item.id) return res.status(400).json({ error: "Invalid folder data" });
@@ -3600,11 +3784,29 @@ app.post("/api/document-folders", async (req, res) => {
   }
   const store = getCachedData();
   if (!Array.isArray(store.documentFolders)) store.documentFolders = [];
-  const savedFolder = { ...item, updatedAt: item.updatedAt || new Date().toISOString() };
-  const idx = store.documentFolders.findIndex((f: any) => f.id === savedFolder.id);
-  if (idx >= 0) store.documentFolders[idx] = { ...store.documentFolders[idx], ...savedFolder };
+  const idx = store.documentFolders.findIndex((f: any) => f.id === item.id);
+  const existing = idx >= 0 ? store.documentFolders[idx] : (pgPool ? await pgGet('document_folders', item.id) : null);
+  const cleanItem: Record<string, any> = {};
+  for (const k of Object.keys(item)) {
+    if (item[k] !== undefined) cleanItem[k] = item[k];
+  }
+  const nextParentId = cleanItem.parentFolderId === '' ? null : (cleanItem.parentFolderId ?? existing?.parentFolderId ?? null);
+  if (wouldCreateFolderCycleServer(store.documentFolders, item.id, nextParentId)) {
+    return res.status(400).json({ error: "Invalid parentFolderId cycle" });
+  }
+  const savedFolder = {
+    ...(existing || {}),
+    ...cleanItem,
+    parentFolderId: nextParentId,
+    id: item.id,
+    updatedAt: monotonicUpdatedAt(existing, cleanItem.updatedAt)
+  };
+  const pgOk = await pgUpsert('document_folders', savedFolder.id, savedFolder, Boolean(item.forceRestore));
+  if (pgPool && !pgOk) {
+    return res.status(503).json({ error: "PostgreSQL save failed for folder" });
+  }
+  if (idx >= 0) store.documentFolders[idx] = savedFolder;
   else store.documentFolders.unshift(savedFolder);
-  await pgUpsert('document_folders', savedFolder.id, savedFolder, Boolean(item.forceRestore));
   scheduleSaveToDisk();
   const clientId = req.headers['x-client-id'] || null;
   broadcastSse({ type: 'document_folder_updated', folder: savedFolder, clientId, time: Date.now() });
@@ -3613,14 +3815,31 @@ app.post("/api/document-folders", async (req, res) => {
 });
 app.put("/api/document-folders/:id", async (req, res) => {
   const { id } = req.params;
+  if (await isIdDeletedInServer(id)) return res.status(410).json({ error: "Deleted", id });
   const store = getCachedData();
   if (!Array.isArray(store.documentFolders)) store.documentFolders = [];
   const idx = store.documentFolders.findIndex((f: any) => f && f.id === id);
   const existing = idx >= 0 ? store.documentFolders[idx] : (pgPool ? await pgGet('document_folders', id) : null);
-  const savedFolder = { ...(existing || {}), ...(req.body || {}), id, updatedAt: new Date().toISOString() };
+  const hasParentUpdate = req.body && Object.prototype.hasOwnProperty.call(req.body, 'parentFolderId');
+  const nextParentId = hasParentUpdate
+    ? (req.body.parentFolderId ? String(req.body.parentFolderId) : null)
+    : (existing?.parentFolderId ?? null);
+  if (wouldCreateFolderCycleServer(store.documentFolders, id, nextParentId)) {
+    return res.status(400).json({ error: "Invalid parentFolderId cycle" });
+  }
+  const savedFolder = {
+    ...(existing || {}),
+    ...(req.body || {}),
+    parentFolderId: nextParentId,
+    id,
+    updatedAt: monotonicUpdatedAt(existing, req.body?.updatedAt)
+  };
+  const pgOk = await pgUpsert('document_folders', id, savedFolder, false);
+  if (pgPool && !pgOk) {
+    return res.status(503).json({ error: "PostgreSQL save failed for folder" });
+  }
   if (idx >= 0) store.documentFolders[idx] = savedFolder;
   else store.documentFolders.unshift(savedFolder);
-  await pgUpsert('document_folders', id, savedFolder, false);
   scheduleSaveToDisk();
   const clientId = req.headers['x-client-id'] || null;
   broadcastSse({ type: 'document_folder_updated', folder: savedFolder, clientId, time: Date.now() });
@@ -3630,14 +3849,40 @@ app.put("/api/document-folders/:id", async (req, res) => {
 app.delete("/api/document-folders/:id", async (req, res) => {
   const { id } = req.params;
   const clientId = req.headers['x-client-id'] || null;
-  registerDeletion(id);
   const store = getCachedData();
+  const deletedFolder = (store.documentFolders || []).find((f: any) => f && f.id === id) || (pgPool ? await pgGet('document_folders', id) : null);
+  const fallbackParentId: string | null = deletedFolder?.parentFolderId || null;
+
+  registerDeletion(id);
+
+  // Reassign direct child subfolders to the deleted folder's parent (preserving hierarchy without deleting child folders)
+  if (Array.isArray(store.documentFolders)) {
+    for (let i = 0; i < store.documentFolders.length; i++) {
+      const f = store.documentFolders[i];
+      if (f && f.id !== id && f.parentFolderId === id) {
+        const updatedChild = {
+          ...f,
+          parentFolderId: fallbackParentId,
+          updatedAt: monotonicUpdatedAt(f)
+        };
+        store.documentFolders[i] = updatedChild;
+        await pgUpsert('document_folders', updatedChild.id, updatedChild, false);
+        broadcastSse({ type: 'document_folder_updated', folder: updatedChild, clientId, time: Date.now() });
+      }
+    }
+  }
+
+  // Reassign documents inside deleted folder to fallbackParentId (or root if top-level)
   if (Array.isArray(store.uploadedDocuments)) {
     for (let i = 0; i < store.uploadedDocuments.length; i++) {
       const docItem = store.uploadedDocuments[i];
       if (docItem && docItem.folderId === id) {
-        const updatedDoc = { ...docItem };
-        delete updatedDoc.folderId;
+        const updatedDoc = { ...docItem, updatedAt: monotonicUpdatedAt(docItem) };
+        if (fallbackParentId) {
+          updatedDoc.folderId = fallbackParentId;
+        } else {
+          delete updatedDoc.folderId;
+        }
         store.uploadedDocuments[i] = updatedDoc;
         await pgUpsert('uploaded_documents', updatedDoc.id, updatedDoc, false);
       }
@@ -3645,9 +3890,9 @@ app.delete("/api/document-folders/:id", async (req, res) => {
   }
   await pgDelete('document_folders', id);
   scheduleSaveToDisk();
-  broadcastSse({ type: 'document_folder_deleted', folderId: id, clientId, time: Date.now() });
+  broadcastSse({ type: 'document_folder_deleted', folderId: id, fallbackParentId, clientId, time: Date.now() });
   broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
-  res.json({ status: "deleted", id });
+  res.json({ status: "deleted", id, fallbackParentId });
 });
 
 // Meters & Meter Readings
@@ -4039,14 +4284,17 @@ app.post("/api/requests", async (req, res) => {
   const store = getCachedData();
   if (!Array.isArray(store.requests)) store.requests = [];
   const idx = store.requests.findIndex((r: any) => r.id === item.id);
-  if (idx >= 0) store.requests[idx] = { ...store.requests[idx], ...item };
-  else store.requests.unshift(item);
-  await pgUpsert('requests', item.id, item, Boolean(item.forceRestore));
+  const existing = idx >= 0 ? store.requests[idx] : null;
+  const savedReq = { ...(existing || {}), ...item, updatedAt: monotonicUpdatedAt(existing, item.updatedAt) };
+  if (idx >= 0) store.requests[idx] = savedReq;
+  else store.requests.unshift(savedReq);
+  const pgOk = await pgUpsert('requests', savedReq.id, savedReq, Boolean(item.forceRestore));
+  if (pgPool && !pgOk) return res.status(503).json({ error: "PostgreSQL save failed" });
   scheduleSaveToDisk();
   const clientId = req.headers['x-client-id'] || null;
-  broadcastSse({ type: 'request_updated', request: item, clientId, time: Date.now() });
+  broadcastSse({ type: 'request_updated', request: savedReq, clientId, time: Date.now() });
   broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
-  res.json({ status: "success", request: item });
+  res.json({ status: "success", request: savedReq });
 });
 app.put("/api/requests/:id", async (req, res) => {
   const { id } = req.params;
@@ -4054,10 +4302,12 @@ app.put("/api/requests/:id", async (req, res) => {
   const store = getCachedData();
   if (!Array.isArray(store.requests)) store.requests = [];
   const idx = store.requests.findIndex((r: any) => r.id === id);
-  const item = idx >= 0 ? { ...store.requests[idx], ...req.body, id } : { ...req.body, id };
+  const existing = idx >= 0 ? store.requests[idx] : null;
+  const item = { ...(existing || {}), ...req.body, id, updatedAt: monotonicUpdatedAt(existing, req.body?.updatedAt) };
   if (idx >= 0) store.requests[idx] = item;
   else store.requests.unshift(item);
-  await pgUpsert('requests', id, item, false);
+  const pgOk = await pgUpsert('requests', id, item, false);
+  if (pgPool && !pgOk) return res.status(503).json({ error: "PostgreSQL save failed" });
   scheduleSaveToDisk();
   const clientId = req.headers['x-client-id'] || null;
   broadcastSse({ type: 'request_updated', request: item, clientId, time: Date.now() });
@@ -4087,10 +4337,12 @@ app.put("/api/tasks/:id", async (req, res) => {
   const store = getCachedData();
   if (!Array.isArray(store.tasks)) store.tasks = [];
   const idx = store.tasks.findIndex((t: any) => t.id === id);
-  const item = idx >= 0 ? { ...store.tasks[idx], ...req.body, id } : { ...req.body, id };
+  const existing = idx >= 0 ? store.tasks[idx] : null;
+  const item = { ...(existing || {}), ...req.body, id, updatedAt: monotonicUpdatedAt(existing, req.body?.updatedAt) };
   if (idx >= 0) store.tasks[idx] = item;
   else store.tasks.unshift(item);
-  await pgUpsert('tasks', id, item, false);
+  const pgOk = await pgUpsert('tasks', id, item, false);
+  if (pgPool && !pgOk) return res.status(503).json({ error: "PostgreSQL save failed" });
   scheduleSaveToDisk();
   const clientId = req.headers['x-client-id'] || null;
   broadcastSse({ type: 'task_updated', task: item, clientId, time: Date.now() });
@@ -4120,26 +4372,66 @@ app.post("/api/schedules", async (req, res) => {
   if (!Array.isArray(store.schedules)) store.schedules = [];
   const deletedSet = await getAuthoritativeDeletedIdsSet();
   const savedItems: any[] = [];
-  const nowIso = new Date().toISOString();
+  const replacedConflictIds: string[] = [];
+  const clientId = req.headers['x-client-id'] || null;
+
   for (const rawItem of items) {
     if (!rawItem || !rawItem.id || (deletedSet.has(rawItem.id) && !rawItem.forceRestore)) continue;
-    const item = { ...rawItem, updatedAt: rawItem.updatedAt || nowIso };
-    const idx = store.schedules.findIndex((s: any) => s.id === item.id);
-    let savedItem = item;
-    if (idx >= 0) {
-      const existing = store.schedules[idx];
-      const tExisting = new Date(existing.updatedAt || existing.createdAt || 0).getTime() || 0;
-      const tIncoming = new Date(item.updatedAt || item.createdAt || 0).getTime() || 0;
-      savedItem = tIncoming >= tExisting ? { ...existing, ...item } : { ...item, ...existing };
-      store.schedules[idx] = savedItem;
-    } else {
-      store.schedules.push(savedItem);
+    const cleanIncoming: Record<string, any> = {};
+    for (const k of Object.keys(rawItem)) {
+      if (rawItem[k] !== undefined && k !== 'forceRestore') cleanIncoming[k] = rawItem[k];
     }
-    await pgUpsert('schedules', savedItem.id, savedItem, Boolean(rawItem.forceRestore));
+
+    const idx = store.schedules.findIndex((s: any) => s.id === cleanIncoming.id);
+    const existingById = idx >= 0 ? store.schedules[idx] : (pgPool ? await pgGet('schedules', cleanIncoming.id) : null);
+
+    // Detect conflicting legacy/alternate-ID shifts for the same (date + canonicalTechKey) so old shifts NEVER resurface
+    const incomingTechKey = getCanonicalScheduleTechKeyServer(cleanIncoming.technicianId, cleanIncoming.technicianName);
+    const conflictingDuplicates = cleanIncoming.date
+      ? store.schedules.filter(
+          (s: any) =>
+            s &&
+            s.id !== cleanIncoming.id &&
+            s.date === cleanIncoming.date &&
+            getCanonicalScheduleTechKeyServer(s.technicianId, s.technicianName) === incomingTechKey
+        )
+      : [];
+
+    let newestConflict: any = existingById;
+    for (const c of conflictingDuplicates) {
+      if (!newestConflict || safeParseTs(c.updatedAt) > safeParseTs(newestConflict.updatedAt)) {
+        newestConflict = c;
+      }
+      replacedConflictIds.push(c.id);
+      registerDeletion(c.id);
+      await pgDelete('schedules', c.id);
+    }
+    if (conflictingDuplicates.length > 0) {
+      const conflictIdSet = new Set(conflictingDuplicates.map((c: any) => c.id));
+      store.schedules = store.schedules.filter((s: any) => s && !conflictIdSet.has(s.id));
+    }
+
+    const savedItem = {
+      ...(existingById || {}),
+      ...cleanIncoming,
+      updatedAt: monotonicUpdatedAt(newestConflict, cleanIncoming.updatedAt)
+    };
+
+    const pgOk = await pgUpsert('schedules', savedItem.id, savedItem, Boolean(rawItem.forceRestore));
+    if (pgPool && !pgOk) {
+      return res.status(503).json({ error: "PostgreSQL save failed for schedule" });
+    }
+
+    const curIdx = store.schedules.findIndex((s: any) => s.id === savedItem.id);
+    if (curIdx >= 0) store.schedules[curIdx] = savedItem;
+    else store.schedules.push(savedItem);
+
     savedItems.push(savedItem);
   }
   scheduleSaveToDisk();
-  const clientId = req.headers['x-client-id'] || null;
+  for (const rId of replacedConflictIds) {
+    broadcastSse({ type: 'schedule_deleted', scheduleId: rId, clientId, time: Date.now() });
+  }
   if (savedItems.length > 0) {
     broadcastSse({ type: 'schedule_updated', schedules: savedItems, schedule: savedItems[0], clientId, time: Date.now() });
   }
@@ -4152,15 +4444,48 @@ app.put("/api/schedules/:id", async (req, res) => {
   const store = getCachedData();
   if (!Array.isArray(store.schedules)) store.schedules = [];
   const idx = store.schedules.findIndex((s: any) => s.id === id);
-  const nowIso = new Date().toISOString();
-  const item = idx >= 0
-    ? { ...store.schedules[idx], ...req.body, id, updatedAt: req.body?.updatedAt || nowIso }
-    : { ...req.body, id, updatedAt: req.body?.updatedAt || nowIso };
-  if (idx >= 0) store.schedules[idx] = item;
+  const existing = idx >= 0 ? store.schedules[idx] : (pgPool ? await pgGet('schedules', id) : null);
+  const item = {
+    ...(existing || {}),
+    ...(req.body || {}),
+    id,
+    updatedAt: monotonicUpdatedAt(existing, req.body?.updatedAt)
+  };
+
+  // Deduplicate same canonical technician + date if any alternate ID exists
+  const techKey = getCanonicalScheduleTechKeyServer(item.technicianId, item.technicianName);
+  const replacedConflictIds: string[] = [];
+  if (item.date) {
+    const conflicts = store.schedules.filter(
+      (s: any) =>
+        s &&
+        s.id !== id &&
+        s.date === item.date &&
+        getCanonicalScheduleTechKeyServer(s.technicianId, s.technicianName) === techKey
+    );
+    for (const c of conflicts) {
+      replacedConflictIds.push(c.id);
+      registerDeletion(c.id);
+      await pgDelete('schedules', c.id);
+    }
+    if (conflicts.length > 0) {
+      const cSet = new Set(replacedConflictIds);
+      store.schedules = store.schedules.filter((s: any) => s && !cSet.has(s.id));
+    }
+  }
+
+  const pgOk = await pgUpsert('schedules', id, item, false);
+  if (pgPool && !pgOk) return res.status(503).json({ error: "PostgreSQL save failed for schedule" });
+
+  const curIdx = store.schedules.findIndex((s: any) => s.id === id);
+  if (curIdx >= 0) store.schedules[curIdx] = item;
   else store.schedules.push(item);
-  await pgUpsert('schedules', id, item, false);
+
   scheduleSaveToDisk();
   const clientId = req.headers['x-client-id'] || null;
+  for (const rId of replacedConflictIds) {
+    broadcastSse({ type: 'schedule_deleted', scheduleId: rId, clientId, time: Date.now() });
+  }
   broadcastSse({ type: 'schedule_updated', schedules: [item], schedule: item, clientId, time: Date.now() });
   broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
   res.json({ status: "success", schedule: item });
@@ -4472,17 +4797,21 @@ app.post("/api/app-data/:id", async (req, res) => {
   if (!existing && pgPool) {
     existing = await pgGet('app_data', id);
   }
-  const tExisting = existing?.updatedAt ? new Date(existing.updatedAt).getTime() || 0 : 0;
-  const tIncoming = payload?.updatedAt ? new Date(payload.updatedAt).getTime() || 0 : Date.now();
-  if (existing && payload?.updatedAt && tExisting > tIncoming) {
-    return res.json({ status: "ignored_older", data: existing });
+  const mergedAppData = {
+    ...(existing || {}),
+    ...payload,
+    updatedAt: monotonicUpdatedAt(existing, payload?.updatedAt)
+  };
+  const pgOk = await pgUpsert('app_data', id, mergedAppData);
+  if (pgPool && !pgOk) {
+    return res.status(503).json({ error: "PostgreSQL save failed for app_data" });
   }
-  store.appData[id] = { ...(existing || {}), ...payload, updatedAt: payload?.updatedAt || new Date().toISOString() };
-  await pgUpsert('app_data', id, store.appData[id]);
+  store.appData[id] = mergedAppData;
   scheduleSaveToDisk();
   const clientId = req.headers['x-client-id'] || null;
-  broadcastSse({ type: 'app_data_updated', id, data: store.appData[id], clientId, time: Date.now() });
-  res.json({ status: "success", data: store.appData[id] });
+  broadcastSse({ type: 'app_data_updated', id, data: mergedAppData, clientId, time: Date.now() });
+  broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
+  res.json({ status: "success", data: mergedAppData });
 });
 
 // 10. Settings

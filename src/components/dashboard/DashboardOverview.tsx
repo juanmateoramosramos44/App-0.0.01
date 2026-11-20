@@ -49,7 +49,8 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
     currentUser,
     isSectionAllowed,
     roundTemplate,
-    isAdmin
+    isAdmin,
+    isInitialSyncDone
   } = useMaintenance();
 
   const isRondasAllowed = isSectionAllowed('rondas');
@@ -284,13 +285,17 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
             </div>
           </div>
           <div className="mt-3 flex items-baseline space-x-2">
-            <span className="text-3xl font-extrabold text-slate-900">{totalEquipments}</span>
+            {!isInitialSyncDone && totalEquipments === 0 ? (
+              <span className="h-8 w-16 rounded-lg bg-slate-200 animate-pulse inline-block" />
+            ) : (
+              <span className="text-3xl font-extrabold text-slate-900">{totalEquipments}</span>
+            )}
             <span className="text-xs text-slate-500">unidades registradas</span>
           </div>
           <div className="mt-3 flex items-center space-x-2 text-xs">
             <span className="inline-flex items-center text-emerald-700 font-medium">
               <span className="w-2 h-2 rounded-full bg-emerald-500 mr-1.5" />
-              {operationalEquipments} OK
+              {!isInitialSyncDone && totalEquipments === 0 ? '—' : `${operationalEquipments} OK`}
             </span>
             {alertEquipments > 0 && (
               <span className="inline-flex items-center text-amber-700 font-medium ml-2">
@@ -407,11 +412,17 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
             </div>
           </div>
           <div className="mt-3 flex items-baseline space-x-2">
-            <span className="text-3xl font-extrabold text-slate-900">{pendingWorkOrders.length}</span>
+            {!isInitialSyncDone && workOrders.length === 0 ? (
+              <span className="h-8 w-14 rounded-lg bg-slate-200 animate-pulse inline-block" />
+            ) : (
+              <span className="text-3xl font-extrabold text-slate-900">{pendingWorkOrders.length}</span>
+            )}
             <span className="text-xs text-slate-500">OTs en cola</span>
           </div>
           <div className="mt-3 flex items-center space-x-3 text-xs">
-            <span className="text-emerald-700 font-medium">{completedWorkOrders.length} completadas</span>
+            <span className="text-emerald-700 font-medium">
+              {!isInitialSyncDone && workOrders.length === 0 ? '—' : `${completedWorkOrders.length} completadas`}
+            </span>
             {overdueWorkOrders.length > 0 ? (
               <span className="text-rose-600 font-semibold">{overdueWorkOrders.length} vencidas</span>
             ) : (
@@ -434,11 +445,17 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
             </div>
           </div>
           <div className="mt-3 flex items-baseline space-x-2">
-            <span className="text-3xl font-extrabold text-slate-900">{activeIncidents.length}</span>
+            {!isInitialSyncDone && incidents.length === 0 ? (
+              <span className="h-8 w-14 rounded-lg bg-slate-200 animate-pulse inline-block" />
+            ) : (
+              <span className="text-3xl font-extrabold text-slate-900">{activeIncidents.length}</span>
+            )}
             <span className="text-xs text-slate-500">en tiempo real</span>
           </div>
           <div className="mt-3 flex items-center justify-between text-xs">
-            {activeIncidents.length > 0 ? (
+            {!isInitialSyncDone && incidents.length === 0 ? (
+              <span className="text-slate-400">Sincronizando...</span>
+            ) : activeIncidents.length > 0 ? (
               <span className="text-rose-600 font-semibold flex items-center">
                 <span className="w-2 h-2 rounded-full bg-rose-500 mr-1.5 animate-ping" />
                 {urgentIncidents.length > 0 ? `${urgentIncidents.length} urgentes` : 'Ver reportes'}
@@ -947,7 +964,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
                      'No hay puntos de control para mostrar.'}
                   </div>
                 ) : (
-                  filteredCheckpoints.map(c => {
+                  filteredCheckpoints.map((c, cIdx) => {
                     const isCompleted = isCheckpointComplete(c, roundTemplate);
                     const alarmInfo = isCheckpointAlarmActive(c, roundTemplate);
                     const hasAlarm = alarmInfo.isAlarm;
@@ -958,7 +975,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
 
                     return (
                       <div
-                        key={c.id}
+                        key={`${c.id || 'chk'}-${cIdx}`}
                         className={`p-3.5 rounded-2xl border-2 transition-all space-y-2 ${
                           hasAlarm
                             ? 'bg-rose-50/70 border-rose-300 border-l-4 border-l-rose-500 shadow-2xs'

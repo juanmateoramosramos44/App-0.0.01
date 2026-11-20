@@ -154,7 +154,8 @@ export const DailyRoundsView: React.FC = () => {
     canDeleteRecords,
     canEditSettings,
     canStartRounds,
-    notify
+    notify,
+    isInitialSyncDone
   } = useMaintenance();
 
   const { isMobile, isPhone } = useDeviceDetection();
@@ -909,7 +910,7 @@ export const DailyRoundsView: React.FC = () => {
     } catch (err) {
       console.error('Error saving round to cloud:', err);
       setShowOfflineModal(true);
-      notify('⚠️ Inconveniente de conexión al cargar en el sistema. Por favor verifica tu acceso a Internet e intenta de nuevo. Tu ronda y datos siguen 100% intactos.');
+      notify('⚠️ Inconveniente inesperado al cerrar la ronda. Tus datos siguen 100% intactos.');
     } finally {
       setIsSubmittingRound(false);
     }
@@ -1346,8 +1347,8 @@ export const DailyRoundsView: React.FC = () => {
 
                     return (
                       <div 
-                        key={chk.id} 
-                        id={`checkpoint-item-${chk.id}`}
+                        key={`${chk.id || 'chk'}-${itemIdx}`} 
+                        id={`checkpoint-item-${chk.id}-${itemIdx}`}
                         className={`rounded-xl border-2 overflow-hidden transition-all duration-300 ${
                           isHighlighted
                             ? 'border-amber-500 ring-4 ring-amber-400/80 ring-offset-2 bg-amber-50/40 shadow-xl'
@@ -2591,7 +2592,13 @@ export const DailyRoundsView: React.FC = () => {
           </div>
         </div>
 
-        {filteredRounds.length === 0 ? (
+        {!isInitialSyncDone && rounds.length === 0 ? (
+          <div className="space-y-2.5 py-4">
+            {[1, 2, 3].map(idx => (
+              <div key={idx} className="h-14 rounded-xl bg-slate-100 animate-pulse border border-slate-200/70" />
+            ))}
+          </div>
+        ) : filteredRounds.length === 0 ? (
           <div className="text-center py-12 text-slate-400 text-xs">
             No se encontraron rondas con los filtros especificados.
           </div>
@@ -3241,7 +3248,7 @@ export const DailyRoundsView: React.FC = () => {
                            'No hay puntos de control para mostrar.'}
                         </div>
                       ) : (
-                        filteredCheckpoints.map(c => {
+                        filteredCheckpoints.map((c, cIdx) => {
                           const filled = isFilled(c);
                           const hasAlarm = isAlarm(c);
 
@@ -3254,7 +3261,7 @@ export const DailyRoundsView: React.FC = () => {
 
                           return (
                             <div 
-                              key={c.id} 
+                              key={`${c.id || 'chk'}-${cIdx}`} 
                               className={`p-3 rounded-xl border-2 transition-all space-y-2 ${
                                 hasAlarm 
                                   ? 'bg-rose-50/60 border-rose-300 border-l-4 border-l-rose-500 shadow-2xs' 
@@ -4786,7 +4793,7 @@ export const DailyRoundsView: React.FC = () => {
                 <div className="space-y-2.5 max-h-80 overflow-y-auto pr-1">
                   {roundTemplate.map((item, index) => (
                     <div 
-                      key={item.id} 
+                      key={`${item.id || 'tpl'}-${index}`} 
                       className={`p-2.5 sm:p-3 bg-white rounded-xl border-2 flex flex-col sm:flex-row sm:items-center justify-between text-xs transition-all shadow-2xs gap-2 sm:gap-3 ${
                         editingTemplateId === item.id 
                           ? 'border-amber-400 bg-amber-50/70 ring-2 ring-amber-300' 

@@ -64,8 +64,11 @@ export const MetersView: React.FC = () => {
     deleteMeterReading, 
     currentUser, 
     settings,
-    notify
+    notify,
+    isInitialSyncDone
   } = useMaintenance();
+
+  const isMetersHydrating = !isInitialSyncDone && meters.length === 0;
 
   // Active Tab in the Module
   const [activeTab, setActiveTab] = useState<'cards' | 'history' | 'analytics' | 'closures' | 'config'>('cards');
@@ -1336,8 +1339,12 @@ export const MetersView: React.FC = () => {
                 <span className="text-xs font-semibold">Total Contadores</span>
                 <Gauge className="w-4 h-4 text-slate-500" />
               </div>
-              <p className="text-xl sm:text-2xl font-black text-white">{metrics.totalMeters}</p>
-              <p className="text-[10px] text-slate-400 mt-0.5">{metrics.waterMeters} Agua • {metrics.electricMeters} Luz • {metrics.gasMeters} Gas</p>
+              <p className="text-xl sm:text-2xl font-black text-white">
+                {isMetersHydrating ? <span className="inline-block h-7 w-12 rounded bg-slate-800 animate-pulse" /> : metrics.totalMeters}
+              </p>
+              <p className="text-[10px] text-slate-400 mt-0.5">
+                {isMetersHydrating ? 'Sincronizando...' : `${metrics.waterMeters} Agua • ${metrics.electricMeters} Luz • ${metrics.gasMeters} Gas`}
+              </p>
             </div>
 
             <div className="bg-slate-950/60 p-3.5 rounded-2xl border border-blue-900/30">
@@ -1348,7 +1355,8 @@ export const MetersView: React.FC = () => {
                 <Droplets className="w-4 h-4 text-blue-400" />
               </div>
               <p className="text-xl sm:text-2xl font-black text-white">
-                +{metrics.waterActive.toLocaleString('es-CO')} <span className="text-xs font-normal text-blue-300">m³</span>
+                {isMetersHydrating ? <span className="inline-block h-7 w-16 rounded bg-slate-800 animate-pulse" /> : `+${metrics.waterActive.toLocaleString('es-CO')}`}{' '}
+                <span className="text-xs font-normal text-blue-300">m³</span>
               </p>
               <p className="text-[10px] text-blue-300/70 mt-0.5">
                 {metrics.periodLabel} • Todos los puntos
@@ -1363,7 +1371,8 @@ export const MetersView: React.FC = () => {
                 <Zap className="w-4 h-4 text-amber-400" />
               </div>
               <p className="text-xl sm:text-2xl font-black text-white">
-                +{metrics.electricActive.toLocaleString('es-CO')} <span className="text-xs font-normal text-amber-300">kWh</span>
+                {isMetersHydrating ? <span className="inline-block h-7 w-16 rounded bg-slate-800 animate-pulse" /> : `+${metrics.electricActive.toLocaleString('es-CO')}`}{' '}
+                <span className="text-xs font-normal text-amber-300">kWh</span>
               </p>
               <p className="text-[10px] text-amber-300/70 mt-0.5">
                 {metrics.periodLabel} • Subestación
@@ -1378,7 +1387,8 @@ export const MetersView: React.FC = () => {
                 <Flame className="w-4 h-4 text-rose-400" />
               </div>
               <p className="text-xl sm:text-2xl font-black text-white">
-                +{metrics.gasActive.toLocaleString('es-CO')} <span className="text-xs font-normal text-rose-300">m³</span>
+                {isMetersHydrating ? <span className="inline-block h-7 w-16 rounded bg-slate-800 animate-pulse" /> : `+${metrics.gasActive.toLocaleString('es-CO')}`}{' '}
+                <span className="text-xs font-normal text-rose-300">m³</span>
               </p>
               <p className="text-[10px] text-rose-300/70 mt-0.5">
                 {metrics.periodLabel} • Calderas & Cocina
@@ -1581,7 +1591,13 @@ export const MetersView: React.FC = () => {
       {/* VISTA 1: CONTADORES Y SUS 4 CONSUMOS (DIARIO, SEMANAL, MENSUAL, ANUAL) */}
       {activeTab === 'cards' && (
         <div className="space-y-4">
-          {filteredMeters.length === 0 ? (
+          {isMetersHydrating ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {[1, 2, 3].map(idx => (
+                <div key={idx} className="h-44 rounded-3xl bg-white border border-slate-200 animate-pulse" />
+              ))}
+            </div>
+          ) : filteredMeters.length === 0 ? (
             <div className="p-12 text-center bg-white rounded-3xl border border-dashed border-slate-300 text-slate-500 space-y-4">
               <Gauge className="w-12 h-12 text-slate-300 mx-auto" />
               <div className="space-y-1">

@@ -42,6 +42,28 @@ export function getNaturalButtonAction(btnText: any): ButtonActionType {
   return 'default';
 }
 
+export function findTemplateCheckpoint(
+  chk?: Partial<RoundCheckpoint> | null,
+  roundTemplate?: RoundCheckpoint[]
+): RoundCheckpoint | undefined {
+  if (!chk || !Array.isArray(roundTemplate) || roundTemplate.length === 0) return undefined;
+  // Pass 1: exact ID match (prevents colliding on duplicate titles/areas)
+  if (chk.id) {
+    const byId = roundTemplate.find(t => t && t.id === chk.id);
+    if (byId) return byId;
+  }
+  const chkTitle = String(chk.title || '').trim();
+  const chkArea = String(chk.area || '').trim();
+  if (!chkTitle) return undefined;
+  // Pass 2: exact title + area
+  if (chkArea) {
+    const byTitleArea = roundTemplate.find(t => t && String(t.title || '').trim() === chkTitle && String(t.area || '').trim() === chkArea);
+    if (byTitleArea) return byTitleArea;
+  }
+  // Pass 3: title fallback
+  return roundTemplate.find(t => t && String(t.title || '').trim() === chkTitle);
+}
+
 /**
  * Resolves the effective action type for a checkpoint button:
  * 1. Checks the checkpoint's own buttonActions (if configured)
@@ -62,15 +84,9 @@ export function getCheckpointButtonAction(
   }
 
   // 2. Lookup in roundTemplate if available
-  if (roundTemplate && roundTemplate.length > 0 && chk) {
-    const tpl = roundTemplate.find(
-      t => (chk.id && t.id === chk.id) || 
-           (chk.title && t.title === chk.title && (!chk.area || t.area === chk.area)) || 
-           (chk.title && t.title === chk.title)
-    );
-    if (tpl?.buttonActions && tpl.buttonActions[strBtnName]?.actionType) {
-      return tpl.buttonActions[strBtnName].actionType as ButtonActionType;
-    }
+  const tpl = findTemplateCheckpoint(chk, roundTemplate);
+  if (tpl?.buttonActions && tpl.buttonActions[strBtnName]?.actionType) {
+    return tpl.buttonActions[strBtnName].actionType as ButtonActionType;
   }
 
   // 3. Fallback to natural button action
@@ -99,17 +115,11 @@ export function getFieldButtonAction(
   }
 
   // 2. Lookup in roundTemplate if available
-  if (roundTemplate && roundTemplate.length > 0 && chk) {
-    const tpl = roundTemplate.find(
-      t => (chk.id && t.id === chk.id) || 
-           (chk.title && t.title === chk.title && (!chk.area || t.area === chk.area)) || 
-           (chk.title && t.title === chk.title)
-    );
-    if (tpl?.measurementFields && fieldIndex !== undefined && tpl.measurementFields[fieldIndex]) {
-      const tplField = tpl.measurementFields[fieldIndex];
-      if (tplField?.buttonActions && tplField.buttonActions[strBtnName]?.actionType) {
-        return tplField.buttonActions[strBtnName].actionType as ButtonActionType;
-      }
+  const tpl = findTemplateCheckpoint(chk, roundTemplate);
+  if (tpl?.measurementFields && fieldIndex !== undefined && tpl.measurementFields[fieldIndex]) {
+    const tplField = tpl.measurementFields[fieldIndex];
+    if (tplField?.buttonActions && tplField.buttonActions[strBtnName]?.actionType) {
+      return tplField.buttonActions[strBtnName].actionType as ButtonActionType;
     }
   }
 
@@ -241,12 +251,7 @@ export function isCheckpointPhotoRequired(
   const tpl =
     tplMatch !== undefined
       ? tplMatch
-      : roundTemplate?.find(
-          (t) =>
-            (chk?.id && t.id === chk.id) ||
-            (chk?.title && t.title === chk.title && (!chk?.area || t.area === chk.area)) ||
-            (chk?.title && t.title === chk.title)
-        );
+      : findTemplateCheckpoint(chk, roundTemplate);
   if (typeof chk?.photoRequired === 'boolean') {
     return chk.photoRequired;
   }
@@ -385,12 +390,7 @@ export function isCheckpointComplete(
 ): boolean {
   if (!chk) return false;
 
-  const tpl = roundTemplate?.find(
-    (t) =>
-      (t.id && t.id === chk.id) ||
-      (chk.title && t.title === chk.title && (!chk.area || t.area === chk.area)) ||
-      (chk.title && t.title === chk.title)
-  );
+  const tpl = findTemplateCheckpoint(chk, roundTemplate);
 
   // Enforce mandatory photo rule first: if photoRequired is enabled, block completion until photo exists
   if (isCheckpointPhotoRequired(chk, roundTemplate, tpl || null) && !hasCheckpointRequiredPhoto(chk)) {
@@ -414,12 +414,7 @@ export function validateRoundCompletion(
 
   const missingDetails: string[] = [];
   round.checkpoints.forEach((chk, idx) => {
-    const tpl = roundTemplate?.find(
-      (t) =>
-        (t.id && t.id === chk.id) ||
-        (chk.title && t.title === chk.title && (!chk.area || t.area === chk.area)) ||
-        (chk.title && t.title === chk.title)
-    );
+    const tpl = findTemplateCheckpoint(chk, roundTemplate);
     const measurementsOk = hasCheckpointMeasurementsFilled(chk, tpl, roundTemplate);
     const missingPhoto = isCheckpointPhotoRequired(chk, roundTemplate, tpl || null) && !hasCheckpointRequiredPhoto(chk);
 
@@ -453,13 +448,31 @@ export function getIncompleteCheckpoints(
   const incomplete = (checkpoints as RoundCheckpoint[]).filter(chk => !isCheckpointComplete(chk, roundTemplate));
 
   if (roundTemplate && Array.isArray(roundTemplate) && roundTemplate.length > 0) {
-    const existingIds = new Set(checkpoints.map(c => c?.id).filter(Boolean));
-    const existingTitles = new Set(checkpoints.map(c => c?.title ? `${c.title.trim().toLowerCase()}___${(c.area || '').trim().toLowerCase()}` : '').filter(Boolean));
-
+    // Match 1-to-1 so distinct template items sharing title+area are never collapsed
+    const remainingChkIndices = new Set<number>(checkpoints.map((_, i) => i));
     roundTemplate.forEach(tpl => {
-      const key = `${(tpl.title || '').trim().toLowerCase()}___${(tpl.area || '').trim().toLowerCase()}`;
-      if (!existingIds.has(tpl.id) && !existingTitles.has(key)) {
-        if (!incomplete.some(item => item.id === tpl.id || (item.title === tpl.title && item.area === tpl.area))) {
+      let matchedIdx = -1;
+      for (const idx of remainingChkIndices) {
+        if (checkpoints[idx]?.id && checkpoints[idx].id === tpl.id) {
+          matchedIdx = idx;
+          break;
+        }
+      }
+      if (matchedIdx < 0) {
+        const tTitle = String(tpl.title || '').trim().toLowerCase();
+        const tArea = String(tpl.area || '').trim().toLowerCase();
+        for (const idx of remainingChkIndices) {
+          const c = checkpoints[idx];
+          if (c && String(c.title || '').trim().toLowerCase() === tTitle && String(c.area || '').trim().toLowerCase() === tArea) {
+            matchedIdx = idx;
+            break;
+          }
+        }
+      }
+      if (matchedIdx >= 0) {
+        remainingChkIndices.delete(matchedIdx);
+      } else {
+        if (!incomplete.some(item => item.id && item.id === tpl.id)) {
           incomplete.push(tpl);
         }
       }
