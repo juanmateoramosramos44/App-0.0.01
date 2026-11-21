@@ -114,7 +114,7 @@ export const getDoc = async (_docRef: any) => ({
 export const arrayUnion = (...items: any[]) => items;
 export const onSnapshot = (_ref: any, _next?: any, _error?: any) => () => {};
 import { getCheckpointButtonAction, getFieldButtonAction, isCheckpointAlarmActive, getIncompleteCheckpoints, isCheckpointComplete, isCheckpointPhotoRequired, hasCheckpointRequiredPhoto, validateRoundCompletion, findTemplateCheckpoint } from '../utils/roundButtonUtils';
-import { mergeUniquePhotos, collectRoundPhotoUrls } from '../utils/imageCompression';
+import { mergeUniquePhotos, collectRoundPhotoUrls, compressRoundPhotos } from '../utils/imageCompression';
 import { sendSystemNotification, playAlertSound, requestNotificationPermission, isNotificationSupported, syncPushSubscriptionWithServer, broadcastServerPushNotification } from '../lib/notifications';
 import { getLocalDateTimeString, getLocalDateString } from '../utils/dateUtils';
 import { performStateAudit, StateAuditResult, CANONICAL_INCIDENT_MAP, correctionsToAuditLogEntries, getInitialAuditLogs } from '../utils/stateAudit';
@@ -394,7 +394,13 @@ interface MaintenanceContextType {
   updateActiveRoundMeterReadings: (readings: Partial<DailyRound['meterReadings']>, generalNotes?: string) => void;
   updateActiveRoundCheckpointTags: (chkId: string, tags: string[], saveToTemplate?: boolean, targetTitle?: string, targetArea?: string) => Promise<void>;
   addRoundAnomaly: (anomaly: Omit<RoundAnomaly, 'id' | 'timestamp'>) => void;
-  completeActiveRound: (readings: any, notes: string, signature: string, allowPartial?: boolean) => Promise<DailyRound | undefined>;
+  completeActiveRound: (
+    readings: any,
+    notes: string,
+    signature: string,
+    allowPartial?: boolean,
+    onProgress?: (stage: string) => void
+  ) => Promise<DailyRound | undefined>;
   cancelActiveRound: () => void;
   deleteRound: (roundId: string) => Promise<void>;
   resumeRound: (round: DailyRound) => void;
@@ -3016,6 +3022,7 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
   });
 
   const completedRoundIdsRef = useRef<Set<string>>(new Set());
+  const completingAtomicRoundIdsRef = useRef<Set<string>>(new Set());
 
   const inProgressRounds = useMemo(() => {
     const list = (rounds || []).filter(r => {
@@ -3443,54 +3450,27 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
           removePendingOfflineRound(round.id);
           continue;
         }
-        if (bgPhotoSyncingRoundIdsRef.current.has(round.id)) {
+        if (
+          bgPhotoSyncingRoundIdsRef.current.has(round.id) ||
+          completingAtomicRoundIdsRef.current.has(round.id)
+        ) {
           continue;
         }
 
         try {
           const isCompletedRound = round.status === 'completada' || Boolean(round.completedAt && round.technicianSignature);
-          const metaLite = {
-            id: round.id,
-            date: round.date,
-            time: round.time,
-            shift: round.shift,
-            technicianName: round.technicianName,
-            userId: round.userId,
-            userEmail: round.userEmail,
-            status: round.status,
-            compliancePercentage: round.compliancePercentage,
-            lastUpdated: round.lastUpdated,
-            lastHeartbeat: round.lastHeartbeat
-          };
+          const preparedRound = isCompletedRound
+            ? await compressRoundPhotos(round, { maxDimension: 840, quality: 0.68, maxBytes: 135 * 1024 })
+            : round;
 
-          if (isCompletedRound) {
-            const photoChks = (round.checkpoints || []).filter(chk =>
-              chk && Boolean(chk.photoUrl || (chk.photos && chk.photos.length > 0) || (chk.measurementFields || []).some(f => f.photoUrl || (f.photos && f.photos.length > 0)))
-            );
-            for (let i = 0; i < photoChks.length; i += 3) {
-              const batch = photoChks.slice(i, i + 3);
-              await Promise.all(
-                batch.map(chk =>
-                  fetch(`/api/rounds/${round.id}/checkpoint`, {
-                    method: 'POST',
-                    headers: {
-                      'Content-Type': 'application/json',
-                      'X-Client-Id': clientSessionId.current
-                    },
-                    body: JSON.stringify({ roundMeta: metaLite, checkpoint: chk, skipBroadcast: true })
-                  }).catch(() => {})
-                )
-              );
-            }
-          }
-
-          const res = await fetch('/api/rounds', {
+          const targetEndpoint = isCompletedRound ? '/api/rounds/atomic' : '/api/rounds';
+          const res = await fetch(targetEndpoint, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
               'X-Client-Id': clientSessionId.current
             },
-            body: JSON.stringify(round)
+            body: JSON.stringify(preparedRound)
           });
           if (res.ok) {
             removePendingOfflineRound(round.id);
@@ -9361,8 +9341,13 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
 
   const syncActiveRoundTimeoutRef = useRef<any>(null);
   const syncActiveRoundToCloud = (round: DailyRound, immediate = false) => {
-    // Si la ronda ya fue completada o descartada, no sincronizar nunca más un estado 'en_progreso'
-    if (completedRoundIdsRef.current.has(round.id) || getDeletedRoundIds().has(round.id) || isRecentlyLocallyDeleted(round.id)) {
+    // Si la ronda ya fue completada, está en envío atómico o descartada, no sincronizar nunca más un estado 'en_progreso'
+    if (
+      completedRoundIdsRef.current.has(round.id) ||
+      completingAtomicRoundIdsRef.current.has(round.id) ||
+      getDeletedRoundIds().has(round.id) ||
+      isRecentlyLocallyDeleted(round.id)
+    ) {
       return;
     }
     if ((roundsRef.current || []).some(r => r.id === round.id && r.status === 'completada')) {
@@ -9380,7 +9365,12 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
     const roundToSync: DailyRound = round;
 
     const executeSync = async () => {
-      if (completedRoundIdsRef.current.has(roundToSync.id) || getDeletedRoundIds().has(roundToSync.id) || isRecentlyLocallyDeleted(roundToSync.id)) return;
+      if (
+        completedRoundIdsRef.current.has(roundToSync.id) ||
+        completingAtomicRoundIdsRef.current.has(roundToSync.id) ||
+        getDeletedRoundIds().has(roundToSync.id) ||
+        isRecentlyLocallyDeleted(roundToSync.id)
+      ) return;
       if ((roundsRef.current || []).some(r => r.id === roundToSync.id && r.status === 'completada')) return;
 
       let syncedSet = syncedRoundChunksRef.current.get(roundToSync.id);
@@ -10066,11 +10056,17 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
     });
   };
 
-  const completeActiveRound = async (readings: any, notes: string, signature: string, allowPartial: boolean = false) => {
+  const completeActiveRound = async (
+    readings: any,
+    notes: string,
+    signature: string,
+    allowPartial: boolean = false,
+    onProgress?: (stage: string) => void
+  ): Promise<DailyRound | undefined> => {
     const currentActive = activeRoundRef.current || activeRound;
-    if (!currentActive) return;
+    if (!currentActive) return undefined;
 
-    // Validación estricta ineludible de puntos requeridos y fotografías obligatorias al 100%
+    // 1. Validación estricta ineludible del 100% de puntos y fotografías obligatorias
     const currentTpl = roundTemplateRef.current?.length ? roundTemplateRef.current : roundTemplate;
     const validation = validateRoundCompletion(currentActive, currentTpl);
     const totalPoints = currentActive.checkpoints?.length || 0;
@@ -10080,10 +10076,10 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
       const missingCount = Math.max(validation.missingCount, Math.max(0, templateLength - totalPoints));
       const previewDetails = validation.missingDetails.slice(0, 3).join(', ');
       notify(`⚠️ Bloqueo de seguridad: Faltan ${missingCount} puntos o fotografías obligatorias${previewDetails ? ` (${previewDetails})` : ''}. Completa todos los registros requeridos para validar y guardar la ronda.`);
-      return;
+      return undefined;
     }
 
-    // Cancelar de inmediato cualquier sincronización parcial pendiente ('en_progreso') para evitar que un paquete viejo sobreescriba el cierre atómico
+    // Cancelar sincronizaciones parciales previas y bloquear paquetes 'en_progreso' durante el envío atómico
     if (syncActiveRoundTimeoutRef.current) {
       clearTimeout(syncActiveRoundTimeoutRef.current);
       syncActiveRoundTimeoutRef.current = null;
@@ -10097,422 +10093,269 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
       setRoundsDebounceTimer.current = null;
     }
 
-    const autoAnomalies: RoundAnomaly[] = [];
-
-    const sanitizedCheckpoints = currentActive.checkpoints.map(chk => {
-      const parsedCurrentVal = typeof chk.currentValue === 'string' && chk.currentValue.trim() !== '' && !isNaN(Number(chk.currentValue))
-        ? Number(chk.currentValue)
-        : chk.currentValue;
-
-      const alarmCheck = isCheckpointAlarmActive(chk, roundTemplate);
-      const chkAction = chk.statusValue ? getCheckpointButtonAction(chk, chk.statusValue, roundTemplate) : 'default';
-      const isChkOff = chkAction === 'turn_off';
-      const isAlarm = (val: any, min?: number, max?: number, fieldObj?: any, fIdx?: number) => {
-        if (isChkOff) return false;
-        if (fieldObj) {
-          const fAct = fieldObj.statusValue ? getFieldButtonAction(fieldObj, fieldObj.statusValue, chk, roundTemplate, fIdx ?? 0) : 'default';
-          if (fAct === 'turn_off') return false;
-        }
-        const v = String(val ?? '').toLowerCase();
-        if (!v || v === '' || v === 'apagado') return false;
-
-        const isTextAlarm = (v.includes('alarma') && !v.includes('sin alarma') && !v.includes('no alarma')) || v.includes('falla') || v.includes('crítico') || v.includes('critico') || v === 'no ok' || v === 'false';
-        if (isTextAlarm) return true;
-
-        const num = typeof val === 'number' ? val : parseFloat(v.replace(',', '.'));
-        if (!isNaN(num) && (min !== undefined || max !== undefined)) {
-          if (min !== undefined && num < min) return true;
-          if (max !== undefined && num > max) return true;
-        }
-        return false;
-      };
-
-      let chkHasAlarm = alarmCheck.isAlarm || (!isChkOff && (chkAction === 'failure' || isAlarm(chk.statusValue, chk.minValue, chk.maxValue) || isAlarm(chk.currentValue, chk.minValue, chk.maxValue)));
-
-      const tplItem = findTemplateCheckpoint(chk, currentTpl);
-      const resolvedButtonActions = (chk.buttonActions && Object.keys(chk.buttonActions).length > 0)
-        ? chk.buttonActions
-        : tplItem?.buttonActions;
-
-      const mappedFields = chk.measurementFields?.map((f, fIdx) => {
-        const fieldAction = f.statusValue ? getFieldButtonAction(f, f.statusValue, chk, roundTemplate, fIdx) : 'default';
-        const isFieldOff = fieldAction === 'turn_off';
-        if (!isFieldOff && (fieldAction === 'failure' || isAlarm(f.statusValue, f.minValue, f.maxValue, f, fIdx) || isAlarm(f.value, f.minValue, f.maxValue, f, fIdx))) {
-          chkHasAlarm = true;
-        }
-
-        const tplField = tplItem?.measurementFields?.[fIdx];
-        const resolvedFieldButtonActions = (f.buttonActions && Object.keys(f.buttonActions).length > 0)
-          ? f.buttonActions
-          : tplField?.buttonActions;
-
-        const fieldPhotos = mergeUniquePhotos(f.photos, f.photoUrl ? [f.photoUrl] : []);
-
-        return {
-          ...f,
-          buttonActions: resolvedFieldButtonActions,
-          value: typeof f.value === 'string' && f.value.trim() !== '' && !isNaN(Number(f.value))
-            ? Number(f.value)
-            : f.value,
-          photoUrl: f.photoUrl || fieldPhotos[fieldPhotos.length - 1],
-          photos: fieldPhotos.length > 0 ? fieldPhotos : undefined
-        };
-      });
-
-      if (chkHasAlarm) {
-        const isAlreadyReported = (currentActive.anomalies || []).some(a =>
-          (a.title && (a.title.includes(chk.title) || chk.title.includes(a.title))) ||
-          (a.area && chk.area && String(a.area).toLowerCase() === String(chk.area).toLowerCase() && String(a.title || '').toLowerCase().includes('alarma'))
-        );
-
-        if (!isAlreadyReported) {
-          const timestamp = getLocalDateTimeString();
-          const autoId = `inc-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
-          autoAnomalies.push({
-            id: autoId,
-            area: chk.area || 'General',
-            title: `Alarma en: ${chk.title}`,
-            description: alarmCheck.reason
-              ? `${alarmCheck.reason}.\nNotas: ${chk.notes || 'Sin comentarios adicionales.'}`
-              : `Equipo detectado en estado de alarma o falla durante la ronda.\nNotas: ${chk.notes || 'Sin comentarios adicionales.'}`,
-            severity: chk.isCritical ? 'urgente' : 'alta',
-            status: 'pendiente',
-            registeredBy: signature || currentActive.technicianName,
-            timestamp
-          });
-        }
-      }
-
-      const chkPhotos = mergeUniquePhotos(chk.photos, chk.photoUrl ? [chk.photoUrl] : []);
-
-      return {
-        ...chk,
-        photoRequired: chk.photoRequired ?? tplItem?.photoRequired,
-        buttonActions: resolvedButtonActions,
-        currentValue: parsedCurrentVal,
-        measurementFields: mappedFields,
-        photoUrl: chk.photoUrl || chkPhotos[chkPhotos.length - 1],
-        photos: chkPhotos.length > 0 ? chkPhotos : undefined,
-        isAlarmActive: chkHasAlarm,
-        alarmReason: alarmCheck.reason || (chkHasAlarm ? 'Equipo detectado en estado de alarma o falla durante la ronda.' : undefined)
-      };
-    });
-
-    const finalAnomalies = [...(currentActive.anomalies || []), ...autoAnomalies].map(a => {
-      const anomPhotos = mergeUniquePhotos(a.photos, a.photoUrl ? [a.photoUrl] : []);
-      return {
-        ...a,
-        photoUrl: a.photoUrl || anomPhotos[anomPhotos.length - 1],
-        photos: anomPhotos.length > 0 ? anomPhotos : undefined
-      };
-    });
-
-    const resolvedClosingTechName = (signature && signature.trim()) ? signature.trim() : currentActive.technicianName;
-    const completed: DailyRound = {
-      ...currentActive,
-      technicianName: resolvedClosingTechName,
-      checkpoints: sanitizedCheckpoints,
-      status: 'completada',
-      anomalies: finalAnomalies,
-      anomaliesCount: finalAnomalies.length,
-      meterReadings: {
-        ...currentActive.meterReadings,
-        ...readings
-      },
-      generalNotes: notes,
-      technicianSignature: signature,
-      compliancePercentage: 100,
-      completedAt: currentActive.completedAt || new Date().toISOString(),
-      lastUpdated: new Date().toISOString()
-    };
-
-    // 1. Cierre instantáneo en UI + respaldo seguro local/IDB (nunca bloquea al técnico esperando subida de fotos)
-    markCollectionMutation('rounds');
-    completedRoundIdsRef.current.add(completed.id);
-    unmarkDeletedRoundId(completed.id);
-    trackLocalCreation(completed.id);
-    markRoundUnsynced(completed.id);
-    queuePendingOfflineRound(completed);
-    bgPhotoSyncingRoundIdsRef.current.add(completed.id);
-
-    finalAnomalies.forEach(anomaly => {
-      reportIncident({
-        id: anomaly.id,
-        timestamp: anomaly.timestamp,
-        title: anomaly.title,
-        description: anomaly.description,
-        area: anomaly.area,
-        severity: anomaly.severity,
-        status: anomaly.status || 'pendiente',
-        registeredBy: anomaly.registeredBy || signature || currentActive.technicianName,
-        equipmentId: anomaly.equipmentId,
-        equipmentTag: anomaly.equipmentTag,
-        photoUrl: anomaly.photoUrl,
-        photos: anomaly.photos
-      });
-    });
-
-    const updatedLocalList = [completed, ...(roundsRef.current || []).filter(r => r.id !== completed.id)];
-    roundsRef.current = updatedLocalList;
-    setRounds(updatedLocalList);
-    safeSetItem(STORAGE_KEYS.ROUNDS, JSON.stringify(updatedLocalList));
-    idbSet(STORAGE_KEYS.ROUNDS, updatedLocalList).catch(() => {});
-
-    activeRoundRef.current = null;
-    setActiveRound(null);
-    localStorage.removeItem(STORAGE_KEYS.ACTIVE_ROUND);
-    localStorage.removeItem('active_round_draft_backup');
-    localStorage.removeItem('active_round_resume_lock');
-    idbRemove(STORAGE_KEYS.ACTIVE_ROUND).catch(() => {});
-
-    notify('✅ Ronda finalizada y guardada. Sincronizando fotos y respaldo en segundo plano...');
-
-    sendSystemNotification('📋 ✅ Ronda Técnica Guardada', {
-      body: `Ronda finalizada con éxito por ${signature || currentActive.technicianName}.\n• Turno: ${completed.shift.toUpperCase()}\n• Cumplimiento: 100%`,
-      tag: `round-saved-${completed.id}`,
-      icon: '/pwa-192x192.png'
-    });
-    playAlertSound();
+    completingAtomicRoundIdsRef.current.add(currentActive.id);
 
     try {
-      roundsChannel.current?.postMessage({ type: 'round_completed', round: completed });
-    } catch (e) {}
+      onProgress?.('Comprimiendo fotografías localmente (<= 135 KB)...');
 
-    // 2. Subida asíncrona en segundo plano (chunks de fotos + commit atómico + reintentos + verificación en PostgreSQL)
-    const expectedPhotoCount = collectRoundPhotoUrls(completed).length;
+      const autoAnomalies: RoundAnomaly[] = [];
+      const sanitizedCheckpoints = currentActive.checkpoints.map(chk => {
+        const parsedCurrentVal = typeof chk.currentValue === 'string' && chk.currentValue.trim() !== '' && !isNaN(Number(chk.currentValue))
+          ? Number(chk.currentValue)
+          : chk.currentValue;
 
-    void (async () => {
-      try {
-        let syncedSet = syncedRoundChunksRef.current.get(completed.id);
-        if (!syncedSet) {
-          syncedSet = new Set<string>();
-          syncedRoundChunksRef.current.set(completed.id, syncedSet);
-        }
+        const alarmCheck = isCheckpointAlarmActive(chk, roundTemplate);
+        const chkAction = chk.statusValue ? getCheckpointButtonAction(chk, chk.statusValue, roundTemplate) : 'default';
+        const isChkOff = chkAction === 'turn_off';
+        const isAlarm = (val: any, min?: number, max?: number, fieldObj?: any, fIdx?: number) => {
+          if (isChkOff) return false;
+          if (fieldObj) {
+            const fAct = fieldObj.statusValue ? getFieldButtonAction(fieldObj, fieldObj.statusValue, chk, roundTemplate, fIdx ?? 0) : 'default';
+            if (fAct === 'turn_off') return false;
+          }
+          const v = String(val ?? '').toLowerCase();
+          if (!v || v === '' || v === 'apagado') return false;
 
-        const metaForChunks = getRoundMetaLite(currentActive);
-        let allPhotoCheckpointsSynced = true;
+          const isTextAlarm = (v.includes('alarma') && !v.includes('sin alarma') && !v.includes('no alarma')) || v.includes('falla') || v.includes('crítico') || v.includes('critico') || v === 'no ok' || v === 'false';
+          if (isTextAlarm) return true;
 
-        const unsyncedPhotoCheckpoints = (completed.checkpoints || []).filter(chk => {
-          if (!chk) return false;
-          const hasChkPhoto = Boolean(chk.photoUrl || (chk.photos && chk.photos.length > 0) || (chk.measurementFields || []).some(f => f.photoUrl || (f.photos && f.photos.length > 0)));
-          return hasChkPhoto && !syncedSet!.has(getCheckpointPhotoHash(chk));
+          const num = typeof val === 'number' ? val : parseFloat(v.replace(',', '.'));
+          if (!isNaN(num) && (min !== undefined || max !== undefined)) {
+            if (min !== undefined && num < min) return true;
+            if (max !== undefined && num > max) return true;
+          }
+          return false;
+        };
+
+        let chkHasAlarm = alarmCheck.isAlarm || (!isChkOff && (chkAction === 'failure' || isAlarm(chk.statusValue, chk.minValue, chk.maxValue) || isAlarm(chk.currentValue, chk.minValue, chk.maxValue)));
+
+        const tplItem = findTemplateCheckpoint(chk, currentTpl);
+        const resolvedButtonActions = (chk.buttonActions && Object.keys(chk.buttonActions).length > 0)
+          ? chk.buttonActions
+          : tplItem?.buttonActions;
+
+        const mappedFields = chk.measurementFields?.map((f, fIdx) => {
+          const fieldAction = f.statusValue ? getFieldButtonAction(f, f.statusValue, chk, roundTemplate, fIdx) : 'default';
+          const isFieldOff = fieldAction === 'turn_off';
+          if (!isFieldOff && (fieldAction === 'failure' || isAlarm(f.statusValue, f.minValue, f.maxValue, f, fIdx) || isAlarm(f.value, f.minValue, f.maxValue, f, fIdx))) {
+            chkHasAlarm = true;
+          }
+
+          const tplField = tplItem?.measurementFields?.[fIdx];
+          const resolvedFieldButtonActions = (f.buttonActions && Object.keys(f.buttonActions).length > 0)
+            ? f.buttonActions
+            : tplField?.buttonActions;
+
+          const fieldPhotos = mergeUniquePhotos(f.photos, f.photoUrl ? [f.photoUrl] : []);
+
+          return {
+            ...f,
+            buttonActions: resolvedFieldButtonActions,
+            value: typeof f.value === 'string' && f.value.trim() !== '' && !isNaN(Number(f.value))
+              ? Number(f.value)
+              : f.value,
+            photoUrl: f.photoUrl || fieldPhotos[fieldPhotos.length - 1],
+            photos: fieldPhotos.length > 0 ? fieldPhotos : undefined
+          };
         });
 
-        const failedBatchChunks: RoundCheckpoint[] = [];
-        for (let i = 0; i < unsyncedPhotoCheckpoints.length; i += 3) {
-          const batch = unsyncedPhotoCheckpoints.slice(i, i + 3);
-          await Promise.all(
-            batch.map(async (chk) => {
-              const hash = getCheckpointPhotoHash(chk);
-              const ok = await uploadSingleRoundChunk(completed.id, { roundMeta: metaForChunks, checkpoint: chk, skipBroadcast: true }, 18000, 1);
-              if (ok) {
-                syncedSet!.add(hash);
-              } else {
-                failedBatchChunks.push(chk);
-              }
-            })
+        if (chkHasAlarm) {
+          const isAlreadyReported = (currentActive.anomalies || []).some(a =>
+            (a.title && (a.title.includes(chk.title) || chk.title.includes(a.title))) ||
+            (a.area && chk.area && String(a.area).toLowerCase() === String(chk.area).toLowerCase() && String(a.title || '').toLowerCase().includes('alarma'))
           );
-        }
 
-        for (const chk of failedBatchChunks) {
-          const hash = getCheckpointPhotoHash(chk);
-          if (syncedSet.has(hash)) continue;
-          const ok = await uploadSingleRoundChunk(completed.id, { roundMeta: metaForChunks, checkpoint: chk, skipBroadcast: true }, 25000, 2);
-          if (ok) {
-            syncedSet.add(hash);
-          } else {
-            allPhotoCheckpointsSynced = false;
-          }
-        }
-
-        const mrHasPhotos = Boolean(
-          completed.meterReadings?.waterMeterPhotoUrl ||
-          (completed.meterReadings as any)?.waterMeterPhotos?.length ||
-          completed.meterReadings?.electricMeterPhotoUrl ||
-          (completed.meterReadings as any)?.electricMeterPhotos?.length ||
-          completed.meterReadings?.gasMeterPhotoUrl ||
-          (completed.meterReadings as any)?.gasMeterPhotos?.length ||
-          (completed.meterReadings?.customMeters && Object.values(completed.meterReadings.customMeters).some((cm: any) => cm?.photoUrl || cm?.photos?.length))
-        );
-        const anomHasPhotos = (completed.anomalies || []).some(a => a?.photoUrl || (a?.photos && a.photos.length > 0));
-
-        const [metersSyncedInChunk, anomaliesSyncedInChunk] = await Promise.all([
-          mrHasPhotos
-            ? uploadSingleRoundChunk(completed.id, { roundMeta: metaForChunks, meterReadings: completed.meterReadings, skipBroadcast: true }, 24000, 2)
-            : Promise.resolve(false),
-          anomHasPhotos
-            ? uploadSingleRoundChunk(completed.id, { roundMeta: metaForChunks, anomalies: completed.anomalies, skipBroadcast: true }, 24000, 2)
-            : Promise.resolve(false)
-        ]);
-
-        const buildCommitPayload = (useLightweight: boolean) => {
-          if (!useLightweight) return completed;
-          const baseLite = buildLightweightRoundPayload(completed, true);
-          if (metersSyncedInChunk && baseLite.meterReadings) {
-            const cleanMr: any = { ...baseLite.meterReadings };
-            delete cleanMr.waterMeterPhotoUrl;
-            delete cleanMr.waterMeterPhotos;
-            delete cleanMr.electricMeterPhotoUrl;
-            delete cleanMr.electricMeterPhotos;
-            delete cleanMr.gasMeterPhotoUrl;
-            delete cleanMr.gasMeterPhotos;
-            if (cleanMr.customMeters) {
-              const strippedCm: Record<string, any> = {};
-              for (const k of Object.keys(cleanMr.customMeters)) {
-                const { photoUrl: _pu, photos: _ps, ...restCm } = cleanMr.customMeters[k] || {};
-                strippedCm[k] = restCm;
-              }
-              cleanMr.customMeters = strippedCm;
-            }
-            baseLite.meterReadings = cleanMr;
-          }
-          if (anomaliesSyncedInChunk && Array.isArray(baseLite.anomalies)) {
-            baseLite.anomalies = baseLite.anomalies.map((a: any) => {
-              const { photoUrl: _apu, photos: _aps, ...restA } = a || {};
-              return restA;
+          if (!isAlreadyReported) {
+            const timestamp = getLocalDateTimeString();
+            const autoId = `inc-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
+            autoAnomalies.push({
+              id: autoId,
+              area: chk.area || 'General',
+              title: `Alarma en: ${chk.title}`,
+              description: alarmCheck.reason
+                ? `${alarmCheck.reason}.\nNotas: ${chk.notes || 'Sin comentarios adicionales.'}`
+                : `Equipo detectado en estado de alarma o falla durante la ronda.\nNotas: ${chk.notes || 'Sin comentarios adicionales.'}`,
+              severity: chk.isCritical ? 'urgente' : 'alta',
+              status: 'pendiente',
+              registeredBy: signature || currentActive.technicianName,
+              timestamp
             });
           }
-          return baseLite;
+        }
+
+        const chkPhotos = mergeUniquePhotos(chk.photos, chk.photoUrl ? [chk.photoUrl] : []);
+
+        return {
+          ...chk,
+          photoRequired: chk.photoRequired ?? tplItem?.photoRequired,
+          buttonActions: resolvedButtonActions,
+          currentValue: parsedCurrentVal,
+          measurementFields: mappedFields,
+          photoUrl: chk.photoUrl || chkPhotos[chkPhotos.length - 1],
+          photos: chkPhotos.length > 0 ? chkPhotos : undefined,
+          isAlarmActive: chkHasAlarm,
+          alarmReason: alarmCheck.reason || (chkHasAlarm ? 'Equipo detectado en estado de alarma o falla durante la ronda.' : undefined)
         };
+      });
 
-        const verifyRoundSavedOnServer = async (): Promise<DailyRound | null> => {
-          const controller = new AbortController();
-          const tId = setTimeout(() => controller.abort(), 12000);
-          try {
-            const checkRes = await fetch(`/api/rounds/${completed.id}?_t=${Date.now()}`, {
-              cache: 'no-store',
-              signal: controller.signal
-            });
-            clearTimeout(tId);
-            if (checkRes.ok) {
-              const srv = await checkRes.json();
-              if (srv && srv.id === completed.id && (srv.status === 'completada' || Boolean(srv.completedAt && srv.technicianSignature))) {
-                return srv as DailyRound;
-              }
-            }
-          } catch {
-            clearTimeout(tId);
-          }
-          return null;
+      const finalAnomalies = [...(currentActive.anomalies || []), ...autoAnomalies].map(a => {
+        const anomPhotos = mergeUniquePhotos(a.photos, a.photoUrl ? [a.photoUrl] : []);
+        return {
+          ...a,
+          photoUrl: a.photoUrl || anomPhotos[anomPhotos.length - 1],
+          photos: anomPhotos.length > 0 ? anomPhotos : undefined
         };
+      });
 
-        const retryConfigs = allPhotoCheckpointsSynced
-          ? [
-              { timeoutMs: 30000, lightweight: true },
-              { timeoutMs: 45000, lightweight: true },
-              { timeoutMs: 60000, lightweight: false },
-              { timeoutMs: 75000, lightweight: false }
-            ]
-          : [
-              { timeoutMs: 35000, lightweight: false },
-              { timeoutMs: 50000, lightweight: false },
-              { timeoutMs: 65000, lightweight: false },
-              { timeoutMs: 80000, lightweight: false }
-            ];
+      const resolvedClosingTechName = (signature && signature.trim()) ? signature.trim() : currentActive.technicianName;
+      const draftCompleted: DailyRound = {
+        ...currentActive,
+        technicianName: resolvedClosingTechName,
+        checkpoints: sanitizedCheckpoints,
+        status: 'completada',
+        anomalies: finalAnomalies,
+        anomaliesCount: finalAnomalies.length,
+        meterReadings: {
+          ...currentActive.meterReadings,
+          ...readings
+        },
+        generalNotes: notes,
+        technicianSignature: signature,
+        compliancePercentage: 100,
+        completedAt: currentActive.completedAt || new Date().toISOString(),
+        lastUpdated: new Date().toISOString()
+      };
 
-        let uploadConfirmed = false;
-        let authoritativeRound: DailyRound = completed;
+      // 2. COMPRESIÓN EXTREMA EN CLIENTE: todas las imágenes pasan a <= 135KB antes de enviar el paquete único
+      const completed = await compressRoundPhotos(draftCompleted, {
+        maxDimension: 840,
+        quality: 0.68,
+        maxBytes: 135 * 1024
+      });
 
-        for (let attempt = 0; attempt < retryConfigs.length; attempt++) {
-          const cfg = retryConfigs[attempt];
-          const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), cfg.timeoutMs);
-          try {
-            const bodyObj = buildCommitPayload(cfg.lightweight);
-            const res = await fetch('/api/rounds', {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'X-Client-Id': clientSessionId.current
-              },
-              body: JSON.stringify(bodyObj),
-              signal: controller.signal
-            });
-            clearTimeout(timeoutId);
+      // Respaldar localmente la versión ya comprimida ANTES de enviar para que un corte de red nunca pierda datos
+      const backupDraft: DailyRound = {
+        ...currentActive,
+        checkpoints: completed.checkpoints,
+        meterReadings: completed.meterReadings,
+        anomalies: completed.anomalies,
+        anomaliesCount: completed.anomaliesCount,
+        generalNotes: notes,
+        technicianSignature: signature,
+        compliancePercentage: 100,
+        lastUpdated: new Date().toISOString()
+      };
+      activeRoundRef.current = backupDraft;
+      setActiveRound(backupDraft);
+      safeSetItem(STORAGE_KEYS.ACTIVE_ROUND, JSON.stringify(backupDraft));
+      safeSetItem('active_round_draft_backup', JSON.stringify(backupDraft));
+      idbSet(STORAGE_KEYS.ACTIVE_ROUND, backupDraft).catch(() => {});
 
-            if (res.ok) {
-              let returnedRound: DailyRound | null = null;
-              try {
-                const payload = await res.json();
-                if (Array.isArray(payload?.rounds)) {
-                  returnedRound = payload.rounds.find((r: any) => r && r.id === completed.id) || null;
-                } else if (payload?.round && payload.round.id === completed.id) {
-                  returnedRound = payload.round;
-                }
-              } catch {}
+      onProgress?.(`Enviando ${completed.checkpoints.length} puntos y fotos en un paquete único a PostgreSQL...`);
 
-              const serverPhotoCount = returnedRound ? collectRoundPhotoUrls(returnedRound).length : 0;
-              if (cfg.lightweight && expectedPhotoCount > 0 && serverPhotoCount < expectedPhotoCount) {
-                continue;
-              }
-
-              uploadConfirmed = true;
-              if (returnedRound) {
-                const mergedFinal = mergeRoundLists([completed], [returnedRound], getDeletedRoundIds());
-                authoritativeRound = mergedFinal[0] || returnedRound;
-              }
-              break;
-            }
-
-            if (res.status >= 400 && res.status < 500) {
-              break;
-            }
-          } catch {
-            clearTimeout(timeoutId);
-            const alreadySaved = await verifyRoundSavedOnServer();
-            if (alreadySaved && collectRoundPhotoUrls(alreadySaved).length >= expectedPhotoCount) {
-              uploadConfirmed = true;
-              const mergedFinal = mergeRoundLists([completed], [alreadySaved], getDeletedRoundIds());
-              authoritativeRound = mergedFinal[0] || alreadySaved;
-              break;
-            }
-            if (attempt < retryConfigs.length - 1) {
-              await new Promise(resolve => setTimeout(resolve, 1500));
-            }
-          }
-        }
-
-        if (!uploadConfirmed) {
-          const alreadySaved = await verifyRoundSavedOnServer();
-          if (alreadySaved && collectRoundPhotoUrls(alreadySaved).length >= expectedPhotoCount) {
-            uploadConfirmed = true;
-            const mergedFinal = mergeRoundLists([completed], [alreadySaved], getDeletedRoundIds());
-            authoritativeRound = mergedFinal[0] || alreadySaved;
-          }
-        }
-
-        if (uploadConfirmed) {
-          syncedRoundChunksRef.current.delete(authoritativeRound.id);
-          removePendingOfflineRound(authoritativeRound.id);
-          markRoundSynced(authoritativeRound.id);
-          setIsCloudSynced(true);
-          markCollectionMutation('rounds');
-
-          const mergedList = mergeRoundLists([authoritativeRound], roundsRef.current || [], getDeletedRoundIds());
-          roundsRef.current = mergedList;
-          setRounds(mergedList);
-          safeSetItem(STORAGE_KEYS.ROUNDS, JSON.stringify(mergedList));
-          idbSet(STORAGE_KEYS.ROUNDS, mergedList).catch(() => {});
-
-          const compShift = authoritativeRound.shift === 'manana' ? 'Turno Mañana' : authoritativeRound.shift === 'tarde' ? 'Turno Tarde' : 'Turno Noche';
-          const anomaliesCount = authoritativeRound.anomaliesCount || (authoritativeRound.anomalies ? authoritativeRound.anomalies.length : 0);
-          broadcastServerPushNotification({
-            category: 'rondas',
-            title: '📋 ✅ Ronda Técnica Guardada',
-            body: `Ronda finalizada por ${signature || currentActive.technicianName} (${compShift})\n• Cumplimiento: 100%\n• Anomalías detectadas: ${anomaliesCount}`,
-            url: '/?tab=rondas',
-            tag: `round-completed-${authoritativeRound.id}`,
-            excludeUserId: currentUser?.id,
-            excludeEmail: currentUser?.email
-          });
-          notify('☁️ Ronda y fotografías respaldadas al 100% en PostgreSQL');
-        }
+      // 3. UNA SOLA PETICIÓN ATÓMICA (POST /api/rounds/atomic) — cero bucles punto-por-punto
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 45000);
+      let response: Response;
+      try {
+        response = await fetch('/api/rounds/atomic', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Client-Id': clientSessionId.current
+          },
+          body: JSON.stringify(completed),
+          signal: controller.signal
+        });
       } finally {
-        bgPhotoSyncingRoundIdsRef.current.delete(completed.id);
+        clearTimeout(timeoutId);
       }
-    })();
 
-    return completed;
+      let resPayload: any = null;
+      try {
+        resPayload = await response.json();
+      } catch {
+        resPayload = null;
+      }
+
+      if (!response.ok || !resPayload || resPayload.status !== 'ok' || !resPayload.success) {
+        const errMsg = resPayload?.error || `Error del servidor (${response.status}). No se guardaron datos parciales.`;
+        throw new Error(errMsg);
+      }
+
+      // 4. GARANTÍA VISUAL STRICT HTTP 200: SOLO tras confirmación real de PostgreSQL cerramos la vista activa
+      const authoritativeRound: DailyRound = resPayload.round
+        ? (mergeRoundLists([completed], [resPayload.round], getDeletedRoundIds())[0] || resPayload.round)
+        : completed;
+
+      markCollectionMutation('rounds');
+      completedRoundIdsRef.current.add(authoritativeRound.id);
+      unmarkDeletedRoundId(authoritativeRound.id);
+      trackLocalCreation(authoritativeRound.id);
+      syncedRoundChunksRef.current.delete(authoritativeRound.id);
+      removePendingOfflineRound(authoritativeRound.id);
+      markRoundSynced(authoritativeRound.id);
+      setIsCloudSynced(true);
+
+      finalAnomalies.forEach(anomaly => {
+        reportIncident({
+          id: anomaly.id,
+          timestamp: anomaly.timestamp,
+          title: anomaly.title,
+          description: anomaly.description,
+          area: anomaly.area,
+          severity: anomaly.severity,
+          status: anomaly.status || 'pendiente',
+          registeredBy: anomaly.registeredBy || signature || currentActive.technicianName,
+          equipmentId: anomaly.equipmentId,
+          equipmentTag: anomaly.equipmentTag,
+          photoUrl: anomaly.photoUrl,
+          photos: anomaly.photos
+        });
+      });
+
+      const updatedLocalList = mergeRoundLists([authoritativeRound], roundsRef.current || [], getDeletedRoundIds());
+      roundsRef.current = updatedLocalList;
+      setRounds(updatedLocalList);
+      safeSetItem(STORAGE_KEYS.ROUNDS, JSON.stringify(updatedLocalList));
+      idbSet(STORAGE_KEYS.ROUNDS, updatedLocalList).catch(() => {});
+
+      activeRoundRef.current = null;
+      setActiveRound(null);
+      localStorage.removeItem(STORAGE_KEYS.ACTIVE_ROUND);
+      localStorage.removeItem('active_round_draft_backup');
+      localStorage.removeItem('active_round_resume_lock');
+      idbRemove(STORAGE_KEYS.ACTIVE_ROUND).catch(() => {});
+
+      notify('✅ Ronda guardada exitosamente en la base de datos');
+
+      const compShift = authoritativeRound.shift === 'manana' ? 'Turno Mañana' : authoritativeRound.shift === 'tarde' ? 'Turno Tarde' : 'Turno Noche';
+      const anomaliesCount = authoritativeRound.anomaliesCount || (authoritativeRound.anomalies ? authoritativeRound.anomalies.length : 0);
+
+      sendSystemNotification('📋 ✅ Ronda Guardada en Base de Datos', {
+        body: `Ronda finalizada por ${signature || currentActive.technicianName}.\n• Turno: ${compShift}\n• Puntos confirmados: ${resPayload.savedCheckpointsCount || authoritativeRound.checkpoints.length}/${authoritativeRound.checkpoints.length}`,
+        tag: `round-saved-${authoritativeRound.id}`,
+        icon: '/pwa-192x192.png'
+      });
+      broadcastServerPushNotification({
+        category: 'rondas',
+        title: '📋 ✅ Ronda Técnica Guardada',
+        body: `Ronda finalizada por ${signature || currentActive.technicianName} (${compShift})\n• Cumplimiento: 100%\n• Anomalías detectadas: ${anomaliesCount}`,
+        url: '/?tab=rondas',
+        tag: `round-completed-${authoritativeRound.id}`,
+        excludeUserId: currentUser?.id,
+        excludeEmail: currentUser?.email
+      });
+      playAlertSound();
+
+      try {
+        roundsChannel.current?.postMessage({ type: 'round_completed', round: authoritativeRound });
+      } catch (e) {}
+
+      return authoritativeRound;
+    } finally {
+      completingAtomicRoundIdsRef.current.delete(currentActive.id);
+    }
   };
 
   const cancelActiveRound = async () => {

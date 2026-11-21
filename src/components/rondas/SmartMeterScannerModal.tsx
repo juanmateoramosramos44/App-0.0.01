@@ -428,7 +428,7 @@ export const SmartMeterScannerModal: React.FC<SmartMeterScannerModalProps> = ({
 
     ctx.drawImage(video, sx, sy, sw, sh, 0, 0, outW, outH);
     const rawDataUrl = canvas.toDataURL('image/jpeg', 0.68);
-    const compressedUrl = await compressImageDataUrl(rawDataUrl, { maxDimension: 840, quality: 0.62 });
+    const compressedUrl = await compressImageDataUrl(rawDataUrl, { maxDimension: 840, quality: 0.68, maxBytes: 135 * 1024 });
 
     // Force torch OFF and release camera immediately after snap
     await stopCamera();
@@ -450,7 +450,7 @@ export const SmartMeterScannerModal: React.FC<SmartMeterScannerModalProps> = ({
     const compressedList: string[] = [];
     for (const file of files) {
       try {
-        const compressed = await compressImageFile(file, { maxDimension: 840, quality: 0.62 });
+        const compressed = await compressImageFile(file, { maxDimension: 840, quality: 0.68, maxBytes: 135 * 1024 });
         if (compressed) compressedList.push(compressed);
       } catch (err) {
         console.warn('Error compressing uploaded photo:', err);

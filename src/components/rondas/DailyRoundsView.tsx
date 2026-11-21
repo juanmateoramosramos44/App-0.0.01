@@ -429,6 +429,8 @@ export const DailyRoundsView: React.FC = () => {
 
   const [isStartingRound, setIsStartingRound] = useState(false);
   const [isSubmittingRound, setIsSubmittingRound] = useState(false);
+  const [submittingStatusText, setSubmittingStatusText] = useState('Comprimiendo fotos y preparando envío atómico...');
+  const [submitErrorMessage, setSubmitErrorMessage] = useState<string | null>(null);
   const [showOfflineModal, setShowOfflineModal] = useState(false);
   const [isNetworkOnline, setIsNetworkOnline] = useState<boolean>(() => typeof navigator !== 'undefined' ? navigator.onLine : true);
 
@@ -837,7 +839,7 @@ export const DailyRoundsView: React.FC = () => {
     const compressedList: string[] = [];
     for (const file of files) {
       try {
-        const compressed = await compressImageFile(file, 840, 0.62);
+        const compressed = await compressImageFile(file, { maxDimension: 840, quality: 0.68, maxBytes: 135 * 1024 });
         if (compressed) compressedList.push(compressed);
       } catch (err) {
         console.warn('Error comprimiendo foto de incidencia:', err);
@@ -889,7 +891,9 @@ export const DailyRoundsView: React.FC = () => {
       return;
     }
 
-    // Intentar la carga real en el servidor incluso durante cambios rápidos Wi-Fi / Datos Móviles
+    // Envío atómico único tras comprimir todas las fotos localmente
+    setSubmitErrorMessage(null);
+    setSubmittingStatusText('Comprimiendo fotos localmente (<= 135 KB)...');
     setIsSubmittingRound(true);
 
     const finalSignature = (signatureName && signatureName.trim()) || activeRound.technicianName || currentUser?.displayName || 'Técnico';
@@ -905,12 +909,22 @@ export const DailyRoundsView: React.FC = () => {
     }
 
     try {
-      await completeActiveRound(meterReadings, generalNotes, finalSignature, false);
+      await completeActiveRound(
+        meterReadings,
+        generalNotes,
+        finalSignature,
+        false,
+        (stage) => setSubmittingStatusText(stage)
+      );
       setShowOfflineModal(false);
-    } catch (err) {
-      console.error('Error saving round to cloud:', err);
+    } catch (err: any) {
+      console.error('Error guardando ronda atómicamente:', err);
+      const msg = err?.name === 'AbortError'
+        ? 'Tiempo de espera agotado por señal débil. No se guardaron datos parciales; tus registros y fotos siguen 100% intactos.'
+        : (err?.message || 'Sin conexión estable con PostgreSQL. Tus 26 puntos y fotos siguen intactos en el dispositivo.');
+      setSubmitErrorMessage(msg);
       setShowOfflineModal(true);
-      notify('⚠️ Inconveniente inesperado al cerrar la ronda. Tus datos siguen 100% intactos.');
+      notify('⚠️ No se pudo confirmar el guardado en PostgreSQL. Tus datos siguen 100% intactos para reintentar.');
     } finally {
       setIsSubmittingRound(false);
     }
@@ -2219,7 +2233,7 @@ export const DailyRoundsView: React.FC = () => {
                       {isSubmittingRound ? (
                         <>
                           <RefreshCw className="w-4 h-4 animate-spin text-white" />
-                          <span>Sincronizando y Guardando en la Nube...</span>
+                          <span>Guardando Ronda en PostgreSQL...</span>
                         </>
                       ) : (
                         <>
@@ -5290,7 +5304,27 @@ export const DailyRoundsView: React.FC = () => {
         </div>
       )}
 
-      {/* OFFLINE WARNING MODAL (Cuando el técnico intenta cerrar sin internet o Wi-Fi) */}
+      {/* MODAL BLOQUEANTE LIVIANO DURANTE TRANSACCIÓN ATÓMICA (Espera HTTP 200 de PostgreSQL) */}
+      {isSubmittingRound && (
+        <div className="fixed inset-0 z-[70] bg-slate-950/80 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-emerald-500/40 rounded-3xl p-6 max-w-sm w-full shadow-2xl text-center space-y-4">
+            <div className="w-14 h-14 rounded-2xl bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center mx-auto">
+              <RefreshCw className="w-7 h-7 text-emerald-400 animate-spin" />
+            </div>
+            <div className="space-y-1.5">
+              <h3 className="text-base font-black text-white">Guardando ronda...</h3>
+              <p className="text-xs text-emerald-300 font-semibold leading-relaxed">
+                {submittingStatusText}
+              </p>
+              <p className="text-[11px] text-slate-400 leading-snug pt-1">
+                No cierres la aplicación hasta recibir la confirmación oficial de la base de datos.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* OFFLINE / ROLLBACK WARNING MODAL (Cuando falla la señal o PostgreSQL ejecuta ROLLBACK) */}
       {showOfflineModal && (
         <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in">
           <div className="bg-slate-900 border-2 border-amber-500/50 rounded-3xl p-6 sm:p-7 max-w-md w-full shadow-2xl space-y-5 text-center">
@@ -5300,23 +5334,23 @@ export const DailyRoundsView: React.FC = () => {
 
             <div className="space-y-1.5">
               <h3 className="text-lg font-black text-white">
-                Sin Conexión a Internet / Señal Débil
+                Error de Conexión / Ronda No Cerrada
               </h3>
               <p className="text-xs text-amber-300 font-bold">
-                No se puede cerrar ni cargar la ronda en el sistema en este momento.
+                {submitErrorMessage || 'No se recibió confirmación HTTP 200 de PostgreSQL en este momento.'}
               </p>
             </div>
 
             <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 text-left space-y-2 text-xs text-slate-300 leading-relaxed">
               <p className="font-semibold text-white flex items-center gap-2">
                 <span className="w-2 h-2 rounded-full bg-emerald-400 inline-block shrink-0"></span>
-                <span>Tus datos y registros están 100% seguros</span>
+                <span>Tus 26 puntos y fotos comprimidas están 100% seguros</span>
               </p>
               <p>
-                El sistema ha guardado cada punto, cifra y observación de tu ronda localmente en tu dispositivo. Ningún dato se perderá, incluso si entraste al ascensor o perdiste señal temporalmente.
+                Ningún registro fue descartado ni quedó guardado a medias. Todo permanece respaldado localmente y listo para enviarse en un solo paquete apenas tengas señal.
               </p>
               <p className="text-amber-300 font-medium pt-1 border-t border-slate-800">
-                👉 Para cerrar y cargar la ronda definitivamente en el servidor, por favor conéctate a una red Wi-Fi o busca señal de datos y vuelve a presionar el botón de finalizar.
+                👉 Busca señal Wi-Fi o datos móviles y presiona "Validar y Guardar Ronda Diaria" para completar la transacción.
               </p>
             </div>
 
@@ -5326,7 +5360,7 @@ export const DailyRoundsView: React.FC = () => {
                 onClick={() => setShowOfflineModal(false)}
                 className="w-full py-3 px-5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black text-xs rounded-xl shadow-lg transition-all cursor-pointer flex items-center justify-center space-x-2 active:scale-98"
               >
-                <span>Entendido • Continuar Trabajando</span>
+                <span>Entendido • Volver a la Ronda</span>
                 <Check className="w-4 h-4" />
               </button>
             </div>
