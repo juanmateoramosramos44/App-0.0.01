@@ -1511,25 +1511,9 @@ function mergeAppData(incoming: any) {
         const isExistingCompleted = existing.status === 'completada' || Boolean(existing.completedAt && existing.technicianSignature);
         const isIncomingCompleted = rndItem.status === 'completada' || Boolean(rndItem.completedAt && rndItem.technicianSignature);
 
-        if (isExistingCompleted && !isIncomingCompleted) {
-          // La ronda ya fue cerrada y completada: NINGÚN paquete rezagado en_progreso puede degradarla
-          existingRoundsMap.set(rndItem.id, existing);
-        } else if (isIncomingCompleted && !isExistingCompleted) {
-          existingRoundsMap.set(rndItem.id, {
-            ...existing,
-            ...rndItem,
-            status: 'completada',
-            compliancePercentage: 100,
-            completedAt: rndItem.completedAt || existing.completedAt || new Date().toISOString(),
-            technicianSignature: rndItem.technicianSignature || existing.technicianSignature || rndItem.technicianName
-          });
-        } else if (isExistingCompleted && isIncomingCompleted) {
-          const tExisting = new Date(existing.lastUpdated || existing.completedAt || 0).getTime();
-          const tIncoming = new Date(rndItem.lastUpdated || rndItem.completedAt || 0).getTime();
-          const primary = tIncoming > tExisting ? rndItem : existing;
-          const secondary = primary === existing ? rndItem : existing;
-          const mergedCheckpoints = (primary.checkpoints || []).map((pc: any, cIdx: number) => {
-            const sc = (secondary.checkpoints || [])[cIdx] || (secondary.checkpoints || []).find((c: any) => c && (c.id === pc.id || c.title === pc.title));
+        const mergeRoundCheckpointsHelper = (primaryChks: any[], secondaryChks: any[]) => {
+          return (primaryChks || []).map((pc: any, cIdx: number) => {
+            const sc = (secondaryChks || [])[cIdx] || (secondaryChks || []).find((c: any) => c && (c.id === pc.id || c.title === pc.title));
             if (!sc) return pc;
             const mergedPhotos = mergeUniquePhotosServer(sc.photos, sc.photoUrl, pc.photos, pc.photoUrl);
             const photoUrl = mergedPhotos[mergedPhotos.length - 1] || pc.photoUrl || sc.photoUrl;
@@ -1557,6 +1541,26 @@ function mergeAppData(incoming: any) {
               measurementFields
             };
           });
+        };
+
+        if (isExistingCompleted && !isIncomingCompleted) {
+          // La ronda ya fue cerrada y completada: NINGÚN paquete rezagado en_progreso puede degradarla
+          existingRoundsMap.set(rndItem.id, existing);
+        } else if (isIncomingCompleted && !isExistingCompleted) {
+          existingRoundsMap.set(rndItem.id, {
+            ...existing,
+            ...rndItem,
+            status: 'completada',
+            compliancePercentage: 100,
+            completedAt: rndItem.completedAt || existing.completedAt || new Date().toISOString(),
+            technicianSignature: rndItem.technicianSignature || existing.technicianSignature || rndItem.technicianName
+          });
+        } else if (isExistingCompleted && isIncomingCompleted) {
+          const tExisting = new Date(existing.lastUpdated || existing.completedAt || 0).getTime();
+          const tIncoming = new Date(rndItem.lastUpdated || rndItem.completedAt || 0).getTime();
+          const primary = tIncoming > tExisting ? rndItem : existing;
+          const secondary = primary === existing ? rndItem : existing;
+          const mergedCheckpoints = mergeRoundCheckpointsHelper(primary.checkpoints || [], secondary.checkpoints || []);
           const mergedRootPhotos = mergeUniquePhotosServer(secondary.photos, primary.photos);
           const winner = {
             ...secondary,
@@ -1572,12 +1576,19 @@ function mergeAppData(incoming: any) {
             technicianSignature: winner.technicianSignature || existing.technicianSignature || rndItem.technicianSignature || winner.technicianName
           });
         } else {
-          // Ambas versiones están en progreso o pendientes
+          // Ambas versiones están en progreso o pendientes: fusionar siempre preservando todas las fotos
           const tExisting = new Date(existing.lastUpdated || existing.completedAt || existing.date || 0).getTime();
           const tIncoming = new Date(rndItem.lastUpdated || rndItem.completedAt || rndItem.date || 0).getTime();
-          if (tIncoming >= tExisting) {
-            existingRoundsMap.set(rndItem.id, rndItem);
-          }
+          const primary = tIncoming >= tExisting ? rndItem : existing;
+          const secondary = primary === rndItem ? existing : rndItem;
+          const mergedCheckpoints = mergeRoundCheckpointsHelper(primary.checkpoints || [], secondary.checkpoints || []);
+          const mergedRootPhotos = mergeUniquePhotosServer(secondary.photos, primary.photos);
+          existingRoundsMap.set(rndItem.id, {
+            ...secondary,
+            ...primary,
+            photos: mergedRootPhotos.length > 0 ? mergedRootPhotos : (primary.photos || secondary.photos),
+            checkpoints: mergedCheckpoints.length > 0 ? mergedCheckpoints : (primary.checkpoints || secondary.checkpoints)
+          });
         }
       }
     }
@@ -4085,16 +4096,31 @@ app.get("/api/uploaded-documents/:id/download", async (req, res) => {
 
   const cleanBase64 = String(doc.rawBase64).includes(',') ? String(doc.rawBase64).split(',')[1] : String(doc.rawBase64);
   const buffer = Buffer.from(cleanBase64, 'base64');
-  const rawName = String(doc.name || `documento_${id}.xlsx`).replace(/[^\w.\-\s()áéíóúÁÉÍÓÚñÑ]/g, '_');
-  const fileName = rawName.toLowerCase().endsWith('.xlsx') || rawName.toLowerCase().endsWith('.xls') || rawName.toLowerCase().endsWith('.csv') || rawName.toLowerCase().endsWith('.pdf')
-    ? rawName
-    : `${rawName}.xlsx`;
-  const mime = doc.type === 'pdf'
-    ? 'application/pdf'
-    : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+  const rawName = String(doc.name || `documento_${id}`).replace(/[^\w.\-\s()áéíóúÁÉÍÓÚñÑ]/g, '_');
+  const hasExt = /\.[a-z0-9]{1,8}$/i.test(rawName);
+  const fallbackExt = doc.originalExtension
+    ? `.${String(doc.originalExtension).replace(/^\./, '')}`
+    : doc.type === 'pdf'
+      ? '.pdf'
+      : (doc.type === 'excel' || doc.type === 'csv')
+        ? '.xlsx'
+        : '';
+  const fileName = hasExt ? rawName : `${rawName}${fallbackExt}`;
+  const rawMime = typeof doc.mimeType === 'string' && doc.mimeType
+    ? doc.mimeType
+    : doc.type === 'pdf'
+      ? 'application/pdf'
+      : (doc.type === 'excel' || doc.type === 'csv')
+        ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        : 'application/octet-stream';
+  // Prevent browser active content execution on downloads of untrusted HTML/SVG
+  const safeMime = /html|svg|javascript|ecmascript/i.test(rawMime)
+    ? 'application/octet-stream'
+    : rawMime;
 
   res.setHeader("Cache-Control", "no-store");
-  res.setHeader("Content-Type", mime);
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("Content-Type", safeMime);
   res.setHeader("Content-Disposition", `attachment; filename*=UTF-8''${encodeURIComponent(fileName)}`);
   res.send(buffer);
 });

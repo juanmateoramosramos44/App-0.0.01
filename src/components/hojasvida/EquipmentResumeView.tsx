@@ -53,7 +53,7 @@ import { OriginalDocumentViewer } from './OriginalDocumentViewer';
 import { CustomSelect } from '../common/CustomSelect';
 import { WaterPumpIcon, CondenserIcon, SubstationIcon, TankIcon, SaunaColdPlungeIcon } from '../../utils/roundIcons';
 import {
-  parseExcelFileToUploadedDocument,
+  parseUniversalFileToUploadedDocument,
   createExcelDocumentFromTemplate,
   ExcelTemplateType
 } from '../../utils/excelEngine';
@@ -335,7 +335,7 @@ export const EquipmentResumeView: React.FC = () => {
     }
   };
 
-  // Parse one or multiple Excel files with exact ExcelJS fidelity (all rows, colors, widths, merges & exact rawBase64)
+  // Parse one or multiple files (Excel with exact ExcelJS fidelity + universal binary formats accept=*/*)
   const processSelectedExcelFiles = async (files: File[]) => {
     if (!files || files.length === 0) return;
     setImportError(null);
@@ -348,15 +348,15 @@ export const EquipmentResumeView: React.FC = () => {
       const parsedList: Omit<UploadedDocument, 'id'>[] = [];
 
       for (const file of files) {
-        const parsed = await parseExcelFileToUploadedDocument(file, uploader, targetFolder);
+        const parsed = await parseUniversalFileToUploadedDocument(file, uploader, targetFolder);
         parsedList.push(parsed);
       }
 
       setParsedUploadedDocs(parsedList);
       setExcelPreviewData([]);
     } catch (err: any) {
-      console.error('Error parsing Excel:', err);
-      setImportError(err?.message || 'Error al leer el archivo. Asegúrate de que sea un Excel válido (.xlsx, .xls o .csv).');
+      console.error('Error parsing file:', err);
+      setImportError(err?.message || 'Error al procesar el archivo seleccionado.');
     } finally {
       setIsParsingExcel(false);
     }
@@ -369,7 +369,7 @@ export const EquipmentResumeView: React.FC = () => {
     await processSelectedExcelFiles(files);
   };
 
-  // Quick drag-and-drop direct upload into active folder
+  // Quick drag-and-drop direct upload into active folder (silent, optimistic PostgreSQL save)
   const handleQuickUploadFiles = async (files: File[]) => {
     if (!files || files.length === 0) return;
     const uploader = currentUser?.displayName || (isAdmin ? 'Administrador' : 'Equipo Mantenimiento');
@@ -377,28 +377,24 @@ export const EquipmentResumeView: React.FC = () => {
     try {
       let lastSavedId = '';
       for (const file of files) {
-        const parsed = await parseExcelFileToUploadedDocument(file, uploader, targetFolder);
-        const saved = await addUploadedDocument(parsed);
+        const parsed = await parseUniversalFileToUploadedDocument(file, uploader, targetFolder);
+        const saved = await addUploadedDocument(parsed, { silent: true });
         lastSavedId = saved.id;
       }
       if (lastSavedId) {
         setActiveDocId(lastSavedId);
         setActiveSubTab('visor_documentos');
       }
-      notify(files.length === 1
-        ? `Archivo "${files[0].name}" guardado permanentemente en PostgreSQL`
-        : `${files.length} archivos Excel guardados permanentemente en PostgreSQL`
-      );
     } catch (err) {
       console.error(err);
-      notify('Error al subir uno o más archivos Excel');
+      notify('Error al subir uno o más archivos');
     }
   };
 
-  // Confirm Excel Import and Save Documents into PostgreSQL
+  // Confirm File Import and Save Documents silently into PostgreSQL
   const handleConfirmExcelImport = async () => {
     if (parsedUploadedDocs.length === 0) {
-      notify('Por favor selecciona al menos un archivo Excel válido');
+      notify('Por favor selecciona al menos un archivo');
       return;
     }
 
@@ -412,7 +408,7 @@ export const EquipmentResumeView: React.FC = () => {
           ...docItem,
           folderId: targetFolderId
         };
-        lastSaved = await addUploadedDocument(docToSave);
+        lastSaved = await addUploadedDocument(docToSave, { silent: true });
       }
 
       if (lastSaved) {
@@ -420,12 +416,6 @@ export const EquipmentResumeView: React.FC = () => {
         setActiveDocId(lastSaved.id);
         setActiveSubTab('visor_documentos');
       }
-
-      notify(
-        parsedUploadedDocs.length === 1 && lastSaved
-          ? `Documento "${lastSaved.name}" guardado permanentemente en PostgreSQL`
-          : `${parsedUploadedDocs.length} archivos Excel guardados permanentemente en PostgreSQL`
-      );
 
       setIsExcelModalOpen(false);
       setExcelPreviewData([]);
@@ -458,13 +448,12 @@ export const EquipmentResumeView: React.FC = () => {
         uploader,
         targetFolder
       );
-      const saved = await addUploadedDocument(newDocDraft);
+      const saved = await addUploadedDocument(newDocDraft, { silent: true });
       setActiveFolderId(targetFolder || null);
       setActiveDocId(saved.id);
       setActiveSubTab('visor_documentos');
       setIsCreateExcelModalOpen(false);
       setNewExcelFileName('');
-      notify(`Libro Excel "${saved.name}" creado y guardado en PostgreSQL`);
     } catch (err) {
       console.error('Error creando libro Excel:', err);
       notify('No se pudo crear el libro Excel');
@@ -1273,7 +1262,7 @@ export const EquipmentResumeView: React.FC = () => {
         </div>
       )}
 
-      {/* MODAL PARA IMPORTAR ARCHIVOS EXCEL (.XLSX / .XLS / .CSV) */}
+      {/* MODAL PARA IMPORTAR CUALQUIER ARCHIVO (EXCEL, PDF, WORD, IMÁGENES, ETC.) */}
       {isExcelModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70">
           <div className="bg-white rounded-2xl max-w-3xl w-full max-h-[90vh] flex flex-col shadow-2xl overflow-hidden border border-slate-200">
@@ -1285,10 +1274,10 @@ export const EquipmentResumeView: React.FC = () => {
                 </div>
                 <div>
                   <h3 className="text-base font-bold text-slate-900">
-                    Subir Archivos Excel desde el Computador
+                    Subir Archivos desde el Computador
                   </h3>
                   <p className="text-xs text-slate-500">
-                    Se conserva 100% el archivo binario, colores, anchos, bordes y todas sus hojas en PostgreSQL
+                    Acepta Excel (.xlsx, .xls, .csv), PDF, Word, imágenes y cualquier formato conservando 100% los datos en PostgreSQL
                   </p>
                 </div>
               </div>
@@ -1332,7 +1321,7 @@ export const EquipmentResumeView: React.FC = () => {
                 onDragOver={(e) => e.preventDefault()}
                 onDrop={async (e) => {
                   e.preventDefault();
-                  const dropped = Array.from(e.dataTransfer.files || []).filter(f => /\.(xlsx|xls|csv)$/i.test(f.name));
+                  const dropped = Array.from(e.dataTransfer.files || []);
                   if (dropped.length > 0) await processSelectedExcelFiles(dropped);
                 }}
                 className="border-2 border-dashed border-emerald-300 hover:border-emerald-500 bg-emerald-50/50 hover:bg-emerald-50/80 rounded-2xl p-6 sm:p-8 text-center cursor-pointer transition-all space-y-3"
@@ -1340,7 +1329,7 @@ export const EquipmentResumeView: React.FC = () => {
                 <input
                   ref={fileInputRef}
                   type="file"
-                  accept=".xlsx, .xls, .csv"
+                  accept="*/*"
                   multiple
                   onChange={handleExcelFileUpload}
                   className="hidden"
@@ -1351,13 +1340,13 @@ export const EquipmentResumeView: React.FC = () => {
                 <div>
                   <p className="text-sm font-bold text-slate-800">
                     {isParsingExcel
-                      ? 'Procesando colores, anchos y hojas originales...'
+                      ? 'Procesando archivo y conservando formato original...'
                       : excelFileName
                       ? excelFileName
-                      : 'Haz clic aquí o arrastra uno o varios archivos Excel (.xlsx, .xls, .csv)'}
+                      : 'Haz clic aquí o arrastra archivos (Excel, PDF, Word, Imágenes, etc.)'}
                   </p>
                   <p className="text-xs text-slate-500 mt-1">
-                    Conserva el formato 100% idéntico tanto dentro de la aplicación como al abrirlo en Excel de tu computador
+                    Se guarda el archivo binario 100% intacto y los Excel se editan dentro de la aplicación con fidelidad total
                   </p>
                 </div>
                 {parsedUploadedDocs.length > 0 && (
@@ -1365,8 +1354,10 @@ export const EquipmentResumeView: React.FC = () => {
                     <Check className="w-3.5 h-3.5" />
                     <span>
                       {parsedUploadedDocs.length === 1
-                        ? `Listo: ${parsedUploadedDocs[0].sheets.length} hoja(s) • ${parsedUploadedDocs[0].totalRows} filas`
-                        : `${parsedUploadedDocs.length} libros Excel listos para guardar`}
+                        ? parsedUploadedDocs[0].sheets?.[0]?.rows?.length
+                          ? `Listo: ${parsedUploadedDocs[0].sheets.length} hoja(s) • ${parsedUploadedDocs[0].totalRows} filas`
+                          : `Listo: ${parsedUploadedDocs[0].name}`
+                        : `${parsedUploadedDocs.length} archivos listos para guardar`}
                     </span>
                   </div>
                 )}
@@ -1379,52 +1370,69 @@ export const EquipmentResumeView: React.FC = () => {
                 </div>
               )}
 
-              {/* Vista Previa Fidelidad Exacta */}
-              {parsedUploadedDocs[0] && parsedUploadedDocs[0].sheets[0] && (
-                <div className="space-y-3 border border-slate-200 rounded-2xl p-4 bg-slate-50/60">
-                  <div className="flex items-center justify-between flex-wrap gap-2">
-                    <div className="flex items-center space-x-2">
-                      <Table className="w-4 h-4 text-emerald-600" />
-                      <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
-                        Vista Previa Exacta ({parsedUploadedDocs[0].name})
-                      </h4>
+              {/* Vista Previa */}
+              {parsedUploadedDocs[0] && (
+                parsedUploadedDocs[0].sheets?.[0]?.rows?.length ? (
+                  <div className="space-y-3 border border-slate-200 rounded-2xl p-4 bg-slate-50/60">
+                    <div className="flex items-center justify-between flex-wrap gap-2">
+                      <div className="flex items-center space-x-2">
+                        <Table className="w-4 h-4 text-emerald-600" />
+                        <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
+                          Vista Previa Exacta ({parsedUploadedDocs[0].name})
+                        </h4>
+                      </div>
+                      <span className="text-xs text-emerald-700 font-semibold bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200 tabular-nums">
+                        {parsedUploadedDocs[0].totalRows} filas • {parsedUploadedDocs[0].sheets.length} hoja(s)
+                      </span>
                     </div>
-                    <span className="text-xs text-emerald-700 font-semibold bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200 tabular-nums">
-                      {parsedUploadedDocs[0].totalRows} filas • {parsedUploadedDocs[0].sheets.length} hoja(s)
+
+                    <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white max-h-52">
+                      <table className="min-w-full text-left text-[11px] border-collapse">
+                        <tbody className="divide-y divide-slate-100 text-slate-700">
+                          {parsedUploadedDocs[0].sheets[0].rows.slice(0, 6).map((row, rIdx) => (
+                            <tr key={rIdx}>
+                              <td className="px-2 py-1 text-slate-400 border-r border-slate-200 bg-slate-50 font-mono text-[10px] w-8 text-center">
+                                {rIdx + 1}
+                              </td>
+                              {parsedUploadedDocs[0].sheets[0].headers.slice(0, 8).map((_, cIdx) => {
+                                const st = parsedUploadedDocs[0].sheets[0].cellStyles?.[`${rIdx}-${cIdx}`];
+                                return (
+                                  <td
+                                    key={cIdx}
+                                    style={{
+                                      backgroundColor: st?.bgColor || undefined,
+                                      color: st?.textColor || undefined,
+                                      fontWeight: st?.bold ? 700 : undefined,
+                                      textAlign: st?.align || undefined
+                                    }}
+                                    className="px-2.5 py-1 border-r border-slate-200 truncate max-w-[160px]"
+                                  >
+                                    {String(row[cIdx] ?? '')}
+                                  </td>
+                                );
+                              })}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="border border-slate-200 rounded-2xl p-4 bg-slate-50/60 flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <FileText className="w-5 h-5 text-blue-600 shrink-0" />
+                      <div className="min-w-0">
+                        <p className="text-xs font-bold text-slate-900 truncate">{parsedUploadedDocs[0].name}</p>
+                        <p className="text-[11px] text-slate-500">
+                          {(parsedUploadedDocs[0].originalExtension || parsedUploadedDocs[0].type || 'ARCHIVO').toUpperCase()} • {parsedUploadedDocs[0].mimeType || 'Binario original'}
+                        </p>
+                      </div>
+                    </div>
+                    <span className="text-[11px] font-semibold px-2.5 py-1 rounded-md bg-emerald-50 text-emerald-800 border border-emerald-200 shrink-0">
+                      Archivo intacto listo
                     </span>
                   </div>
-
-                  <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white max-h-52">
-                    <table className="min-w-full text-left text-[11px] border-collapse">
-                      <tbody className="divide-y divide-slate-100 text-slate-700">
-                        {parsedUploadedDocs[0].sheets[0].rows.slice(0, 6).map((row, rIdx) => (
-                          <tr key={rIdx}>
-                            <td className="px-2 py-1 text-slate-400 border-r border-slate-200 bg-slate-50 font-mono text-[10px] w-8 text-center">
-                              {rIdx + 1}
-                            </td>
-                            {parsedUploadedDocs[0].sheets[0].headers.slice(0, 8).map((_, cIdx) => {
-                              const st = parsedUploadedDocs[0].sheets[0].cellStyles?.[`${rIdx}-${cIdx}`];
-                              return (
-                                <td
-                                  key={cIdx}
-                                  style={{
-                                    backgroundColor: st?.bgColor || undefined,
-                                    color: st?.textColor || undefined,
-                                    fontWeight: st?.bold ? 700 : undefined,
-                                    textAlign: st?.align || undefined
-                                  }}
-                                  className="px-2.5 py-1 border-r border-slate-200 truncate max-w-[160px]"
-                                >
-                                  {String(row[cIdx] ?? '')}
-                                </td>
-                              );
-                            })}
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
+                )
               )}
 
               <div className="bg-emerald-50/80 p-3.5 rounded-xl border border-emerald-200 text-xs text-emerald-900 space-y-1">
@@ -1433,7 +1441,7 @@ export const EquipmentResumeView: React.FC = () => {
                   <span>Respaldo Permanente en PostgreSQL:</span>
                 </p>
                 <p className="text-emerald-800">
-                  Tus archivos Excel y carpetas se guardan directamente en PostgreSQL. No se pierden con actualizaciones ni reinicios y se abren idénticos en tu computador sin pedir permisos.
+                  Tus archivos y carpetas se guardan directamente en PostgreSQL sin perder formato, estilos ni archivos adjuntos al actualizar o reiniciar la aplicación.
                 </p>
               </div>
             </div>
@@ -1464,8 +1472,8 @@ export const EquipmentResumeView: React.FC = () => {
                   {isImporting
                     ? 'Guardando en PostgreSQL...'
                     : parsedUploadedDocs.length > 1
-                    ? `Guardar ${parsedUploadedDocs.length} Archivos Excel`
-                    : 'Guardar Excel Permanentemente'}
+                    ? `Guardar ${parsedUploadedDocs.length} Archivos`
+                    : 'Guardar Archivo Permanentemente'}
                 </span>
               </button>
             </div>

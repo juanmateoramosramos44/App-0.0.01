@@ -284,6 +284,7 @@ interface MaintenanceContextType {
   
   // Real-time Cloud Sync
   isCloudSynced: boolean;
+  dbSyncStatus: 'idle' | 'saving' | 'saved' | 'error';
   isInitialSyncDone: boolean;
   hasNewAppVersion: boolean;
   reloadAppForUpdate: () => void;
@@ -321,8 +322,8 @@ interface MaintenanceContextType {
 
   // Uploaded Documents
   uploadedDocuments: UploadedDocument[];
-  addUploadedDocument: (doc: Omit<UploadedDocument, 'id'>) => Promise<UploadedDocument>;
-  updateUploadedDocument: (doc: UploadedDocument) => Promise<void>;
+  addUploadedDocument: (doc: Omit<UploadedDocument, 'id'>, options?: { silent?: boolean }) => Promise<UploadedDocument>;
+  updateUploadedDocument: (doc: UploadedDocument, options?: { silent?: boolean }) => Promise<void>;
   moveUploadedDocument: (docId: string, folderId: string | null) => Promise<void>;
   deleteUploadedDocument: (id: string) => Promise<void>;
   clearAllUploadedDocuments: () => Promise<void>;
@@ -2110,14 +2111,22 @@ const mergeRoundLists = (
 
         const mergedPhotosRoot = mergeUniquePhotos(winner.photos, loser.photos);
 
-        map.set(r.id, normalizeRoundRecord({
+        const candidate = normalizeRoundRecord({
           ...winner,
           checkpoints: mergedCheckpoints,
           meterReadings: mergedMeterReadings,
           anomalies: mergedAnomalies,
           anomaliesCount: mergedAnomalies.length,
           photos: mergedPhotosRoot.length > 0 ? mergedPhotosRoot : undefined
-        }));
+        });
+
+        // Preservar identidad de referencia de `existing` si contenido, estado y fotos son idénticos (evita espabileo visual en React)
+        const preserved =
+          getRoundSyncFingerprint(candidate) === getRoundSyncFingerprint(existing)
+            ? existing
+            : candidate;
+
+        map.set(r.id, preserved);
       }
     }
   }
@@ -2152,7 +2161,8 @@ const getRoundSyncFingerprint = (r: DailyRound): string => {
   }).join('|');
 
   const photosCount = collectRoundPhotoUrls(r).length;
-  return `${r.id}|${r.status}|${r.compliancePercentage}|${r.date}|${r.time}|${r.shift}|${r.technicianName}|${r.technicianSignature || ''}|${r.completedAt || ''}|${r.generalNotes || ''}|${r.anomalies?.length || 0}|${r.checkpoints?.length || 0}|${photosCount}|${r.lastUpdated || ''}|${chkSig}`;
+  // Excluir timestamps volátiles (lastHeartbeat/lastUpdated) para evitar re-renders y espabileo cuando las lecturas y fotos no han cambiado
+  return `${r.id}|${r.status}|${r.compliancePercentage}|${r.date}|${r.time}|${r.shift}|${r.technicianName}|${r.technicianSignature || ''}|${r.completedAt || ''}|${r.generalNotes || ''}|${r.anomalies?.length || 0}|${r.checkpoints?.length || 0}|${photosCount}|${chkSig}`;
 };
 
 const areRoundsEqual = (a: DailyRound[], b: DailyRound[]): boolean => {
@@ -2161,6 +2171,7 @@ const areRoundsEqual = (a: DailyRound[], b: DailyRound[]): boolean => {
   for (let i = 0; i < a.length; i++) {
     const r1 = a[i];
     const r2 = b[i];
+    if (r1 === r2) continue;
     if (!r1 || !r2) return false;
     if (getRoundSyncFingerprint(r1) !== getRoundSyncFingerprint(r2)) {
       return false;
@@ -2763,6 +2774,36 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
   }, [setSelectedTab]);
   const [notification, setNotification] = useState<string | null>(null);
   const [isCloudSynced, setIsCloudSynced] = useState<boolean>(true);
+  const [dbSyncStatus, setDbSyncStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const dbSyncResetTimerRef = useRef<any>(null);
+  const dbSyncInFlightCountRef = useRef<number>(0);
+
+  const beginDbSave = useCallback(() => {
+    dbSyncInFlightCountRef.current += 1;
+    if (dbSyncResetTimerRef.current) {
+      clearTimeout(dbSyncResetTimerRef.current);
+      dbSyncResetTimerRef.current = null;
+    }
+    setDbSyncStatus('saving');
+  }, []);
+
+  const endDbSave = useCallback((ok: boolean) => {
+    dbSyncInFlightCountRef.current = Math.max(0, dbSyncInFlightCountRef.current - 1);
+    if (dbSyncInFlightCountRef.current > 0) return;
+    if (ok) {
+      setIsCloudSynced(true);
+      setDbSyncStatus('saved');
+      if (dbSyncResetTimerRef.current) clearTimeout(dbSyncResetTimerRef.current);
+      dbSyncResetTimerRef.current = setTimeout(() => {
+        if (dbSyncInFlightCountRef.current === 0) {
+          setDbSyncStatus('idle');
+        }
+      }, 3500);
+    } else {
+      setDbSyncStatus('error');
+    }
+  }, []);
+
   const [isInitialSyncDone, setIsInitialSyncDone] = useState<boolean>(false);
   const [hasNewAppVersion, setHasNewAppVersion] = useState<boolean>(false);
   const initialServerVersionRef = useRef<number | null>(null);
@@ -3493,12 +3534,20 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
         if (Array.isArray(serverRounds)) {
           const deletedIds = getDeletedRoundIds();
           const cleanRounds = serverRounds.filter((r: any) => r && r.id && !deletedIds.has(r.id));
+          const serverRoundIds = new Set(cleanRounds.map((r: any) => r.id));
           const currentActiveId = activeRoundRef.current?.id;
           const unsyncedIds = getUnsyncedRoundIds();
-          const pendingLocalRounds = (roundsRef.current || []).filter(r =>
-            r && r.id && !deletedIds.has(r.id) && (r.id === currentActiveId || localActionIds.current.has(r.id) || unsyncedIds.has(r.id))
+          // Conservar las fotos ya cargadas en memoria para rondas confirmadas en servidor y rondas pendientes locales
+          const preservedBaseRounds = (roundsRef.current || []).filter(r =>
+            r && r.id && !deletedIds.has(r.id) && (
+              serverRoundIds.has(r.id) ||
+              r.id === currentActiveId ||
+              localActionIds.current.has(r.id) ||
+              unsyncedIds.has(r.id) ||
+              bgPhotoSyncingRoundIdsRef.current.has(r.id)
+            )
           );
-          const merged = mergeRoundLists(pendingLocalRounds, cleanRounds, deletedIds, currentActiveId, localActionIds.current);
+          const merged = mergeRoundLists(preservedBaseRounds, cleanRounds, deletedIds, currentActiveId, localActionIds.current);
           if (!areRoundsEqual(merged, roundsRef.current || [])) {
             roundsRef.current = merged;
             setRounds(merged);
@@ -4010,20 +4059,22 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
             const isCompletedInList = rounds.some(r => r && r.id === parsed.id && (r.status === 'completada' && Boolean(r.completedAt && r.technicianSignature)));
             if (!isCompletedInList) {
               if (found && parsed) {
-                // Preservar siempre las cifras y estados que el técnico introdujo en este dispositivo
+                // Preservar siempre cifras, estados y TODAS las fotos del técnico en este dispositivo
                 const mergedCheckpoints = (parsed.checkpoints || found.checkpoints || []).map((pc: any) => {
                   const fc = (found.checkpoints || []).find((c: any) => c && (c.id === pc.id || c.title === pc.title));
                   const pVal = pc.currentValue !== undefined && pc.currentValue !== '' ? pc.currentValue : fc?.currentValue;
                   const pStatus = pc.statusValue !== undefined ? pc.statusValue : fc?.statusValue;
                   const pNotes = pc.notes !== undefined && pc.notes !== '' ? pc.notes : fc?.notes;
-                  const pPhoto = pc.photoUrl || fc?.photoUrl;
+                  const mergedChkPhotos = mergeUniquePhotos(pc.photos, pc.photoUrl ? [pc.photoUrl] : [], fc?.photos, fc?.photoUrl ? [fc.photoUrl] : []);
+                  const pPhoto = mergedChkPhotos[mergedChkPhotos.length - 1] || pc.photoUrl || fc?.photoUrl;
                   return {
                     ...fc,
                     ...pc,
                     currentValue: pVal !== undefined ? pVal : '',
                     statusValue: pStatus,
                     notes: pNotes,
-                    photoUrl: pPhoto
+                    photoUrl: pPhoto,
+                    photos: mergedChkPhotos.length > 0 ? mergedChkPhotos : undefined
                   };
                 });
                 targetRound = {
@@ -5313,14 +5364,16 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
   // Hydrate persistent state from IndexedDB and authoritative server API if available
   useEffect(() => {
     idbGet<DailyRound[]>(STORAGE_KEYS.ROUNDS).then(idbRounds => {
-      if (isInitialFetchDone.current) return;
       if (idbRounds && Array.isArray(idbRounds) && idbRounds.length > 0) {
         const deletedIds = getDeletedRoundIds();
         const localActiveId = activeRoundRef.current?.id;
         const cleanIdbRounds = idbRounds.filter(r => {
           if (!r || !r.id || deletedIds.has(r.id)) return false;
-          // No resucitar rondas 'en_progreso' antiguas desde IndexedDB antes de confirmar con PostgreSQL
           if (r.status === 'en_progreso' && r.id !== localActiveId) return false;
+          // Si la hidratación inicial del servidor ya terminó, usar IDB exclusivamente para enriquecer rondas existentes con fotos locales en caché
+          if (isInitialFetchDone.current && !(roundsRef.current || []).some(existing => existing.id === r.id)) {
+            return false;
+          }
           return true;
         });
 
@@ -5376,13 +5429,22 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
           const canonicalInList = (roundsRef.current || []).find(r => r && r.id === idbActive.id);
           let chosen = idbActive;
           if (canonicalInList) {
-            // Fusión preservando las entradas que el técnico introdujo en el dispositivo
+            // Fusión preservando las entradas y TODAS las fotografías que el técnico introdujo en el dispositivo
             const mergedCheckpoints = (idbActive.checkpoints || canonicalInList.checkpoints || []).map((ic: any) => {
               const cc = (canonicalInList.checkpoints || []).find((c: any) => c && (c.id === ic.id || c.title === ic.title));
               const val = ic.currentValue !== undefined && ic.currentValue !== '' ? ic.currentValue : cc?.currentValue;
               const status = ic.statusValue !== undefined ? ic.statusValue : cc?.statusValue;
               const notes = ic.notes !== undefined && ic.notes !== '' ? ic.notes : cc?.notes;
-              return { ...cc, ...ic, currentValue: val !== undefined ? val : '', statusValue: status, notes };
+              const mergedChkPhotos = mergeUniquePhotos(ic.photos, ic.photoUrl ? [ic.photoUrl] : [], cc?.photos, cc?.photoUrl ? [cc.photoUrl] : []);
+              return {
+                ...cc,
+                ...ic,
+                currentValue: val !== undefined ? val : '',
+                statusValue: status,
+                notes,
+                photoUrl: mergedChkPhotos[mergedChkPhotos.length - 1] || ic.photoUrl || cc?.photoUrl,
+                photos: mergedChkPhotos.length > 0 ? mergedChkPhotos : undefined
+              };
             });
             chosen = { ...canonicalInList, ...idbActive, checkpoints: mergedCheckpoints };
           }
@@ -5645,17 +5707,24 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
         const cleanRounds = data.rounds.filter(
           (r: any) => r && r.id && !deletedRoundIds.has(r.id) && !isRecentlyLocallyDeleted(r.id)
         );
+        const serverRoundIds = new Set((cleanRounds || []).map((r: any) => r.id));
         const currentActiveId = activeRoundRef.current?.id;
         const unsyncedIds = getUnsyncedRoundIds();
-        const pendingLocalRounds = (roundsRef.current || []).filter(
+        const preservedLocalRounds = (roundsRef.current || []).filter(
           r =>
             r &&
             r.id &&
             !deletedRoundIds.has(r.id) &&
             !isRecentlyLocallyDeleted(r.id) &&
-            (r.id === currentActiveId || pendingCreations.has(r.id) || unsyncedIds.has(r.id) || bgPhotoSyncingRoundIdsRef.current.has(r.id))
+            (
+              serverRoundIds.has(r.id) ||
+              r.id === currentActiveId ||
+              pendingCreations.has(r.id) ||
+              unsyncedIds.has(r.id) ||
+              bgPhotoSyncingRoundIdsRef.current.has(r.id)
+            )
         );
-        const mergedRounds = mergeRoundLists(pendingLocalRounds, cleanRounds, deletedRoundIds, currentActiveId, pendingCreations);
+        const mergedRounds = mergeRoundLists(preservedLocalRounds, cleanRounds, deletedRoundIds, currentActiveId, pendingCreations);
         if (!areRoundsEqual(mergedRounds, roundsRef.current || [])) {
           if (!isInitial) {
             checkAndNotifyNewRounds(mergedRounds, roundsRef.current || []);
@@ -5666,7 +5735,6 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
           idbSet(STORAGE_KEYS.ROUNDS, mergedRounds).catch(() => {});
         }
 
-        const serverRoundIds = new Set((cleanRounds || []).map((r: any) => r.id));
         if (activeRoundRef.current) {
           const activeId = activeRoundRef.current.id;
           const isLocked = localStorage.getItem('active_round_resume_lock') === activeId;
@@ -6235,11 +6303,13 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
             const currentActiveId = activeRoundRef.current?.id;
             const deletedIds = getDeletedRoundIds();
             const merged = mergeRoundLists(roundsRef.current || [], [incomingRound], deletedIds, currentActiveId);
-            roundsRef.current = merged;
-            setRounds(merged);
-
-            if (isIncomingCompleted) {
-              safeSetItem(STORAGE_KEYS.ROUNDS, JSON.stringify(merged));
+            if (!areRoundsEqual(merged, roundsRef.current || [])) {
+              roundsRef.current = merged;
+              setRounds(merged);
+              idbSet(STORAGE_KEYS.ROUNDS, merged).catch(() => {});
+              if (isIncomingCompleted) {
+                safeSetItem(STORAGE_KEYS.ROUNDS, JSON.stringify(merged));
+              }
             }
 
             const isMatchingActive = Boolean(
@@ -7005,6 +7075,7 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
   // Helper to persist state to server API whenever key data changes
   const persistToServer = async () => {
     hasPendingLocalChanges.current = false;
+    beginDbSave();
     try {
       const delRounds = getDeletedRoundIds();
       const delEquipments = getDeletedEquipmentIds();
@@ -7054,8 +7125,12 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
       });
       if (res.ok) {
         setIsCloudSynced(true);
+        endDbSave(true);
+      } else {
+        endDbSave(false);
       }
     } catch (e) {
+      endDbSave(false);
       console.warn('Server persist warning:', e);
     }
   };
@@ -7089,8 +7164,8 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
         lastHeartbeat: nowIso,
         lastUpdated: nowIso
       };
+      // Actualizar ref y almacenamiento local silenciosamente SIN llamar setActiveRound en cada heartbeat para cero parpadeos de fotos
       activeRoundRef.current = updatedRound;
-      setActiveRound(updatedRound);
       safeSetItem(STORAGE_KEYS.ACTIVE_ROUND, JSON.stringify(updatedRound));
       safeSetItem('active_round_draft_backup', JSON.stringify(updatedRound));
       fetch('/api/rounds', {
@@ -7099,7 +7174,7 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
           'Content-Type': 'application/json',
           'X-Client-Id': clientSessionId.current
         },
-        body: JSON.stringify(updatedRound)
+        body: JSON.stringify(buildLightweightRoundPayload(updatedRound, true))
       }).catch(() => {});
     };
 
@@ -8686,7 +8761,10 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
   // -------------------------------------------------------------
   // UPLOADED DOCUMENTS (Exact Original Documents in PostgreSQL)
   // -------------------------------------------------------------
-  const addUploadedDocument = async (docData: Omit<UploadedDocument, 'id'>): Promise<UploadedDocument> => {
+  const addUploadedDocument = async (
+    docData: Omit<UploadedDocument, 'id'>,
+    options?: { silent?: boolean }
+  ): Promise<UploadedDocument> => {
     markCollectionMutation('uploadedDocuments');
     const nowIso = new Date().toISOString();
     const newDoc: UploadedDocument = {
@@ -8704,6 +8782,7 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
       safeSetItem(STORAGE_KEYS.DOCUMENTS, JSON.stringify(updated.map(d => ({ ...d, rawBase64: undefined }))));
     }
 
+    beginDbSave();
     try {
       const res = await fetch('/api/uploaded-documents', {
         method: 'POST',
@@ -8714,18 +8793,25 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
         body: JSON.stringify(newDoc)
       });
       if (res.ok) {
-        notify(`✅ "${newDoc.name}" guardado permanentemente en la base de datos`);
+        endDbSave(true);
       } else {
         hasPendingLocalChanges.current = true;
-        notify(`⚠️ Guardado localmente; se sincronizará con PostgreSQL al reconectar`);
+        endDbSave(false);
+        if (!options?.silent) {
+          notify('⚠️ Guardado localmente; se sincronizará con PostgreSQL al reconectar');
+        }
       }
     } catch {
       hasPendingLocalChanges.current = true;
+      endDbSave(false);
     }
     return newDoc;
   };
 
-  const updateUploadedDocument = async (updatedDoc: UploadedDocument) => {
+  const updateUploadedDocument = async (
+    updatedDoc: UploadedDocument,
+    options?: { silent?: boolean }
+  ) => {
     markCollectionMutation('uploadedDocuments');
     const prevTs = new Date(updatedDoc.updatedAt || 0).getTime() || 0;
     const stampedDoc: UploadedDocument = {
@@ -8741,6 +8827,7 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
       safeSetItem(STORAGE_KEYS.DOCUMENTS, JSON.stringify(updated.map(d => ({ ...d, rawBase64: undefined }))));
     }
 
+    beginDbSave();
     try {
       const res = await fetch('/api/uploaded-documents', {
         method: 'POST',
@@ -8750,11 +8837,18 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
         },
         body: JSON.stringify(stampedDoc)
       });
-      if (!res.ok) {
+      if (res.ok) {
+        endDbSave(true);
+      } else {
         hasPendingLocalChanges.current = true;
+        endDbSave(false);
       }
     } catch {
       hasPendingLocalChanges.current = true;
+      endDbSave(false);
+    }
+    if (options?.silent === false) {
+      notify('Documento actualizado en PostgreSQL');
     }
   };
 
@@ -8767,8 +8861,7 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
       folderId: folderId || undefined,
       updatedAt: new Date(Math.max(Date.now(), prevTs + 1)).toISOString()
     };
-    await updateUploadedDocument(updatedDoc);
-    notify(folderId ? '📁 Archivo movido a la carpeta seleccionada' : '📁 Archivo movido al directorio principal');
+    await updateUploadedDocument(updatedDoc, { silent: true });
   };
 
   const deleteUploadedDocument = async (id: string) => {
@@ -8785,12 +8878,16 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
     idbSet(STORAGE_KEYS.DOCUMENTS, updated).catch(() => {});
     safeSetItem(STORAGE_KEYS.DOCUMENTS, JSON.stringify(updated.map(d => ({ ...d, rawBase64: undefined }))));
     notify('Documento eliminado correctamente');
+    beginDbSave();
     try {
-      await fetch(`/api/uploaded-documents/${id}`, {
+      const res = await fetch(`/api/uploaded-documents/${id}`, {
         method: 'DELETE',
         headers: { 'X-Client-Id': clientSessionId.current }
       });
-    } catch {}
+      endDbSave(res.ok);
+    } catch {
+      endDbSave(false);
+    }
   };
 
   const createDocumentFolder = async (
@@ -8820,7 +8917,7 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
     setDocumentFolders(updated);
     idbSet('hotel_doc_folders', updated).catch(() => {});
     safeSetItem('hotel_doc_folders', JSON.stringify(updated));
-    notify(`📁 ${parentFolderId ? 'Subcarpeta' : 'Carpeta'} "${cleanName}" guardada en la base de datos`);
+    beginDbSave();
     try {
       const res = await fetch('/api/document-folders', {
         method: 'POST',
@@ -8830,11 +8927,15 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
         },
         body: JSON.stringify(newFolder)
       });
-      if (!res.ok) {
+      if (res.ok) {
+        endDbSave(true);
+      } else {
         hasPendingLocalChanges.current = true;
+        endDbSave(false);
       }
     } catch {
       hasPendingLocalChanges.current = true;
+      endDbSave(false);
     }
     return newFolder;
   };
@@ -8857,6 +8958,7 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
     setDocumentFolders(updated);
     idbSet('hotel_doc_folders', updated).catch(() => {});
     safeSetItem('hotel_doc_folders', JSON.stringify(updated));
+    beginDbSave();
     try {
       const res = await fetch(`/api/document-folders/${folderId}`, {
         method: 'PUT',
@@ -8866,12 +8968,15 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
         },
         body: JSON.stringify(updatedFolderObj)
       });
-      if (!res.ok) {
+      if (res.ok) {
+        endDbSave(true);
+      } else {
         hasPendingLocalChanges.current = true;
+        endDbSave(false);
       }
-      notify('✅ Carpeta actualizada en la base de datos');
     } catch {
       hasPendingLocalChanges.current = true;
+      endDbSave(false);
     }
   };
 
@@ -11163,6 +11268,7 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
         selectedTab,
         setSelectedTab,
         isCloudSynced,
+        dbSyncStatus,
         isInitialSyncDone,
         hasNewAppVersion,
         reloadAppForUpdate,

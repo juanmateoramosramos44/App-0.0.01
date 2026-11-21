@@ -436,6 +436,8 @@ export interface UploadedDocument {
   uploadedBy: string;
   sizeBytes: number;
   type: 'excel' | 'pdf' | 'image' | 'csv' | 'otro';
+  mimeType?: string;
+  originalExtension?: string;
   sheets: UploadedDocumentSheet[];
   totalRows: number;
   totalColumns: number;

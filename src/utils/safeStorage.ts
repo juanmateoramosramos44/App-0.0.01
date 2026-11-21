@@ -229,6 +229,50 @@ export function safeSetItem(key: string, value: string): boolean {
       // 2. Specific handling for hotel_maint_rounds
       if (key === 'hotel_maint_rounds') {
         try {
+          const parsedAll = JSON.parse(value);
+          if (Array.isArray(parsedAll)) {
+            const counts: Record<string, number> = {};
+            for (const r of parsedAll) {
+              if (!r || !r.id) continue;
+              const seen = new Set<string>();
+              const add = (u: any) => {
+                if (typeof u === 'string' && u && !u.includes('cached_in_db')) seen.add(u);
+              };
+              if (Array.isArray(r.photos)) r.photos.forEach(add);
+              (r.checkpoints || []).forEach((c: any) => {
+                add(c?.photoUrl);
+                if (Array.isArray(c?.photos)) c.photos.forEach(add);
+                (c?.measurementFields || []).forEach((f: any) => {
+                  add(f?.photoUrl);
+                  if (Array.isArray(f?.photos)) f.photos.forEach(add);
+                });
+              });
+              const mr = r.meterReadings || {};
+              add(mr.waterMeterPhotoUrl);
+              if (Array.isArray(mr.waterMeterPhotos)) mr.waterMeterPhotos.forEach(add);
+              add(mr.electricMeterPhotoUrl);
+              if (Array.isArray(mr.electricMeterPhotos)) mr.electricMeterPhotos.forEach(add);
+              add(mr.gasMeterPhotoUrl);
+              if (Array.isArray(mr.gasMeterPhotos)) mr.gasMeterPhotos.forEach(add);
+              if (mr.customMeters) {
+                Object.values(mr.customMeters).forEach((cm: any) => {
+                  add(cm?.photoUrl);
+                  if (Array.isArray(cm?.photos)) cm.photos.forEach(add);
+                });
+              }
+              (r.anomalies || []).forEach((a: any) => {
+                add(a?.photoUrl);
+                if (Array.isArray(a?.photos)) a.photos.forEach(add);
+              });
+              if (seen.size > 0) counts[r.id] = seen.size;
+            }
+            try {
+              nativeSetItem('hotel_maint_rounds_photocounts', JSON.stringify(counts));
+            } catch {}
+          }
+        } catch {}
+
+        try {
           const compacted = compactRoundsForLocalStorage(value, true);
           nativeSetItem(key, compacted);
           return true;
@@ -266,30 +310,15 @@ export function safeSetItem(key: string, value: string): boolean {
         } catch {}
       }
 
-      // 4. If another key (e.g. deleted IDs, tasks, users) hit quota because hotel_maint_rounds is huge, compact hotel_maint_rounds in localStorage first
+      // 4. If another key hit quota, free space by compacting older completed rounds (> idx 4) while keeping IndexedDB 100% full
       if (key !== 'hotel_maint_rounds') {
         try {
           const existingRounds = nativeGetItem('hotel_maint_rounds');
-          if (existingRounds && existingRounds.length > 100000) {
+          if (existingRounds && existingRounds.length > 150000) {
             const parsed = JSON.parse(existingRounds);
             if (Array.isArray(parsed)) {
-              const allCleaned = parsed.map((r: any) => {
-                const copy = { ...r };
-                if (copy.checkpoints && Array.isArray(copy.checkpoints)) {
-                  copy.checkpoints = copy.checkpoints.map((c: any) => ({
-                    ...c,
-                    photoUrl: undefined,
-                    photos: undefined,
-                    measurementFields: c.measurementFields?.map((f: any) => ({
-                      ...f,
-                      photoUrl: undefined,
-                      photos: undefined
-                    }))
-                  }));
-                }
-                return copy;
-              });
-              nativeSetItem('hotel_maint_rounds', JSON.stringify(allCleaned));
+              const compacted = compactRoundsForLocalStorage(existingRounds, true);
+              nativeSetItem('hotel_maint_rounds', compacted);
             }
           }
         } catch {}

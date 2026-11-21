@@ -38,7 +38,8 @@ import {
   LogOut,
   User as UserIcon,
   CalendarRange,
-  BookOpen
+  BookOpen,
+  Loader2
 } from 'lucide-react';
 import { getHotelCurrentDateIso } from '../../utils/dateUtils';
 
@@ -60,6 +61,7 @@ export const Navbar: React.FC = () => {
     bitacora,
     users,
     isCloudSynced,
+    dbSyncStatus,
     setIsIncidentModalOpen,
     currentUser,
     setCurrentUser,
@@ -393,6 +395,32 @@ export const Navbar: React.FC = () => {
                     <Radio className="w-2.5 h-2.5 animate-pulse" />
                     <span>{isCloudSynced ? 'En vivo' : 'Conectando...'}</span>
                   </span>
+                  {dbSyncStatus !== 'idle' && (
+                    <span
+                      className={`inline-flex items-center space-x-1 text-[11px] font-medium sm:hidden ${
+                        dbSyncStatus === 'saving'
+                          ? 'text-sky-300'
+                          : dbSyncStatus === 'saved'
+                          ? 'text-emerald-300'
+                          : 'text-rose-300'
+                      }`}
+                    >
+                      {dbSyncStatus === 'saving' ? (
+                        <Loader2 className="w-2.5 h-2.5 animate-spin" />
+                      ) : dbSyncStatus === 'saved' ? (
+                        <Check className="w-2.5 h-2.5" />
+                      ) : (
+                        <AlertCircle className="w-2.5 h-2.5" />
+                      )}
+                      <span>
+                        {dbSyncStatus === 'saving'
+                          ? 'Guardando...'
+                          : dbSyncStatus === 'saved'
+                          ? 'Guardado en base de datos'
+                          : 'Error de guardado'}
+                      </span>
+                    </span>
+                  )}
                 </div>
               </div>
             </div>
@@ -411,6 +439,34 @@ export const Navbar: React.FC = () => {
                 <Radio className={`w-3.5 h-3.5 ${isCloudSynced ? 'text-emerald-400 animate-pulse' : 'text-amber-400'}`} />
                 <span>{isCloudSynced ? 'En Línea • Tiempo Real' : 'Modo Local'}</span>
               </div>
+
+              {dbSyncStatus !== 'idle' && (
+                <div
+                  className={`flex items-center space-x-1.5 px-2.5 py-1 rounded-md border text-[11px] font-medium transition-opacity ${
+                    dbSyncStatus === 'saving'
+                      ? 'bg-sky-500/10 text-sky-300 border-sky-500/30'
+                      : dbSyncStatus === 'saved'
+                      ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30'
+                      : 'bg-rose-500/10 text-rose-300 border-rose-500/30'
+                  }`}
+                  aria-live="polite"
+                >
+                  {dbSyncStatus === 'saving' ? (
+                    <Loader2 className="w-3 h-3 animate-spin shrink-0" />
+                  ) : dbSyncStatus === 'saved' ? (
+                    <Check className="w-3 h-3 shrink-0" />
+                  ) : (
+                    <AlertCircle className="w-3 h-3 shrink-0" />
+                  )}
+                  <span className="whitespace-nowrap">
+                    {dbSyncStatus === 'saving'
+                      ? 'Guardando...'
+                      : dbSyncStatus === 'saved'
+                      ? 'Guardado en base de datos'
+                      : 'Reintentando guardado...'}
+                  </span>
+                </div>
+              )}
 
               <div className="flex items-center space-x-1.5 px-3 py-1 rounded-full bg-slate-800/80 text-slate-300 border border-slate-700/60">
                 <span>{currentShift.icon}</span>

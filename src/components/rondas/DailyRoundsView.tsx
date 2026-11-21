@@ -97,6 +97,27 @@ export interface FormMeasurementField {
   buttonActions?: Record<string, ButtonActionConfig>;
 }
 
+const getStablePhotoKey = (url: string, prefix: string): string => {
+  if (!url) return prefix;
+  return `${prefix}-${url.length}-${url.slice(0, 20)}-${url.slice(-20)}`;
+};
+
+const StableRoundPhotoImg = React.memo<{
+  src: string;
+  alt: string;
+  className?: string;
+  onClick?: () => void;
+}>(({ src, alt, className, onClick }) => (
+  <img
+    src={src}
+    alt={alt}
+    loading="eager"
+    decoding="async"
+    className={className}
+    onClick={onClick}
+  />
+));
+
 const STANDARD_MEASUREMENT_UNITS = [
   { value: '°C', label: '°C (Grados Celsius - Frío/Calor)', color: 'blue' },
   { value: '°F', label: '°F (Grados Fahrenheit)', color: 'blue' },
@@ -565,7 +586,16 @@ export const DailyRoundsView: React.FC = () => {
     setPreviewPhotoTitle(title || 'Evidencia Fotográfica de la Ronda');
   };
 
-  const getRoundTotalPhotos = (round: DailyRound): number => {
+  const cachedRoundPhotoCounts = useMemo<Record<string, number>>(() => {
+    try {
+      const raw = typeof window !== 'undefined' ? window.localStorage.getItem('hotel_maint_rounds_photocounts') : null;
+      return raw ? JSON.parse(raw) : {};
+    } catch {
+      return {};
+    }
+  }, [rounds.length, isInitialSyncDone]);
+
+  const getRoundTotalPhotos = useCallback((round: DailyRound): number => {
     if (!round) return 0;
     const seen = new Set<string>();
     const addPhoto = (url?: string | null) => {
@@ -607,8 +637,11 @@ export const DailyRoundsView: React.FC = () => {
     if (Array.isArray(round.photos)) {
       round.photos.forEach((p: string) => addPhoto(p));
     }
+    if (seen.size === 0 && !isInitialSyncDone && cachedRoundPhotoCounts[round.id]) {
+      return cachedRoundPhotoCounts[round.id];
+    }
     return seen.size;
-  };
+  }, [cachedRoundPhotoCounts, isInitialSyncDone]);
 
   const getRoundDisplayKeyReadings = (rnd: DailyRound): string => {
     if (!rnd) return '72 PSI • 60°C ACS';
@@ -1259,7 +1292,7 @@ export const DailyRoundsView: React.FC = () => {
                               onClick={() => openPhotoPreview(anomPhotos[anomPhotos.length - 1], `Incidencia: ${anom.title} (${anom.area})`)}
                               title="Clic para ver foto"
                             >
-                              <img src={anomPhotos[anomPhotos.length - 1]} alt="Foto anomalía" className="w-full h-full object-cover" />
+                              <StableRoundPhotoImg src={anomPhotos[anomPhotos.length - 1]} alt="Foto anomalía" className="w-full h-full object-cover" />
                               {anomPhotos.length > 1 && (
                                 <span className="absolute bottom-0 right-0 px-1 bg-slate-900/80 text-white text-[9px] font-black rounded-tl">
                                   +{anomPhotos.length - 1}
@@ -1291,14 +1324,14 @@ export const DailyRoundsView: React.FC = () => {
                       {anomPhotos.length > 0 && (
                         <div className="flex flex-wrap gap-1.5 pt-1 border-t border-amber-100">
                           {anomPhotos.map((pUrl, pIdx) => (
-                            <div key={`${anom.id}-photo-${pIdx}`} className="relative group">
+                            <div key={getStablePhotoKey(pUrl, `${anom.id}-photo`)} className="relative group">
                               <button
                                 type="button"
                                 onClick={() => openPhotoPreview(pUrl, `Incidencia: ${anom.title} — Foto ${pIdx + 1}`)}
                                 className="w-12 h-12 rounded-lg overflow-hidden border border-emerald-300 bg-slate-100 cursor-pointer hover:ring-2 hover:ring-emerald-400 transition-all block"
                                 title={`Ver foto ${pIdx + 1}`}
                               >
-                                <img src={pUrl} alt={`Evidencia ${pIdx + 1}`} className="w-full h-full object-cover" />
+                                <StableRoundPhotoImg src={pUrl} alt={`Evidencia ${pIdx + 1}`} className="w-full h-full object-cover" />
                               </button>
                               <button
                                 type="button"
@@ -1567,14 +1600,14 @@ export const DailyRoundsView: React.FC = () => {
                                         <span>{chkPhotos.length} foto{chkPhotos.length > 1 ? 's' : ''} ✓</span>
                                       </span>
                                       {chkPhotos.map((pUrl, pIdx) => (
-                                        <div key={`${chk.id}-okphoto-${pIdx}`} className="relative group">
+                                        <div key={getStablePhotoKey(pUrl, `${chk.id}-okphoto`)} className="relative group">
                                           <button
                                             type="button"
                                             onClick={() => openPhotoPreview(pUrl, `${chk.title} (${chk.area}) — Foto ${pIdx + 1}`)}
                                             className="w-9 h-9 rounded-lg overflow-hidden border-2 border-emerald-300 bg-slate-100 cursor-pointer hover:ring-2 hover:ring-emerald-400 transition-all block"
                                             title={`Ver foto ${pIdx + 1}`}
                                           >
-                                            <img src={pUrl} alt={`Foto ${pIdx + 1}`} className="w-full h-full object-cover" />
+                                            <StableRoundPhotoImg src={pUrl} alt={`Foto ${pIdx + 1}`} className="w-full h-full object-cover" />
                                           </button>
                                           <button
                                             type="button"
@@ -1710,15 +1743,15 @@ export const DailyRoundsView: React.FC = () => {
                                                       <ImageIcon className="w-3 h-3 text-emerald-700" />
                                                       <span>{fieldPhotos.length} foto{fieldPhotos.length > 1 ? 's' : ''} ✓</span>
                                                     </span>
-                                                    {fieldPhotos.map((pUrl, pIdx) => (
-                                                      <div key={`${chk.id}-f-${fIdx}-p-${pIdx}`} className="relative group">
+                                                     {fieldPhotos.map((pUrl, pIdx) => (
+                                                      <div key={getStablePhotoKey(pUrl, `${chk.id}-f-${fIdx}`)} className="relative group">
                                                         <button
                                                           type="button"
                                                           onClick={() => openPhotoPreview(pUrl, `${chk.title} — ${field.name || 'Medición'} (${chk.area}) — Foto ${pIdx + 1}`)}
                                                           className="w-8 h-8 rounded-lg overflow-hidden border border-emerald-400 bg-slate-100 cursor-pointer hover:ring-2 hover:ring-emerald-400 transition-all block"
                                                           title={`Ver foto ${pIdx + 1}`}
                                                         >
-                                                          <img src={pUrl} alt={`Foto ${pIdx + 1}`} className="w-full h-full object-cover" />
+                                                          <StableRoundPhotoImg src={pUrl} alt={`Foto ${pIdx + 1}`} className="w-full h-full object-cover" />
                                                         </button>
                                                         <button
                                                           type="button"
@@ -1882,14 +1915,14 @@ export const DailyRoundsView: React.FC = () => {
                                               <span>{chkPhotos.length} foto{chkPhotos.length > 1 ? 's' : ''} ✓</span>
                                             </span>
                                             {chkPhotos.map((pUrl, pIdx) => (
-                                              <div key={`${chk.id}-numphoto-${pIdx}`} className="relative group">
+                                              <div key={getStablePhotoKey(pUrl, `${chk.id}-numphoto`)} className="relative group">
                                                 <button
                                                   type="button"
                                                   onClick={() => openPhotoPreview(pUrl, `${chk.title} (${chk.area}) — Foto ${pIdx + 1}`)}
                                                   className="w-9 h-9 rounded-lg overflow-hidden border-2 border-emerald-300 bg-slate-100 cursor-pointer hover:ring-2 hover:ring-emerald-400 transition-all block"
                                                   title={`Ver foto ${pIdx + 1}`}
                                                 >
-                                                  <img src={pUrl} alt={`Foto ${pIdx + 1}`} className="w-full h-full object-cover" />
+                                                  <StableRoundPhotoImg src={pUrl} alt={`Foto ${pIdx + 1}`} className="w-full h-full object-cover" />
                                                 </button>
                                                 <button
                                                   type="button"
@@ -2033,14 +2066,14 @@ export const DailyRoundsView: React.FC = () => {
                                         <span>{chkPhotos.length} foto{chkPhotos.length > 1 ? 's' : ''} ✓</span>
                                       </span>
                                       {chkPhotos.map((pUrl, pIdx) => (
-                                        <div key={`${chk.id}-txtphoto-${pIdx}`} className="relative group">
+                                        <div key={getStablePhotoKey(pUrl, `${chk.id}-txtphoto`)} className="relative group">
                                           <button
                                             type="button"
                                             onClick={() => openPhotoPreview(pUrl, `${chk.title} (${chk.area}) — Foto ${pIdx + 1}`)}
                                             className="w-9 h-9 rounded-lg overflow-hidden border-2 border-emerald-300 bg-slate-100 cursor-pointer hover:ring-2 hover:ring-emerald-400 transition-all block"
                                             title={`Ver foto ${pIdx + 1}`}
                                           >
-                                            <img src={pUrl} alt={`Foto ${pIdx + 1}`} className="w-full h-full object-cover" />
+                                            <StableRoundPhotoImg src={pUrl} alt={`Foto ${pIdx + 1}`} className="w-full h-full object-cover" />
                                           </button>
                                           <button
                                             type="button"
@@ -2490,8 +2523,8 @@ export const DailyRoundsView: React.FC = () => {
                     </div>
                     <div className="flex flex-wrap gap-2">
                       {anomalyForm.photos.map((pUrl, idx) => (
-                        <div key={`anom-form-photo-${idx}`} className="relative">
-                          <img
+                        <div key={getStablePhotoKey(pUrl, 'anom-form-photo')} className="relative">
+                          <StableRoundPhotoImg
                             src={pUrl}
                             alt={`Evidencia ${idx + 1}`}
                             className="w-14 h-14 rounded-xl object-cover border border-emerald-400 bg-slate-900 cursor-pointer"
@@ -2836,9 +2869,9 @@ export const DailyRoundsView: React.FC = () => {
               if (isValidPhoto(p)) checkpointPhotos.add(p);
             });
           }
-          checkpointPhotos.forEach((photoUrl, pIdx) => {
+          checkpointPhotos.forEach((photoUrl) => {
             addRoundPhoto({
-              id: `chk-${c.id || 'item'}-${pIdx}`,
+              id: getStablePhotoKey(photoUrl, `chk-${c.id || 'item'}`),
               url: photoUrl,
               title: c.title || 'Punto de Inspección',
               area: c.area || 'Zona técnica',
@@ -2858,9 +2891,9 @@ export const DailyRoundsView: React.FC = () => {
                 if (isValidPhoto(p)) fieldPhotos.add(p);
               });
             }
-            fieldPhotos.forEach((photoUrl, fPIdx) => {
+            fieldPhotos.forEach((photoUrl) => {
               addRoundPhoto({
-                id: `field-${c.id || 'item'}-${f.id || idx}-${fPIdx}`,
+                id: getStablePhotoKey(photoUrl, `field-${c.id || 'item'}-${f.id || idx}`),
                 url: photoUrl,
                 title: `${c.title || 'Punto'} — ${f.name || `Medición ${idx + 1}`}`,
                 area: c.area || 'Zona técnica',
@@ -2872,9 +2905,9 @@ export const DailyRoundsView: React.FC = () => {
         });
 
         const mrDetail: any = liveSelectedRoundDetail.meterReadings || {};
-        mergeUniquePhotos(mrDetail.waterMeterPhotos, mrDetail.waterMeterPhotoUrl ? [mrDetail.waterMeterPhotoUrl] : []).forEach((pUrl, idx) => {
+        mergeUniquePhotos(mrDetail.waterMeterPhotos, mrDetail.waterMeterPhotoUrl ? [mrDetail.waterMeterPhotoUrl] : []).forEach((pUrl) => {
           addRoundPhoto({
-            id: `meter-water-${idx}`,
+            id: getStablePhotoKey(pUrl, 'meter-water'),
             url: pUrl,
             title: 'Contador General de Agua Potable',
             area: 'Cuarto de Contadores / Acometida Principal',
@@ -2885,9 +2918,9 @@ export const DailyRoundsView: React.FC = () => {
           });
         });
 
-        mergeUniquePhotos(mrDetail.electricMeterPhotos, mrDetail.electricMeterPhotoUrl ? [mrDetail.electricMeterPhotoUrl] : []).forEach((pUrl, idx) => {
+        mergeUniquePhotos(mrDetail.electricMeterPhotos, mrDetail.electricMeterPhotoUrl ? [mrDetail.electricMeterPhotoUrl] : []).forEach((pUrl) => {
           addRoundPhoto({
-            id: `meter-electric-${idx}`,
+            id: getStablePhotoKey(pUrl, 'meter-electric'),
             url: pUrl,
             title: 'Contador de Energía Eléctrica Total',
             area: 'Subestación Eléctrica / TTA Sótano',
@@ -2898,9 +2931,9 @@ export const DailyRoundsView: React.FC = () => {
           });
         });
 
-        mergeUniquePhotos(mrDetail.gasMeterPhotos, mrDetail.gasMeterPhotoUrl ? [mrDetail.gasMeterPhotoUrl] : []).forEach((pUrl, idx) => {
+        mergeUniquePhotos(mrDetail.gasMeterPhotos, mrDetail.gasMeterPhotoUrl ? [mrDetail.gasMeterPhotoUrl] : []).forEach((pUrl) => {
           addRoundPhoto({
-            id: `meter-gas-${idx}`,
+            id: getStablePhotoKey(pUrl, 'meter-gas'),
             url: pUrl,
             title: 'Contador de Gas Natural',
             area: 'Caseta de Gas / Acometida',
@@ -2914,9 +2947,9 @@ export const DailyRoundsView: React.FC = () => {
         if (mrDetail.customMeters) {
           Object.entries(mrDetail.customMeters).forEach(([cmKey, cmVal]: [string, any]) => {
             if (!cmVal) return;
-            mergeUniquePhotos(cmVal.photos, cmVal.photoUrl ? [cmVal.photoUrl] : []).forEach((pUrl, idx) => {
+            mergeUniquePhotos(cmVal.photos, cmVal.photoUrl ? [cmVal.photoUrl] : []).forEach((pUrl) => {
               addRoundPhoto({
-                id: `meter-custom-${cmKey}-${idx}`,
+                id: getStablePhotoKey(pUrl, `meter-custom-${cmKey}`),
                 url: pUrl,
                 title: cmVal.name || 'Contador Adicional',
                 area: 'Cuarto de Contadores',
@@ -2935,9 +2968,9 @@ export const DailyRoundsView: React.FC = () => {
               if (isValidPhoto(p)) anomalyPhotos.add(p);
             });
           }
-          anomalyPhotos.forEach((photoUrl, aPIdx) => {
+          anomalyPhotos.forEach((photoUrl) => {
             addRoundPhoto({
-              id: `anom-${a.id || idx}-${aPIdx}`,
+              id: getStablePhotoKey(photoUrl, `anom-${a.id || idx}`),
               url: photoUrl,
               title: `Incidencia: ${a.title}`,
               area: a.area || 'Área afectada',
@@ -2948,9 +2981,9 @@ export const DailyRoundsView: React.FC = () => {
         });
 
         if (Array.isArray(liveSelectedRoundDetail.photos)) {
-          liveSelectedRoundDetail.photos.forEach((pUrl, pIdx) => {
+          liveSelectedRoundDetail.photos.forEach((pUrl) => {
             addRoundPhoto({
-              id: `round-root-photo-${pIdx}`,
+              id: getStablePhotoKey(pUrl, 'round-root-photo'),
               url: pUrl,
               title: 'Evidencia de Ronda',
               area: 'General',
@@ -3194,9 +3227,9 @@ export const DailyRoundsView: React.FC = () => {
                                     onClick={() => openPhotoPreview(photo.url, `${photo.title} (${photo.area})`)}
                                     title="Clic para ampliar foto en alta resolución"
                                   >
-                                    <img 
-                                      src={photo.url} 
-                                      alt={photo.title} 
+                                    <StableRoundPhotoImg
+                                      src={photo.url}
+                                      alt={photo.title}
                                       className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
                                     />
                                     <div className="absolute inset-0 bg-gradient-to-t from-slate-950/70 via-transparent to-transparent opacity-80 group-hover:opacity-95 transition-opacity" />
@@ -3335,7 +3368,7 @@ export const DailyRoundsView: React.FC = () => {
                                               )}
                                               {fPhotos.map((pUrl, fpIdx) => (
                                                 <button
-                                                  key={`${f.id || fIdx}-fp-${fpIdx}`}
+                                                  key={getStablePhotoKey(pUrl, `${f.id || fIdx}-fp`)}
                                                   type="button"
                                                   onClick={() => openPhotoPreview(pUrl, `${c.title} - ${f.name || 'Medición'} (${c.area}) — Foto ${fpIdx + 1}`)}
                                                   className="px-1.5 py-0.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-[10px] font-bold flex items-center gap-1 shadow-2xs cursor-pointer ml-0.5 transition-colors"
@@ -3404,13 +3437,13 @@ export const DailyRoundsView: React.FC = () => {
                                     <div className="flex flex-wrap gap-2">
                                       {chkPhotos.map((pUrl, pIdx) => (
                                         <button
-                                          key={`${c.id}-detail-photo-${pIdx}`}
+                                          key={getStablePhotoKey(pUrl, `${c.id}-detail-photo`)}
                                           type="button"
                                           onClick={() => openPhotoPreview(pUrl, `${c.title} (${c.area}) — Foto ${pIdx + 1}`)}
                                           className="w-14 h-14 rounded-lg overflow-hidden bg-emerald-200 shrink-0 border-2 border-emerald-400 cursor-pointer hover:opacity-90 hover:ring-2 hover:ring-emerald-500 transition-all shadow-xs"
                                           title={`Ampliar foto ${pIdx + 1}`}
                                         >
-                                          <img src={pUrl} alt={`Foto ${pIdx + 1}`} className="w-full h-full object-cover" />
+                                          <StableRoundPhotoImg src={pUrl} alt={`Foto ${pIdx + 1}`} className="w-full h-full object-cover" />
                                         </button>
                                       ))}
                                     </div>
@@ -3455,13 +3488,13 @@ export const DailyRoundsView: React.FC = () => {
                                 <div className="pt-2.5 border-t border-rose-200/80 flex flex-wrap gap-2">
                                   {anomPhotos.map((pUrl, pIdx) => (
                                     <button
-                                      key={`${a.id}-anom-detail-photo-${pIdx}`}
+                                      key={getStablePhotoKey(pUrl, `${a.id}-anom-detail`)}
                                       type="button"
                                       onClick={() => openPhotoPreview(pUrl, `Incidencia: ${a.title} (${a.area}) — Foto ${pIdx + 1}`)}
                                       className="inline-flex items-center space-x-2 px-2.5 py-1.5 rounded-xl bg-white hover:bg-rose-100/70 border border-rose-300 text-rose-950 font-bold text-[11px] shadow-2xs transition-colors cursor-pointer group"
                                     >
                                       <div className="w-10 h-10 rounded-lg overflow-hidden bg-rose-200 shrink-0 border border-rose-300">
-                                        <img
+                                        <StableRoundPhotoImg
                                           src={pUrl}
                                           alt={`Foto anomalía ${pIdx + 1}`}
                                           className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-200"

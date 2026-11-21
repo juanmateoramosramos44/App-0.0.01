@@ -419,9 +419,77 @@ export async function parseExcelFileToUploadedDocument(
     uploadedBy,
     sizeBytes: file.size || workingBuffer.byteLength,
     type: ext === 'csv' ? 'csv' : 'excel',
+    mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    originalExtension: ext || 'xlsx',
     sheets: extractedSheets,
     totalRows: totalRowsGlobal,
     totalColumns: maxColsGlobal,
+    rawBase64,
+    folderId: folderId || undefined
+  };
+}
+
+const EXTENSION_MIME_MAP: Record<string, string> = {
+  xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  xls: 'application/vnd.ms-excel',
+  csv: 'text/csv;charset=utf-8',
+  pdf: 'application/pdf',
+  doc: 'application/msword',
+  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  ppt: 'application/vnd.ms-powerpoint',
+  pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  webp: 'image/webp',
+  gif: 'image/gif',
+  bmp: 'image/bmp',
+  txt: 'text/plain;charset=utf-8',
+  json: 'application/json;charset=utf-8',
+  zip: 'application/zip'
+};
+
+export function inferMimeFromFile(fileName: string, providedMime?: string): string {
+  const ext = (fileName.split('.').pop() || '').toLowerCase();
+  if (ext && EXTENSION_MIME_MAP[ext]) return EXTENSION_MIME_MAP[ext];
+  if (providedMime && !/html|svg|javascript/i.test(providedMime)) return providedMime;
+  return 'application/octet-stream';
+}
+
+export async function parseUniversalFileToUploadedDocument(
+  file: File,
+  uploadedBy: string,
+  folderId?: string
+): Promise<Omit<UploadedDocument, 'id'>> {
+  const ext = (file.name.split('.').pop() || '').toLowerCase();
+  if (ext === 'xlsx' || ext === 'xls' || ext === 'csv') {
+    return parseExcelFileToUploadedDocument(file, uploadedBy, folderId);
+  }
+
+  const buffer = await file.arrayBuffer();
+  const safeMime = inferMimeFromFile(file.name, file.type);
+  const rawBase64 = arrayBufferToBase64DataUrl(buffer, safeMime);
+  const nowIso = new Date().toISOString();
+
+  let docType: UploadedDocument['type'] = 'otro';
+  if (ext === 'pdf' || safeMime === 'application/pdf') {
+    docType = 'pdf';
+  } else if (['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp'].includes(ext) || /^image\/(png|jpeg|jpg|webp|gif|bmp)$/i.test(safeMime)) {
+    docType = 'image';
+  }
+
+  return {
+    name: file.name,
+    uploadDate: nowIso,
+    updatedAt: nowIso,
+    uploadedBy,
+    sizeBytes: file.size || buffer.byteLength,
+    type: docType,
+    mimeType: safeMime,
+    originalExtension: ext || undefined,
+    sheets: [],
+    totalRows: 0,
+    totalColumns: 0,
     rawBase64,
     folderId: folderId || undefined
   };
@@ -750,10 +818,79 @@ export async function createExcelDocumentFromTemplate(
   };
 }
 
+// Shared Web Worker instance for off-thread .xlsx serialization
+let sharedExcelWorker: Worker | null = null;
+let workerReqSeq = 0;
+
+export async function rebuildWorkbookBase64FromDocOffThread(doc: UploadedDocument): Promise<string> {
+  if (typeof Worker === 'undefined') {
+    return rebuildWorkbookBase64FromDoc(doc);
+  }
+  try {
+    if (!sharedExcelWorker) {
+      sharedExcelWorker = new Worker(
+        new URL('../workers/excelRebuildWorker.ts', import.meta.url),
+        { type: 'module' }
+      );
+    }
+    const worker = sharedExcelWorker;
+    const reqId = ++workerReqSeq;
+    return await new Promise<string>((resolve) => {
+      let settled = false;
+      const timeoutId = setTimeout(() => {
+        if (!settled) {
+          settled = true;
+          worker.removeEventListener('message', onMsg);
+          rebuildWorkbookBase64FromDoc(doc).then(resolve);
+        }
+      }, 15000);
+
+      const onMsg = (e: MessageEvent<any>) => {
+        if (!e.data || e.data.requestId !== reqId) return;
+        if (!settled) {
+          settled = true;
+          clearTimeout(timeoutId);
+          worker.removeEventListener('message', onMsg);
+          if (e.data.ok && typeof e.data.rawBase64 === 'string') {
+            resolve(e.data.rawBase64);
+          } else {
+            rebuildWorkbookBase64FromDoc(doc).then(resolve);
+          }
+        }
+      };
+
+      worker.addEventListener('message', onMsg);
+      worker.postMessage({ requestId: reqId, doc });
+    });
+  } catch {
+    return rebuildWorkbookBase64FromDoc(doc);
+  }
+}
+
+export function createSafeDocumentBlobUrl(doc: UploadedDocument): { url: string; mime: string } | null {
+  if (!doc.rawBase64) return null;
+  const rawMime = doc.mimeType || inferMimeFromFile(doc.name);
+  const safePreviewAllowed =
+    rawMime === 'application/pdf' ||
+    /^image\/(png|jpeg|jpg|webp|gif|bmp)$/i.test(rawMime) ||
+    rawMime.startsWith('text/plain');
+  if (!safePreviewAllowed) return null;
+  const bytes = base64ToUint8Array(doc.rawBase64);
+  const blob = new Blob([bytes], { type: rawMime });
+  return { url: URL.createObjectURL(blob), mime: rawMime };
+}
+
 export async function openDocumentInComputerExcel(doc: UploadedDocument): Promise<void> {
-  const safeName = doc.name.toLowerCase().endsWith('.xlsx') || doc.name.toLowerCase().endsWith('.xls') || doc.name.toLowerCase().endsWith('.csv') || doc.name.toLowerCase().endsWith('.pdf')
-    ? doc.name
-    : `${doc.name}.xlsx`;
+  const isSpreadsheet = doc.type === 'excel' || doc.type === 'csv';
+  const hasAnyExt = /\.[a-z0-9]{1,8}$/i.test(doc.name);
+  const fallbackExt = doc.originalExtension
+    ? `.${doc.originalExtension.replace(/^\./, '')}`
+    : isSpreadsheet
+      ? '.xlsx'
+      : doc.type === 'pdf'
+        ? '.pdf'
+        : '';
+  const safeName = hasAnyExt ? doc.name : `${doc.name}${fallbackExt}`;
 
   // Ensure exact binary is used (either original preserved rawBase64 or rebuilt with full styles)
   let base64ToUse = doc.rawBase64;
@@ -776,14 +913,15 @@ export async function openDocumentInComputerExcel(doc: UploadedDocument): Promis
     } catch {}
   }
 
+  if (!base64ToUse && isSpreadsheet) {
+    base64ToUse = await rebuildWorkbookBase64FromDocOffThread(doc);
+  }
   if (!base64ToUse) {
-    base64ToUse = await rebuildWorkbookBase64FromDoc(doc);
+    throw new Error('No se encontró el binario original del archivo.');
   }
 
   const bytes = base64ToUint8Array(base64ToUse);
-  const mime = doc.type === 'pdf'
-    ? 'application/pdf'
-    : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+  const mime = doc.mimeType || inferMimeFromFile(safeName);
   const blob = new Blob([bytes], { type: mime });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
