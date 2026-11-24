@@ -716,8 +716,8 @@ export const EquipmentResumeView: React.FC = () => {
           documents={uploadedDocuments}
           activeDocId={activeDocId}
           onSelectDocument={(id) => setActiveDocId(id)}
-          onUpdateDocument={async (doc) => {
-            await updateUploadedDocument(doc);
+          onUpdateDocument={async (doc, options) => {
+            return await updateUploadedDocument(doc, options);
           }}
           onMoveDocument={moveUploadedDocument}
           onDeleteDocument={async (id) => {

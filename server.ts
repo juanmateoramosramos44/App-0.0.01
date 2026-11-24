@@ -3020,8 +3020,42 @@ app.post("/api/rounds/:id/checkpoint", async (req, res) => {
     lastUpdated: nowIso
   };
 
+  const pgOk = await pgUpsert('rounds', id, nextRound, false);
+  if (pgPool && !pgOk) {
+    return res.status(503).json({ error: "PostgreSQL save failed for round checkpoint" });
+  }
+  if (pgPool && checkpoint && typeof checkpoint === 'object' && checkpoint.id) {
+    const chkIdx = updatedCheckpoints.findIndex((c: any) => c && c.id === checkpoint.id);
+    if (chkIdx >= 0) {
+      const savedChk = updatedCheckpoints[chkIdx];
+      await pgPool.query(
+        `INSERT INTO round_checkpoints
+           (round_id, checkpoint_index, checkpoint_id, title, area, status_value, current_value, is_alarm, data, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, CURRENT_TIMESTAMP)
+         ON CONFLICT (round_id, checkpoint_index) DO UPDATE SET
+           checkpoint_id = EXCLUDED.checkpoint_id,
+           title = EXCLUDED.title,
+           area = EXCLUDED.area,
+           status_value = EXCLUDED.status_value,
+           current_value = EXCLUDED.current_value,
+           is_alarm = EXCLUDED.is_alarm,
+           data = EXCLUDED.data,
+           updated_at = CURRENT_TIMESTAMP`,
+        [
+          id,
+          chkIdx,
+          String(savedChk?.id || `chk_${chkIdx}`),
+          savedChk?.title ? String(savedChk.title) : null,
+          savedChk?.area ? String(savedChk.area) : null,
+          savedChk?.statusValue !== undefined && savedChk?.statusValue !== null ? String(savedChk.statusValue) : null,
+          savedChk?.currentValue !== undefined && savedChk?.currentValue !== null ? String(savedChk.currentValue) : null,
+          Boolean(savedChk?.isAlarmActive),
+          JSON.stringify(savedChk || {})
+        ]
+      ).catch((e: any) => console.warn('[PostgreSQL] Notice updating round_checkpoints row:', e?.message || e));
+    }
+  }
   current.rounds[idx] = nextRound;
-  await pgUpsert('rounds', id, nextRound, false);
   scheduleSaveToDisk();
 
   const clientId = req.headers['x-client-id'] || null;
@@ -3143,16 +3177,26 @@ function mergeIncomingRoundWithExistingServer(roundInput: any, existing: any) {
   const isIncomingCompleted = round.status === 'completada' || Boolean(round.completedAt && round.technicianSignature);
 
   if (isExistingCompleted && !isIncomingCompleted) {
+    // Si llega un paquete obsoleto con status === 'en_progreso', proteger cabecera y estado de la ronda completada;
+    // pero si es una edición explícita (sin status 'en_progreso', ej. PUT/PATCH de fecha, notas o datos), conservar los campos editados.
+    const isStaleInProgress = round.status === 'en_progreso';
+    const cleanUpdates: Record<string, any> = {};
+    if (!isStaleInProgress) {
+      for (const k of Object.keys(round)) {
+        if (round[k] !== undefined) cleanUpdates[k] = round[k];
+      }
+    }
     return {
       ...existing,
+      ...cleanUpdates,
       checkpoints: mergedCheckpoints,
       meterReadings: mergedMeters,
       anomalies: mergedAnomalies,
       ...(mergedRoundPhotos.length > 0 ? { photos: mergedRoundPhotos } : {}),
       status: 'completada',
       compliancePercentage: 100,
-      completedAt: existing.completedAt || new Date().toISOString(),
-      technicianSignature: existing.technicianSignature || existing.technicianName
+      completedAt: (!isStaleInProgress && round.completedAt) || existing.completedAt || new Date().toISOString(),
+      technicianSignature: (!isStaleInProgress && round.technicianSignature) || existing.technicianSignature || existing.technicianName
     };
   }
   if (isIncomingCompleted) {
@@ -3668,30 +3712,52 @@ app.post("/api/rounds", async (req, res) => {
   }
 });
 
-app.put("/api/rounds/:id", async (req, res) => {
+const handleUpdateRoundRoute = async (req: express.Request, res: express.Response) => {
   const { id } = req.params;
+  if (!id) return res.status(400).json({ error: "Round ID is required" });
   if (await isIdDeletedInServer(id)) {
     return res.status(410).json({ error: "Deleted", id });
   }
-  const updates = { ...req.body, id };
+  const updates = { ...(req.body || {}), id };
   const current = getCachedData();
   if (!Array.isArray(current.rounds)) current.rounds = [];
-  const idx = current.rounds.findIndex((r: any) => r && r.id === id);
-  let savedRound: any;
-  if (idx >= 0) {
-    savedRound = { ...current.rounds[idx], ...updates };
-    current.rounds[idx] = savedRound;
-  } else {
-    savedRound = updates;
-    current.rounds.unshift(savedRound);
-  }
-  await pgUpsert('rounds', id, savedRound, false);
-  scheduleSaveToDisk();
+  const deletedSet = await getAuthoritativeDeletedIdsSet();
   const clientId = req.headers['x-client-id'] || null;
-  broadcastSse({ type: 'round_updated', round: savedRound, clientId, time: Date.now() });
-  broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
-  res.json({ success: true, round: savedRound });
-});
+
+  try {
+    let idx = current.rounds.findIndex((r: any) => r && r.id === id);
+    let existingCacheRound = idx >= 0 ? current.rounds[idx] : null;
+    if (!existingCacheRound && pgPool) {
+      existingCacheRound = await pgGet('rounds', id);
+    }
+
+    const txResult = await saveRoundTransactionally(updates, existingCacheRound, deletedSet, false);
+    if (txResult.skippedDeleted || !txResult.savedRound) {
+      return res.status(410).json({ error: "Deleted", id });
+    }
+
+    const savedRound = txResult.savedRound;
+    idx = current.rounds.findIndex((r: any) => r && r.id === id);
+    if (idx >= 0) current.rounds[idx] = savedRound;
+    else current.rounds.unshift(savedRound);
+
+    sortRoundsDescendingInPlace(current.rounds);
+    syncRoundAnomaliesToIncidents(current);
+    scheduleSaveToDisk();
+
+    broadcastSse({ type: 'round_updated', round: savedRound, clientId, time: Date.now() });
+    broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
+    return res.json({ success: true, status: "success", round: savedRound });
+  } catch (err: any) {
+    console.error(`[PostgreSQL] Error updating round ${id}:`, err?.message || err);
+    return res.status(503).json({
+      success: false,
+      error: err?.message || "PostgreSQL save failed for round update"
+    });
+  }
+};
+app.put("/api/rounds/:id", handleUpdateRoundRoute);
+app.patch("/api/rounds/:id", handleUpdateRoundRoute);
 
 app.delete("/api/rounds/:id", async (req, res) => {
   const { id } = req.params;
@@ -3759,24 +3825,29 @@ app.delete("/api/incidents/:id", async (req, res) => {
   res.json({ status: "deleted", id });
 });
 
-app.put("/api/equipments/:id", async (req, res) => {
+const handleUpdateEquipmentRoute = async (req: express.Request, res: express.Response) => {
   const { id } = req.params;
+  if (!id) return res.status(400).json({ error: "Equipment ID is required" });
   if (await isIdDeletedInServer(id)) {
     return res.status(410).json({ error: "Deleted", id });
   }
   const store = getCachedData();
   if (!Array.isArray(store.equipments)) store.equipments = [];
-  const idx = store.equipments.findIndex((e: any) => e.id === id);
-  const item = idx >= 0 ? { ...store.equipments[idx], ...req.body, id } : { ...req.body, id };
+  const idx = store.equipments.findIndex((e: any) => e && e.id === id);
+  const existing = idx >= 0 ? store.equipments[idx] : (pgPool ? await pgGet('equipments', id) : null);
+  const item = { ...(existing || {}), ...(req.body || {}), id, updatedAt: monotonicUpdatedAt(existing, req.body?.updatedAt) };
+  const pgOk = await pgUpsert('equipments', id, item, false);
+  if (pgPool && !pgOk) return res.status(503).json({ error: "PostgreSQL save failed for equipment" });
   if (idx >= 0) store.equipments[idx] = item;
-  else store.equipments.push(item);
-  await pgUpsert('equipments', id, item, false);
+  else store.equipments.unshift(item);
   scheduleSaveToDisk();
   const clientId = req.headers['x-client-id'] || null;
   broadcastSse({ type: 'equipment_updated', equipment: item, clientId, time: Date.now() });
   broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
   res.json({ status: "success", equipment: item });
-});
+};
+app.put("/api/equipments/:id", handleUpdateEquipmentRoute);
+app.patch("/api/equipments/:id", handleUpdateEquipmentRoute);
 
 app.delete("/api/equipments/:id", async (req, res) => {
   const { id } = req.params;
@@ -3861,22 +3932,27 @@ app.post("/api/preventive-plans", async (req, res) => {
   broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
   res.json({ status: "success", plan: item });
 });
-app.put("/api/preventive-plans/:id", async (req, res) => {
+const handleUpdatePreventivePlanRoute = async (req: express.Request, res: express.Response) => {
   const { id } = req.params;
+  if (!id) return res.status(400).json({ error: "Plan ID is required" });
   if (await isIdDeletedInServer(id)) return res.status(410).json({ error: "Deleted", id });
-  const item = { ...req.body, id };
   const store = getCachedData();
   if (!Array.isArray(store.preventivePlans)) store.preventivePlans = [];
-  const idx = store.preventivePlans.findIndex((p: any) => p.id === id);
-  if (idx >= 0) store.preventivePlans[idx] = { ...store.preventivePlans[idx], ...item };
+  const idx = store.preventivePlans.findIndex((p: any) => p && p.id === id);
+  const existing = idx >= 0 ? store.preventivePlans[idx] : (pgPool ? await pgGet('preventive_plans', id) : null);
+  const item = { ...(existing || {}), ...(req.body || {}), id, updatedAt: monotonicUpdatedAt(existing, req.body?.updatedAt) };
+  const pgOk = await pgUpsert('preventive_plans', id, item, false);
+  if (pgPool && !pgOk) return res.status(503).json({ error: "PostgreSQL save failed for preventive plan" });
+  if (idx >= 0) store.preventivePlans[idx] = item;
   else store.preventivePlans.push(item);
-  await pgUpsert('preventive_plans', id, item, false);
   scheduleSaveToDisk();
   const clientId = req.headers['x-client-id'] || null;
   broadcastSse({ type: 'preventive_plan_updated', plan: item, clientId, time: Date.now() });
   broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
   res.json({ status: "success", plan: item });
-});
+};
+app.put("/api/preventive-plans/:id", handleUpdatePreventivePlanRoute);
+app.patch("/api/preventive-plans/:id", handleUpdatePreventivePlanRoute);
 app.delete("/api/preventive-plans/:id", async (req, res) => {
   const { id } = req.params;
   const clientId = req.headers['x-client-id'] || null;
@@ -3921,22 +3997,27 @@ app.post("/api/work-orders", async (req, res) => {
   broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
   res.json({ status: "success", workOrder: item });
 });
-app.put("/api/work-orders/:id", async (req, res) => {
+const handleUpdateWorkOrderRoute = async (req: express.Request, res: express.Response) => {
   const { id } = req.params;
+  if (!id) return res.status(400).json({ error: "Work Order ID is required" });
   if (await isIdDeletedInServer(id)) return res.status(410).json({ error: "Deleted", id });
-  const item = { ...req.body, id };
   const store = getCachedData();
   if (!Array.isArray(store.workOrders)) store.workOrders = [];
-  const idx = store.workOrders.findIndex((w: any) => w.id === id);
-  if (idx >= 0) store.workOrders[idx] = { ...store.workOrders[idx], ...item };
+  const idx = store.workOrders.findIndex((w: any) => w && w.id === id);
+  const existing = idx >= 0 ? store.workOrders[idx] : (pgPool ? await pgGet('work_orders', id) : null);
+  const item = { ...(existing || {}), ...(req.body || {}), id, updatedAt: monotonicUpdatedAt(existing, req.body?.updatedAt) };
+  const pgOk = await pgUpsert('work_orders', id, item, false);
+  if (pgPool && !pgOk) return res.status(503).json({ error: "PostgreSQL save failed for work order" });
+  if (idx >= 0) store.workOrders[idx] = item;
   else store.workOrders.push(item);
-  await pgUpsert('work_orders', id, item, false);
   scheduleSaveToDisk();
   const clientId = req.headers['x-client-id'] || null;
   broadcastSse({ type: 'work_order_updated', workOrder: item, clientId, time: Date.now() });
   broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
   res.json({ status: "success", workOrder: item });
-});
+};
+app.put("/api/work-orders/:id", handleUpdateWorkOrderRoute);
+app.patch("/api/work-orders/:id", handleUpdateWorkOrderRoute);
 app.delete("/api/work-orders/:id", async (req, res) => {
   const { id } = req.params;
   const clientId = req.headers['x-client-id'] || null;
@@ -3981,22 +4062,27 @@ app.post("/api/pump-inspections", async (req, res) => {
   broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
   res.json({ status: "success", inspection: item });
 });
-app.put("/api/pump-inspections/:id", async (req, res) => {
+const handleUpdatePumpInspectionRoute = async (req: express.Request, res: express.Response) => {
   const { id } = req.params;
+  if (!id) return res.status(400).json({ error: "Inspection ID is required" });
   if (await isIdDeletedInServer(id)) return res.status(410).json({ error: "Deleted", id });
-  const item = { ...req.body, id };
   const store = getCachedData();
   if (!Array.isArray(store.pumpInspections)) store.pumpInspections = [];
-  const idx = store.pumpInspections.findIndex((p: any) => p.id === id);
-  if (idx >= 0) store.pumpInspections[idx] = { ...store.pumpInspections[idx], ...item };
+  const idx = store.pumpInspections.findIndex((p: any) => p && p.id === id);
+  const existing = idx >= 0 ? store.pumpInspections[idx] : (pgPool ? await pgGet('pump_inspections', id) : null);
+  const item = { ...(existing || {}), ...(req.body || {}), id, updatedAt: monotonicUpdatedAt(existing, req.body?.updatedAt) };
+  const pgOk = await pgUpsert('pump_inspections', id, item, false);
+  if (pgPool && !pgOk) return res.status(503).json({ error: "PostgreSQL save failed for pump inspection" });
+  if (idx >= 0) store.pumpInspections[idx] = item;
   else store.pumpInspections.push(item);
-  await pgUpsert('pump_inspections', id, item, false);
   scheduleSaveToDisk();
   const clientId = req.headers['x-client-id'] || null;
   broadcastSse({ type: 'pump_inspection_updated', inspection: item, clientId, time: Date.now() });
   broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
   res.json({ status: "success", inspection: item });
-});
+};
+app.put("/api/pump-inspections/:id", handleUpdatePumpInspectionRoute);
+app.patch("/api/pump-inspections/:id", handleUpdatePumpInspectionRoute);
 app.delete("/api/pump-inspections/:id", async (req, res) => {
   const { id } = req.params;
   const clientId = req.headers['x-client-id'] || null;
@@ -4044,24 +4130,27 @@ app.post("/api/shift-swaps", async (req, res) => {
   broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
   res.json({ status: "success", swap: savedSwap });
 });
-app.put("/api/shift-swaps/:id", async (req, res) => {
+const handleUpdateShiftSwapRoute = async (req: express.Request, res: express.Response) => {
   const { id } = req.params;
+  if (!id) return res.status(400).json({ error: "Swap ID is required" });
   if (await isIdDeletedInServer(id)) return res.status(410).json({ error: "Deleted", id });
   const store = getCachedData();
   if (!Array.isArray(store.shiftSwaps)) store.shiftSwaps = [];
-  const idx = store.shiftSwaps.findIndex((s: any) => s.id === id);
-  const existing = idx >= 0 ? store.shiftSwaps[idx] : null;
+  const idx = store.shiftSwaps.findIndex((s: any) => s && s.id === id);
+  const existing = idx >= 0 ? store.shiftSwaps[idx] : (pgPool ? await pgGet('shift_swaps', id) : null);
   const savedSwap = { ...(existing || {}), ...(req.body || {}), id, updatedAt: monotonicUpdatedAt(existing, req.body?.updatedAt) };
-  if (idx >= 0) store.shiftSwaps[idx] = savedSwap;
-  else store.shiftSwaps.push(savedSwap);
   const pgOk = await pgUpsert('shift_swaps', id, savedSwap, false);
   if (pgPool && !pgOk) return res.status(503).json({ error: "PostgreSQL save failed" });
+  if (idx >= 0) store.shiftSwaps[idx] = savedSwap;
+  else store.shiftSwaps.push(savedSwap);
   scheduleSaveToDisk();
   const clientId = req.headers['x-client-id'] || null;
   broadcastSse({ type: 'swap_updated', swap: savedSwap, clientId, time: Date.now() });
   broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
   res.json({ status: "success", swap: savedSwap });
-});
+};
+app.put("/api/shift-swaps/:id", handleUpdateShiftSwapRoute);
+app.patch("/api/shift-swaps/:id", handleUpdateShiftSwapRoute);
 
 // Uploaded Documents
 app.get("/api/uploaded-documents", async (_req, res) => {
@@ -4124,11 +4213,13 @@ app.get("/api/uploaded-documents/:id/download", async (req, res) => {
   res.setHeader("Content-Disposition", `attachment; filename*=UTF-8''${encodeURIComponent(fileName)}`);
   res.send(buffer);
 });
-app.post("/api/uploaded-documents", async (req, res) => {
-  const item = req.body;
-  if (!item || !item.id) return res.status(400).json({ error: "Invalid document data" });
-  if (await isIdDeletedInServer(item.id) && !item.forceRestore) {
-    return res.status(410).json({ error: "Deleted", id: item.id });
+const handleUpsertUploadedDocument = async (req: express.Request, res: express.Response) => {
+  const paramId = req.params?.id;
+  const item = req.body || {};
+  const docId = paramId || item.id;
+  if (!docId) return res.status(400).json({ error: "Invalid document data" });
+  if (await isIdDeletedInServer(docId) && !item.forceRestore) {
+    return res.status(410).json({ error: "Deleted", id: docId });
   }
   const store = getCachedData();
   if (!Array.isArray(store.uploadedDocuments)) store.uploadedDocuments = [];
@@ -4137,12 +4228,12 @@ app.post("/api/uploaded-documents", async (req, res) => {
     if (item[k] !== undefined) cleanItem[k] = item[k];
   }
 
-  const idx = store.uploadedDocuments.findIndex((d: any) => d.id === item.id);
-  const existing = idx >= 0 ? store.uploadedDocuments[idx] : (pgPool ? await pgGet('uploaded_documents', item.id) : null);
+  const idx = store.uploadedDocuments.findIndex((d: any) => d && d.id === docId);
+  const existing = idx >= 0 ? store.uploadedDocuments[idx] : (pgPool ? await pgGet('uploaded_documents', docId) : null);
   const savedDoc = {
     ...(existing || {}),
     ...cleanItem,
-    id: item.id,
+    id: docId,
     updatedAt: monotonicUpdatedAt(existing, cleanItem.updatedAt)
   };
   if (!savedDoc.rawBase64 && existing?.rawBase64) {
@@ -4162,7 +4253,10 @@ app.post("/api/uploaded-documents", async (req, res) => {
   broadcastSse({ type: 'uploaded_document_updated', document: savedDoc, clientId, time: Date.now() });
   broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
   res.json({ status: "success", document: savedDoc });
-});
+};
+app.post("/api/uploaded-documents", handleUpsertUploadedDocument);
+app.put("/api/uploaded-documents/:id", handleUpsertUploadedDocument);
+app.patch("/api/uploaded-documents/:id", handleUpsertUploadedDocument);
 app.delete("/api/uploaded-documents/:id", async (req, res) => {
   const { id } = req.params;
   const clientId = req.headers['x-client-id'] || null;
@@ -4245,8 +4339,9 @@ app.post("/api/document-folders", async (req, res) => {
   broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
   res.json({ status: "success", folder: savedFolder });
 });
-app.put("/api/document-folders/:id", async (req, res) => {
+const handleUpdateDocumentFolderRoute = async (req: express.Request, res: express.Response) => {
   const { id } = req.params;
+  if (!id) return res.status(400).json({ error: "Folder ID is required" });
   if (await isIdDeletedInServer(id)) return res.status(410).json({ error: "Deleted", id });
   const store = getCachedData();
   if (!Array.isArray(store.documentFolders)) store.documentFolders = [];
@@ -4277,7 +4372,9 @@ app.put("/api/document-folders/:id", async (req, res) => {
   broadcastSse({ type: 'document_folder_updated', folder: savedFolder, clientId, time: Date.now() });
   broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
   res.json({ status: "success", folder: savedFolder });
-});
+};
+app.put("/api/document-folders/:id", handleUpdateDocumentFolderRoute);
+app.patch("/api/document-folders/:id", handleUpdateDocumentFolderRoute);
 app.delete("/api/document-folders/:id", async (req, res) => {
   const { id } = req.params;
   const clientId = req.headers['x-client-id'] || null;
@@ -4377,22 +4474,27 @@ app.post("/api/meters", async (req, res) => {
   res.json({ success: true, meter });
 });
 
-app.put("/api/meters/:id", async (req, res) => {
+const handleUpdateMeterRoute = async (req: express.Request, res: express.Response) => {
   const { id } = req.params;
+  if (!id) return res.status(400).json({ error: "Meter ID is required" });
   if (await isIdDeletedInServer(id)) return res.status(410).json({ error: "Deleted", id });
-  const meter = { ...req.body, id };
   const current = getCachedData();
   if (!Array.isArray(current.meters)) current.meters = [];
   const idx = current.meters.findIndex((m: any) => m && (m.id === id || m.code === id));
-  if (idx >= 0) current.meters[idx] = { ...current.meters[idx], ...meter };
+  const existing = idx >= 0 ? current.meters[idx] : (pgPool ? await pgGet('meters', id) : null);
+  const meter = { ...(existing || {}), ...(req.body || {}), id, updatedAt: monotonicUpdatedAt(existing, req.body?.updatedAt) };
+  const pgOk = await pgUpsert('meters', id, meter, false);
+  if (pgPool && !pgOk) return res.status(503).json({ error: "PostgreSQL save failed for meter" });
+  if (idx >= 0) current.meters[idx] = meter;
   else current.meters.unshift(meter);
-  await pgUpsert('meters', id, meter, false);
   scheduleSaveToDisk();
   const clientId = req.headers['x-client-id'] || null;
   broadcastSse({ type: 'meter_updated', meter, clientId, time: Date.now() });
   broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
   res.json({ success: true, meter });
-});
+};
+app.put("/api/meters/:id", handleUpdateMeterRoute);
+app.patch("/api/meters/:id", handleUpdateMeterRoute);
 
 app.delete("/api/meters/:id", async (req, res) => {
   const { id } = req.params;
@@ -4591,33 +4693,38 @@ app.post("/api/bitacora", async (req, res) => {
   res.json({ success: true, entry: savedEntry });
 });
 
-app.put("/api/bitacora/:id", async (req, res) => {
+const handleUpdateBitacoraRoute = async (req: express.Request, res: express.Response) => {
   const { id } = req.params;
+  if (!id) return res.status(400).json({ error: "Bitacora ID is required" });
   const store = getCachedData();
   if (!Array.isArray(store.bitacora)) store.bitacora = [];
 
   const idx = store.bitacora.findIndex((b: any) => b && b.id === id);
-  const existing = idx >= 0 ? store.bitacora[idx] : {};
+  const existing = (idx >= 0 ? store.bitacora[idx] : (pgPool ? await pgGet('bitacora_tecnica', id) : null)) || {};
   const mergedPhotos = mergeUniquePhotosServer(existing.photos, existing.photoUrl, req.body?.photos, req.body?.photoUrl);
   const updatedEntry = {
     ...existing,
-    ...req.body,
+    ...(req.body || {}),
     id,
     ...(mergedPhotos.length > 0 ? { photos: mergedPhotos, photoUrl: mergedPhotos[mergedPhotos.length - 1] } : {}),
-    updatedAt: new Date().toISOString()
+    updatedAt: monotonicUpdatedAt(existing, req.body?.updatedAt)
   };
+
+  const pgOk = await pgUpsert('bitacora_tecnica', id, updatedEntry, false);
+  if (pgPool && !pgOk) return res.status(503).json({ error: "PostgreSQL save failed for bitacora entry" });
 
   if (idx >= 0) store.bitacora[idx] = updatedEntry;
   else store.bitacora.unshift(updatedEntry);
 
-  await pgUpsert('bitacora_tecnica', id, updatedEntry, false);
   scheduleSaveToDisk();
 
   const clientId = req.headers['x-client-id'] || null;
   broadcastSse({ type: 'bitacora_updated', entry: updatedEntry, clientId, time: Date.now() });
   broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
   res.json({ success: true, entry: updatedEntry });
-});
+};
+app.put("/api/bitacora/:id", handleUpdateBitacoraRoute);
+app.patch("/api/bitacora/:id", handleUpdateBitacoraRoute);
 
 // Generic entity CRUD endpoints
 // 1. Rounds
@@ -4674,22 +4781,27 @@ app.post("/api/incidents", async (req, res) => {
   broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
   res.json({ status: "success", incident: inc });
 });
-app.put("/api/incidents/:id", async (req, res) => {
+const handleUpdateIncidentRoute = async (req: express.Request, res: express.Response) => {
   const { id } = req.params;
+  if (!id) return res.status(400).json({ error: "Incident ID is required" });
   if (await isIdDeletedInServer(id)) return res.status(410).json({ error: "Deleted", id });
   const store = getCachedData();
   if (!Array.isArray(store.incidents)) store.incidents = [];
-  const idx = store.incidents.findIndex((i: any) => i.id === id);
-  const inc = idx >= 0 ? { ...store.incidents[idx], ...req.body, id } : { ...req.body, id };
+  const idx = store.incidents.findIndex((i: any) => i && i.id === id);
+  const existing = idx >= 0 ? store.incidents[idx] : (pgPool ? await pgGet('incidents', id) : null);
+  const inc = { ...(existing || {}), ...(req.body || {}), id, updatedAt: monotonicUpdatedAt(existing, req.body?.updatedAt) };
+  const pgOk = await pgUpsert('incidents', id, inc, false);
+  if (pgPool && !pgOk) return res.status(503).json({ error: "PostgreSQL save failed for incident" });
   if (idx >= 0) store.incidents[idx] = inc;
   else store.incidents.unshift(inc);
-  await pgUpsert('incidents', id, inc, false);
   scheduleSaveToDisk();
   const clientId = req.headers['x-client-id'] || null;
   broadcastSse({ type: 'incident_updated', incident: inc, clientId, time: Date.now() });
   broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
   res.json({ status: "success", incident: inc });
-});
+};
+app.put("/api/incidents/:id", handleUpdateIncidentRoute);
+app.patch("/api/incidents/:id", handleUpdateIncidentRoute);
 
 // 3. Requests
 app.get("/api/requests", async (_req, res) => {
@@ -4728,24 +4840,27 @@ app.post("/api/requests", async (req, res) => {
   broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
   res.json({ status: "success", request: savedReq });
 });
-app.put("/api/requests/:id", async (req, res) => {
+const handleUpdateRequestRoute = async (req: express.Request, res: express.Response) => {
   const { id } = req.params;
+  if (!id) return res.status(400).json({ error: "Request ID is required" });
   if (await isIdDeletedInServer(id)) return res.status(410).json({ error: "Deleted", id });
   const store = getCachedData();
   if (!Array.isArray(store.requests)) store.requests = [];
-  const idx = store.requests.findIndex((r: any) => r.id === id);
-  const existing = idx >= 0 ? store.requests[idx] : null;
-  const item = { ...(existing || {}), ...req.body, id, updatedAt: monotonicUpdatedAt(existing, req.body?.updatedAt) };
-  if (idx >= 0) store.requests[idx] = item;
-  else store.requests.unshift(item);
+  const idx = store.requests.findIndex((r: any) => r && r.id === id);
+  const existing = idx >= 0 ? store.requests[idx] : (pgPool ? await pgGet('requests', id) : null);
+  const item = { ...(existing || {}), ...(req.body || {}), id, updatedAt: monotonicUpdatedAt(existing, req.body?.updatedAt) };
   const pgOk = await pgUpsert('requests', id, item, false);
   if (pgPool && !pgOk) return res.status(503).json({ error: "PostgreSQL save failed" });
+  if (idx >= 0) store.requests[idx] = item;
+  else store.requests.unshift(item);
   scheduleSaveToDisk();
   const clientId = req.headers['x-client-id'] || null;
   broadcastSse({ type: 'request_updated', request: item, clientId, time: Date.now() });
   broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
   res.json({ status: "success", request: item });
-});
+};
+app.put("/api/requests/:id", handleUpdateRequestRoute);
+app.patch("/api/requests/:id", handleUpdateRequestRoute);
 
 // 4. Tasks
 app.get("/api/tasks", async (_req, res) => {
@@ -4763,24 +4878,27 @@ app.get("/api/tasks", async (_req, res) => {
   const deletedSet = new Set(store.deletedIds || []);
   res.json((store.tasks || []).filter((t: any) => t && t.id && !deletedSet.has(t.id)));
 });
-app.put("/api/tasks/:id", async (req, res) => {
+const handleUpdateTaskRoute = async (req: express.Request, res: express.Response) => {
   const { id } = req.params;
+  if (!id) return res.status(400).json({ error: "Task ID is required" });
   if (await isIdDeletedInServer(id)) return res.status(410).json({ error: "Deleted", id });
   const store = getCachedData();
   if (!Array.isArray(store.tasks)) store.tasks = [];
-  const idx = store.tasks.findIndex((t: any) => t.id === id);
-  const existing = idx >= 0 ? store.tasks[idx] : null;
-  const item = { ...(existing || {}), ...req.body, id, updatedAt: monotonicUpdatedAt(existing, req.body?.updatedAt) };
-  if (idx >= 0) store.tasks[idx] = item;
-  else store.tasks.unshift(item);
+  const idx = store.tasks.findIndex((t: any) => t && t.id === id);
+  const existing = idx >= 0 ? store.tasks[idx] : (pgPool ? await pgGet('tasks', id) : null);
+  const item = { ...(existing || {}), ...(req.body || {}), id, updatedAt: monotonicUpdatedAt(existing, req.body?.updatedAt) };
   const pgOk = await pgUpsert('tasks', id, item, false);
   if (pgPool && !pgOk) return res.status(503).json({ error: "PostgreSQL save failed" });
+  if (idx >= 0) store.tasks[idx] = item;
+  else store.tasks.unshift(item);
   scheduleSaveToDisk();
   const clientId = req.headers['x-client-id'] || null;
   broadcastSse({ type: 'task_updated', task: item, clientId, time: Date.now() });
   broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
   res.json({ status: "success", task: item });
-});
+};
+app.put("/api/tasks/:id", handleUpdateTaskRoute);
+app.patch("/api/tasks/:id", handleUpdateTaskRoute);
 
 // 5. Schedules
 app.get("/api/schedules", async (_req, res) => {
@@ -4870,12 +4988,13 @@ app.post("/api/schedules", async (req, res) => {
   broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
   res.json({ status: "success", count: savedItems.length, schedules: savedItems });
 });
-app.put("/api/schedules/:id", async (req, res) => {
+const handleUpdateScheduleRoute = async (req: express.Request, res: express.Response) => {
   const { id } = req.params;
+  if (!id) return res.status(400).json({ error: "Schedule ID is required" });
   if (await isIdDeletedInServer(id)) return res.status(410).json({ error: "Deleted", id });
   const store = getCachedData();
   if (!Array.isArray(store.schedules)) store.schedules = [];
-  const idx = store.schedules.findIndex((s: any) => s.id === id);
+  const idx = store.schedules.findIndex((s: any) => s && s.id === id);
   const existing = idx >= 0 ? store.schedules[idx] : (pgPool ? await pgGet('schedules', id) : null);
   const item = {
     ...(existing || {}),
@@ -4909,7 +5028,7 @@ app.put("/api/schedules/:id", async (req, res) => {
   const pgOk = await pgUpsert('schedules', id, item, false);
   if (pgPool && !pgOk) return res.status(503).json({ error: "PostgreSQL save failed for schedule" });
 
-  const curIdx = store.schedules.findIndex((s: any) => s.id === id);
+  const curIdx = store.schedules.findIndex((s: any) => s && s.id === id);
   if (curIdx >= 0) store.schedules[curIdx] = item;
   else store.schedules.push(item);
 
@@ -4921,7 +5040,9 @@ app.put("/api/schedules/:id", async (req, res) => {
   broadcastSse({ type: 'schedule_updated', schedules: [item], schedule: item, clientId, time: Date.now() });
   broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
   res.json({ status: "success", schedule: item });
-});
+};
+app.put("/api/schedules/:id", handleUpdateScheduleRoute);
+app.patch("/api/schedules/:id", handleUpdateScheduleRoute);
 
 // 6. Equipments
 app.get("/api/equipments", async (_req, res) => {
@@ -5183,22 +5304,27 @@ app.post("/api/cronogramas", async (req, res) => {
   broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
   res.json({ status: "success", cronograma: item });
 });
-app.put("/api/cronogramas/:id", async (req, res) => {
+const handleUpdateCronogramaRoute = async (req: express.Request, res: express.Response) => {
   const { id } = req.params;
+  if (!id) return res.status(400).json({ error: "Cronograma ID is required" });
   if (await isIdDeletedInServer(id)) return res.status(410).json({ error: "Deleted", id });
   const store = getCachedData();
   if (!Array.isArray(store.cronogramas)) store.cronogramas = [];
-  const idx = store.cronogramas.findIndex((c: any) => c.id === id);
-  const item = idx >= 0 ? { ...store.cronogramas[idx], ...req.body, id } : { ...req.body, id };
+  const idx = store.cronogramas.findIndex((c: any) => c && c.id === id);
+  const existing = idx >= 0 ? store.cronogramas[idx] : (pgPool ? await pgGet('cronogramas', id) : null);
+  const item = { ...(existing || {}), ...(req.body || {}), id, updatedAt: monotonicUpdatedAt(existing, req.body?.updatedAt) };
+  const pgOk = await pgUpsert('cronogramas', id, item, false);
+  if (pgPool && !pgOk) return res.status(503).json({ error: "PostgreSQL save failed for cronograma" });
   if (idx >= 0) store.cronogramas[idx] = item;
   else store.cronogramas.push(item);
-  await pgUpsert('cronogramas', id, item, false);
   scheduleSaveToDisk();
   const clientId = req.headers['x-client-id'] || null;
   broadcastSse({ type: 'cronograma_updated', cronograma: item, clientId, time: Date.now() });
   broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
   res.json({ status: "success", cronograma: item });
-});
+};
+app.put("/api/cronogramas/:id", handleUpdateCronogramaRoute);
+app.patch("/api/cronogramas/:id", handleUpdateCronogramaRoute);
 
 // 9. App Data & Singletons (schedule_config, app_version, round_template)
 app.get("/api/app-data/:id", async (req, res) => {
@@ -5239,6 +5365,9 @@ app.post("/api/app-data/:id", async (req, res) => {
     return res.status(503).json({ error: "PostgreSQL save failed for app_data" });
   }
   store.appData[id] = mergedAppData;
+  if (id === 'round_template' && Array.isArray(mergedAppData.items)) {
+    store.roundTemplate = mergedAppData.items;
+  }
   scheduleSaveToDisk();
   const clientId = req.headers['x-client-id'] || null;
   broadcastSse({ type: 'app_data_updated', id, data: mergedAppData, clientId, time: Date.now() });
@@ -5254,8 +5383,12 @@ app.get("/api/settings", (_req, res) => {
 });
 app.post("/api/settings", async (req, res) => {
   const store = getCachedData();
-  store.settings = { ...(store.settings || {}), ...req.body };
-  await pgUpsert('settings', 'app_settings', store.settings);
+  const nextSettings = { ...(store.settings || {}), ...req.body };
+  const pgOk = await pgUpsert('settings', 'app_settings', nextSettings);
+  if (pgPool && !pgOk) {
+    return res.status(503).json({ error: "PostgreSQL save failed for settings" });
+  }
+  store.settings = nextSettings;
   scheduleSaveToDisk();
   const clientId = req.headers['x-client-id'] || null;
   broadcastSse({ type: 'settings_updated', settings: store.settings, clientId, time: Date.now() });

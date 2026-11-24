@@ -1,4 +1,4 @@
-export const DEFAULT_MAX_PHOTO_BYTES = 135 * 1024; // ~135 KB (rango estricto 100KB - 150KB)
+export const DEFAULT_MAX_PHOTO_BYTES = 120 * 1024; // ~120 KB (ultra ligero para carga instantánea en señal mínima)
 
 export interface ImageCompressionOptions {
   maxDimension?: number;
@@ -20,16 +20,16 @@ export function estimateDataUrlBytes(dataUrl: string): number {
 
 /**
  * Comprime cualquier imagen DataURL / Base64 localmente usando Canvas HTML5
- * hasta garantizar un peso máximo entre 100KB y 150KB (por defecto <= 135KB),
- * permitiendo subir rondas de 26 puntos en zonas de baja señal en 1-2 segundos.
+ * hasta garantizar un peso máximo <= maxBytes (por defecto <= 120KB),
+ * liberando de inmediato el buffer de Canvas y la referencia Image en RAM móvil.
  */
 export function compressImageDataUrl(
   dataUrl: string,
   options: ImageCompressionOptions = {}
 ): Promise<string> {
   const {
-    maxDimension = 840,
-    quality = 0.68,
+    maxDimension = 800,
+    quality = 0.65,
     maxBytes = DEFAULT_MAX_PHOTO_BYTES
   } = options;
 
@@ -48,33 +48,58 @@ export function compressImageDataUrl(
 
   return new Promise((resolve) => {
     const img = new Image();
+    let canvas: HTMLCanvasElement | null = null;
+    let settled = false;
+
+    const cleanup = () => {
+      img.onload = null;
+      img.onerror = null;
+      try {
+        img.src = '';
+      } catch {}
+      if (canvas) {
+        try {
+          canvas.width = 0;
+          canvas.height = 0;
+        } catch {}
+        canvas = null;
+      }
+    };
+
+    const finish = (result: string) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve(result);
+    };
+
     img.onload = () => {
       try {
         const naturalWidth = img.naturalWidth || img.width;
         const naturalHeight = img.naturalHeight || img.height;
 
         if (!naturalWidth || !naturalHeight) {
-          resolve(dataUrl);
+          finish(dataUrl);
           return;
         }
 
-        const dimensionSteps = [maxDimension, 720, 600, 480].filter(
+        const dimensionSteps = [maxDimension, 700, 580, 460].filter(
           (d, idx, arr) => d <= maxDimension && arr.indexOf(d) === idx
         );
         if (dimensionSteps.length === 0) dimensionSteps.push(maxDimension);
 
-        const qualitySteps = [quality, 0.56, 0.46, 0.36, 0.28, 0.22].filter(
+        const qualitySteps = [quality, 0.54, 0.44, 0.34, 0.26, 0.20].filter(
           (q, idx, arr) => q <= quality && arr.indexOf(q) === idx
         );
-        if (qualitySteps.length === 0) qualitySteps.push(0.45);
+        if (qualitySteps.length === 0) qualitySteps.push(0.42);
 
         let bestResult = dataUrl;
         let bestBytes = estimateDataUrlBytes(dataUrl);
 
-        const canvas = document.createElement('canvas');
+        canvas = document.createElement('canvas');
         const ctx = canvas.getContext('2d');
         if (!ctx) {
-          resolve(dataUrl);
+          finish(dataUrl);
           return;
         }
 
@@ -102,18 +127,18 @@ export function compressImageDataUrl(
               bestBytes = candidateBytes;
             }
             if (candidateBytes <= maxBytes) {
-              resolve(candidate);
+              finish(candidate);
               return;
             }
           }
         }
 
-        resolve(bestResult);
+        finish(bestResult);
       } catch {
-        resolve(dataUrl);
+        finish(dataUrl);
       }
     };
-    img.onerror = () => resolve(dataUrl);
+    img.onerror = () => finish(dataUrl);
     img.src = dataUrl;
   });
 }
@@ -148,8 +173,9 @@ export function compressImageFile(
 }
 
 /**
- * Comprime todas las fotografías adjuntas en los 26 puntos, subcampos, medidores y anomalías
- * de una ronda antes de construir el paquete JSON único, evitando cargas lentas en baja señal.
+ * Comprime secuencialmente (una por una) todas las fotografías adjuntas en los puntos,
+ * subcampos, medidores y anomalías de una ronda, evitando picos de memoria en teléfonos
+ * y permitiendo cerrar rondas en baja señal de forma estable.
  */
 export async function compressRoundPhotos<T extends Record<string, any>>(
   round: T,
@@ -158,19 +184,29 @@ export async function compressRoundPhotos<T extends Record<string, any>>(
   if (!round || typeof round !== 'object') return round;
 
   const opts: ImageCompressionOptions = {
-    maxDimension: options.maxDimension ?? 840,
-    quality: options.quality ?? 0.68,
+    maxDimension: options.maxDimension ?? 800,
+    quality: options.quality ?? 0.65,
     maxBytes: options.maxBytes ?? DEFAULT_MAX_PHOTO_BYTES
   };
 
   const cache = new Map<string, string>();
+  let processedHeavyCount = 0;
+
   const compressOnce = async (url?: string | null): Promise<string | undefined> => {
     if (!url || typeof url !== 'string') return url ?? undefined;
     if (!url.startsWith('data:image/')) return url;
     const cached = cache.get(url);
     if (cached) return cached;
-    const out = await compressImageDataUrl(url, opts);
+    const alreadyLightJpeg =
+      url.startsWith('data:image/jpeg') && estimateDataUrlBytes(url) <= (opts.maxBytes ?? DEFAULT_MAX_PHOTO_BYTES);
+    const out = alreadyLightJpeg ? url : await compressImageDataUrl(url, opts);
     cache.set(url, out);
+    if (!alreadyLightJpeg) {
+      processedHeavyCount += 1;
+      if (processedHeavyCount % 2 === 0 && typeof window !== 'undefined') {
+        await new Promise<void>((r) => setTimeout(r, 0));
+      }
+    }
     return out;
   };
 
@@ -189,100 +225,114 @@ export async function compressRoundPhotos<T extends Record<string, any>>(
     return next.length > 0 ? next : undefined;
   };
 
-  const nextCheckpoints = Array.isArray(round.checkpoints)
-    ? await Promise.all(
-        round.checkpoints.map(async (chk: any) => {
-          if (!chk) return chk;
-          const compressedPhotoUrl = await compressOnce(chk.photoUrl);
-          const compressedPhotos = await compressPhotoList(
-            mergeUniquePhotos(chk.photos, chk.photoUrl ? [chk.photoUrl] : [])
-          );
-          const nextFields = Array.isArray(chk.measurementFields)
-            ? await Promise.all(
-                chk.measurementFields.map(async (f: any) => {
-                  if (!f) return f;
-                  const fUrl = await compressOnce(f.photoUrl);
-                  const fPhotos = await compressPhotoList(
-                    mergeUniquePhotos(f.photos, f.photoUrl ? [f.photoUrl] : [])
-                  );
-                  return {
-                    ...f,
-                    photoUrl: fUrl || (fPhotos && fPhotos[fPhotos.length - 1]) || undefined,
-                    photos: fPhotos
-                  };
-                })
-              )
-            : chk.measurementFields;
-
-          return {
-            ...chk,
-            photoUrl: compressedPhotoUrl || (compressedPhotos && compressedPhotos[compressedPhotos.length - 1]) || undefined,
-            photos: compressedPhotos,
-            measurementFields: nextFields
-          };
-        })
-      )
-    : round.checkpoints;
-
-  let nextMeterReadings = round.meterReadings;
-  if (nextMeterReadings && typeof nextMeterReadings === 'object') {
-    const mr: any = { ...nextMeterReadings };
-    if (mr.waterMeterPhotoUrl) mr.waterMeterPhotoUrl = await compressOnce(mr.waterMeterPhotoUrl);
-    if (mr.waterMeterPhotos) mr.waterMeterPhotos = await compressPhotoList(mr.waterMeterPhotos);
-    if (mr.electricMeterPhotoUrl) mr.electricMeterPhotoUrl = await compressOnce(mr.electricMeterPhotoUrl);
-    if (mr.electricMeterPhotos) mr.electricMeterPhotos = await compressPhotoList(mr.electricMeterPhotos);
-    if (mr.gasMeterPhotoUrl) mr.gasMeterPhotoUrl = await compressOnce(mr.gasMeterPhotoUrl);
-    if (mr.gasMeterPhotos) mr.gasMeterPhotos = await compressPhotoList(mr.gasMeterPhotos);
-
-    if (mr.customMeters && typeof mr.customMeters === 'object') {
-      const nextCustom: Record<string, any> = {};
-      for (const k of Object.keys(mr.customMeters)) {
-        const cm = mr.customMeters[k];
-        if (!cm) {
-          nextCustom[k] = cm;
+  try {
+    let nextCheckpoints = round.checkpoints;
+    if (Array.isArray(round.checkpoints)) {
+      nextCheckpoints = [];
+      for (const chk of round.checkpoints) {
+        if (!chk) {
+          nextCheckpoints.push(chk);
           continue;
         }
-        const cmUrl = await compressOnce(cm.photoUrl);
-        const cmPhotos = await compressPhotoList(
-          mergeUniquePhotos(cm.photos, cm.photoUrl ? [cm.photoUrl] : [])
+        const compressedPhotoUrl = await compressOnce(chk.photoUrl);
+        const compressedPhotos = await compressPhotoList(
+          mergeUniquePhotos(chk.photos, chk.photoUrl ? [chk.photoUrl] : [])
         );
-        nextCustom[k] = {
-          ...cm,
-          photoUrl: cmUrl || (cmPhotos && cmPhotos[cmPhotos.length - 1]) || undefined,
-          photos: cmPhotos
-        };
+
+        let nextFields = chk.measurementFields;
+        if (Array.isArray(chk.measurementFields)) {
+          nextFields = [];
+          for (const f of chk.measurementFields) {
+            if (!f) {
+              nextFields.push(f);
+              continue;
+            }
+            const fUrl = await compressOnce(f.photoUrl);
+            const fPhotos = await compressPhotoList(
+              mergeUniquePhotos(f.photos, f.photoUrl ? [f.photoUrl] : [])
+            );
+            nextFields.push({
+              ...f,
+              photoUrl: fUrl || (fPhotos && fPhotos[fPhotos.length - 1]) || undefined,
+              photos: fPhotos
+            });
+          }
+        }
+
+        nextCheckpoints.push({
+          ...chk,
+          photoUrl: compressedPhotoUrl || (compressedPhotos && compressedPhotos[compressedPhotos.length - 1]) || undefined,
+          photos: compressedPhotos,
+          measurementFields: nextFields
+        });
       }
-      mr.customMeters = nextCustom;
     }
-    nextMeterReadings = mr;
-  }
 
-  const nextAnomalies = Array.isArray(round.anomalies)
-    ? await Promise.all(
-        round.anomalies.map(async (a: any) => {
-          if (!a) return a;
-          const aUrl = await compressOnce(a.photoUrl);
-          const aPhotos = await compressPhotoList(
-            mergeUniquePhotos(a.photos, a.photoUrl ? [a.photoUrl] : [])
+    let nextMeterReadings = round.meterReadings;
+    if (nextMeterReadings && typeof nextMeterReadings === 'object') {
+      const mr: any = { ...nextMeterReadings };
+      if (mr.waterMeterPhotoUrl) mr.waterMeterPhotoUrl = await compressOnce(mr.waterMeterPhotoUrl);
+      if (mr.waterMeterPhotos) mr.waterMeterPhotos = await compressPhotoList(mr.waterMeterPhotos);
+      if (mr.electricMeterPhotoUrl) mr.electricMeterPhotoUrl = await compressOnce(mr.electricMeterPhotoUrl);
+      if (mr.electricMeterPhotos) mr.electricMeterPhotos = await compressPhotoList(mr.electricMeterPhotos);
+      if (mr.gasMeterPhotoUrl) mr.gasMeterPhotoUrl = await compressOnce(mr.gasMeterPhotoUrl);
+      if (mr.gasMeterPhotos) mr.gasMeterPhotos = await compressPhotoList(mr.gasMeterPhotos);
+
+      if (mr.customMeters && typeof mr.customMeters === 'object') {
+        const nextCustom: Record<string, any> = {};
+        for (const k of Object.keys(mr.customMeters)) {
+          const cm = mr.customMeters[k];
+          if (!cm) {
+            nextCustom[k] = cm;
+            continue;
+          }
+          const cmUrl = await compressOnce(cm.photoUrl);
+          const cmPhotos = await compressPhotoList(
+            mergeUniquePhotos(cm.photos, cm.photoUrl ? [cm.photoUrl] : [])
           );
-          return {
-            ...a,
-            photoUrl: aUrl || (aPhotos && aPhotos[aPhotos.length - 1]) || undefined,
-            photos: aPhotos
+          nextCustom[k] = {
+            ...cm,
+            photoUrl: cmUrl || (cmPhotos && cmPhotos[cmPhotos.length - 1]) || undefined,
+            photos: cmPhotos
           };
-        })
-      )
-    : round.anomalies;
+        }
+        mr.customMeters = nextCustom;
+      }
+      nextMeterReadings = mr;
+    }
 
-  const nextRootPhotos = await compressPhotoList(round.photos);
+    let nextAnomalies = round.anomalies;
+    if (Array.isArray(round.anomalies)) {
+      nextAnomalies = [];
+      for (const a of round.anomalies) {
+        if (!a) {
+          nextAnomalies.push(a);
+          continue;
+        }
+        const aUrl = await compressOnce(a.photoUrl);
+        const aPhotos = await compressPhotoList(
+          mergeUniquePhotos(a.photos, a.photoUrl ? [a.photoUrl] : [])
+        );
+        nextAnomalies.push({
+          ...a,
+          photoUrl: aUrl || (aPhotos && aPhotos[aPhotos.length - 1]) || undefined,
+          photos: aPhotos
+        });
+      }
+    }
 
-  return {
-    ...round,
-    checkpoints: nextCheckpoints,
-    meterReadings: nextMeterReadings,
-    anomalies: nextAnomalies,
-    photos: nextRootPhotos
-  };
+    const nextRootPhotos = await compressPhotoList(round.photos);
+
+    return {
+      ...round,
+      checkpoints: nextCheckpoints,
+      meterReadings: nextMeterReadings,
+      anomalies: nextAnomalies,
+      photos: nextRootPhotos
+    };
+  } finally {
+    cache.clear();
+  }
 }
 
 export function isValidRoundPhotoUrl(u?: string | null): boolean {

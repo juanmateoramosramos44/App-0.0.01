@@ -5,7 +5,7 @@ import type {
   UploadedDocument,
   UploadedDocumentSheet
 } from '../types';
-import { getExcelColLetter } from './excelEngine';
+import { formatUtcDateValue, getExcelColLetter, isExcelDateNumFmt } from './excelEngine';
 
 // Mapeo exacto entre CSS de borde (ExcelJS -> App) y códigos numéricos de borde de FortuneSheet
 // 1: thin, 3: dotted, 4: dashed, 7: double, 8: medium, 13: thick
@@ -162,9 +162,11 @@ export function uploadedDocToFortuneSheets(doc: UploadedDocument): Sheet[] {
       const rowCols = Math.max(rowArr.length, maxRowWidth);
 
       for (let cIdx = 0; cIdx < rowCols; cIdx++) {
+        const coord = `${rIdx}-${cIdx}`;
         const rawVal = rowArr[cIdx];
-        const st = sheet.cellStyles?.[`${rIdx}-${cIdx}`];
-        const formula = sheet.cellFormulas?.[`${rIdx}-${cIdx}`];
+        const st = sheet.cellStyles?.[coord];
+        const formula = sheet.cellFormulas?.[coord];
+        const displayVal = sheet.cellDisplayValues?.[coord];
         const mcMaster = mergeMasterByCoord.get(`${fRow}-${cIdx}`);
         const mcSlave = mergeSlaveByCoord.get(`${fRow}-${cIdx}`);
 
@@ -192,8 +194,10 @@ export function uploadedDocToFortuneSheets(doc: UploadedDocument): Sheet[] {
 
         const cellObj: Cell = {};
         if (hasVal) {
-          cellObj.v = rawVal as string | number | boolean;
-          cellObj.m = String(rawVal);
+          const normalizedRaw =
+            (rawVal as unknown) instanceof Date ? formatUtcDateValue(rawVal as unknown as Date) : rawVal;
+          cellObj.v = normalizedRaw as string | number | boolean;
+          cellObj.m = displayVal !== undefined && displayVal !== '' ? displayVal : String(normalizedRaw);
         }
         if (hasFormula && formula) {
           cellObj.f = formula.startsWith('=') ? formula : `=${formula}`;
@@ -219,7 +223,11 @@ export function uploadedDocToFortuneSheets(doc: UploadedDocument): Sheet[] {
           if (vt !== undefined) cellObj.vt = vt;
           if (st.wrapText) cellObj.tb = '2';
           if (st.numFmt) {
-            cellObj.ct = { fa: st.numFmt, t: typeof rawVal === 'number' ? 'n' : 'g' };
+            const isDateFmt = isExcelDateNumFmt(st.numFmt);
+            cellObj.ct = {
+              fa: st.numFmt,
+              t: isDateFmt ? 'd' : typeof rawVal === 'number' ? 'n' : 'g'
+            };
           }
         }
 
@@ -251,6 +259,7 @@ export function uploadedDocToFortuneSheets(doc: UploadedDocument): Sheet[] {
         const vt = valignToFortuneVt(st.valign);
         if (vt !== undefined) cellObj.vt = vt;
         if (st.wrapText) cellObj.tb = '2';
+        if (st.numFmt) cellObj.ct = { fa: st.numFmt, t: isExcelDateNumFmt(st.numFmt) ? 'd' : 'g' };
 
         if (st.borderTop || st.borderRight || st.borderBottom || st.borderLeft) {
           borderInfo.push({
@@ -454,6 +463,7 @@ export function fortuneSheetsToUploadedSheets(
     const rows: (string | number | boolean | null)[][] = [];
     const cellStyles: Record<string, CellStyleInfo> = {};
     const cellFormulas: Record<string, string> = {};
+    const cellDisplayValues: Record<string, string> = {};
 
     for (let r = 0; r < finalRowsCount; r++) {
       const rowArr: (string | number | boolean | null)[] = [];
@@ -463,8 +473,22 @@ export function fortuneSheetsToUploadedSheets(
         const borderSides = bordersByCoord.get(coord);
 
         if (cell) {
-          const val = cell.v !== undefined && cell.v !== null ? cell.v : (cell.m !== undefined ? cell.m : '');
-          rowArr.push(val);
+          const rawCellVal = cell.v !== undefined && cell.v !== null ? cell.v : (cell.m !== undefined ? cell.m : '');
+          const normalizedVal: string | number | boolean | null =
+            (rawCellVal as unknown) instanceof Date
+              ? formatUtcDateValue(rawCellVal as unknown as Date)
+              : (rawCellVal as string | number | boolean | null);
+          rowArr.push(normalizedVal);
+
+          const prevStyle = prevSheet?.cellStyles?.[coord];
+          const prevDisplay = prevSheet?.cellDisplayValues?.[coord];
+          const prevVal = prevSheet?.rows?.[r]?.[c];
+          if (typeof cell.m === 'string' && cell.m !== '' && (cell.m !== String(normalizedVal) || (cell.ct?.fa && cell.ct.fa !== 'General'))) {
+            cellDisplayValues[coord] = cell.m;
+          } else if (prevDisplay && prevVal === normalizedVal && cell.m === undefined) {
+            cellDisplayValues[coord] = prevDisplay;
+          }
+
           if (typeof cell.f === 'string' && cell.f.trim()) {
             cellFormulas[coord] = cell.f.startsWith('=') ? cell.f : `=${cell.f}`;
           }
@@ -484,7 +508,13 @@ export function fortuneSheetsToUploadedSheets(
           const valign = fortuneVtToValign(cell.vt);
           if (valign) { st.valign = valign; hasStyle = true; }
           if (cell.tb === '2') { st.wrapText = true; hasStyle = true; }
-          if (cell.ct?.fa && cell.ct.fa !== 'General') { st.numFmt = String(cell.ct.fa); hasStyle = true; }
+          if (cell.ct?.fa && cell.ct.fa !== 'General') {
+            st.numFmt = String(cell.ct.fa);
+            hasStyle = true;
+          } else if (prevStyle?.numFmt && prevVal === normalizedVal) {
+            st.numFmt = prevStyle.numFmt;
+            hasStyle = true;
+          }
 
           if (borderSides) {
             if (borderSides.top) { st.borderTop = borderSides.top; hasStyle = true; }
@@ -532,6 +562,7 @@ export function fortuneSheetsToUploadedSheets(
       merges,
       cellStyles,
       cellFormulas,
+      cellDisplayValues: Object.keys(cellDisplayValues).length > 0 ? cellDisplayValues : undefined,
       isRawGrid: true,
       showGridLines: fs.showGridLines !== 0 && fs.showGridLines !== false,
       frozenRows,

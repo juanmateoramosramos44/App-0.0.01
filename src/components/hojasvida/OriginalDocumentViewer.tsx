@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { Workbook } from '@fortune-sheet/react';
-import type { Sheet as FortuneSheet } from '@fortune-sheet/core';
+import type { Op, Sheet as FortuneSheet } from '@fortune-sheet/core';
 import '@fortune-sheet/react/dist/index.css';
 import { useMaintenance } from '../../context/MaintenanceContext';
 import {
@@ -28,7 +28,7 @@ import {
   AlertCircle,
   X
 } from 'lucide-react';
-import { UploadedDocument, DocumentFolder } from '../../types';
+import { UploadedDocument, DocumentFolder, UploadedDocumentSheet } from '../../types';
 import {
   openDocumentInComputerExcel,
   rebuildWorkbookBase64FromDocOffThread,
@@ -43,7 +43,7 @@ interface OriginalDocumentViewerProps {
   documents: UploadedDocument[];
   activeDocId?: string;
   onSelectDocument: (docId: string) => void;
-  onUpdateDocument?: (doc: UploadedDocument, options?: { silent?: boolean }) => Promise<void> | void;
+  onUpdateDocument?: (doc: UploadedDocument, options?: { silent?: boolean }) => Promise<boolean | void> | void;
   onMoveDocument?: (docId: string, folderId: string | null) => Promise<void> | void;
   onDeleteDocument: (docId: string) => Promise<void>;
   onClearAllDocuments?: () => Promise<void>;
@@ -94,6 +94,60 @@ const getDocVisualType = (doc: UploadedDocument): 'spreadsheet' | 'pdf' | 'image
   return 'other';
 };
 
+const NON_MUTATING_OP_ROOTS = new Set([
+  'luckysheet_select_save',
+  'luckysheet_selection_range',
+  'scrollLeft',
+  'scrollTop',
+  'zoomRatio',
+  'status',
+  'order',
+  'calcChain',
+  'filter_select'
+]);
+
+const isRealSheetMutationOp = (op: Op): boolean => {
+  if (!op || typeof op !== 'object') return false;
+  if (
+    op.op === 'insertRowCol' ||
+    op.op === 'deleteRowCol' ||
+    op.op === 'addSheet' ||
+    op.op === 'deleteSheet'
+  ) {
+    return true;
+  }
+  const rootKey = op.path && op.path.length > 0 ? String(op.path[0]) : '';
+  if (NON_MUTATING_OP_ROOTS.has(rootKey)) return false;
+  return (
+    rootKey === 'data' ||
+    rootKey === 'celldata' ||
+    rootKey === 'config' ||
+    rootKey === 'name' ||
+    rootKey === 'frozen' ||
+    rootKey === 'showGridLines' ||
+    rootKey === 'hyperlink'
+  );
+};
+
+const computeSheetsContentSignature = (sheets?: UploadedDocumentSheet[]): string => {
+  if (!Array.isArray(sheets) || sheets.length === 0) return '[]';
+  try {
+    return JSON.stringify(
+      sheets.map((s) => ({
+        n: s.name,
+        r: s.rows,
+        f: s.cellFormulas || null,
+        st: s.cellStyles || null,
+        m: s.merges || null,
+        cw: s.colWidths || null,
+        rh: s.rowHeights || null
+      }))
+    );
+  } catch {
+    return String(Date.now());
+  }
+};
+
 export const OriginalDocumentViewer: React.FC<OriginalDocumentViewerProps> = ({
   documents,
   activeDocId,
@@ -115,7 +169,7 @@ export const OriginalDocumentViewer: React.FC<OriginalDocumentViewerProps> = ({
   onSelectFolder,
   canDeleteRecords = true
 }) => {
-  const { notify, dbSyncStatus } = useMaintenance();
+  const { notify } = useMaintenance();
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
 
   // Folder modals
@@ -132,8 +186,9 @@ export const OriginalDocumentViewer: React.FC<OriginalDocumentViewerProps> = ({
   // Drag & Drop state on viewer
   const [isDraggingFiles, setIsDraggingFiles] = useState(false);
 
-  // Optimistic / off-thread autosave state for FortuneSheet
+  // Optimistic / off-thread autosave state for FortuneSheet (explícito en false al abrir)
   const [draftDoc, setDraftDoc] = useState<UploadedDocument | null>(null);
+  const [isSaving, setIsSaving] = useState<boolean>(false);
   const [localSaveState, setLocalSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [workbookSessionKey, setWorkbookSessionKey] = useState<string>('');
   const [workbookSeedSheets, setWorkbookSeedSheets] = useState<FortuneSheet[]>([]);
@@ -144,8 +199,9 @@ export const OriginalDocumentViewer: React.FC<OriginalDocumentViewerProps> = ({
   const savedResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const saveSeqRef = useRef<number>(0);
   const isDirtyRef = useRef<boolean>(false);
+  const hasUserEditedDocRef = useRef<boolean>(false);
   const lastSavedStampRef = useRef<string>('');
-  const ignoreInitialOnChangeRef = useRef<boolean>(true);
+  const lastSyncedSignatureRef = useRef<string>('');
 
   // Fast folder lookup & recursive tree helpers (infinite nesting depth)
   const folderMap = useMemo(() => {
@@ -250,6 +306,7 @@ export const OriginalDocumentViewer: React.FC<OriginalDocumentViewerProps> = ({
   const persistDocSnapshotToDb = useCallback(async (docSnapshot: UploadedDocument) => {
     if (!onUpdateDocument) return;
     const seq = ++saveSeqRef.current;
+    setIsSaving(true);
     setLocalSaveState('saving');
     try {
       const isSpreadsheet = getDocVisualType(docSnapshot) === 'spreadsheet';
@@ -266,23 +323,32 @@ export const OriginalDocumentViewer: React.FC<OriginalDocumentViewerProps> = ({
         updatedAt: updatedStamp
       };
       lastSavedStampRef.current = `${docToSave.id}:${updatedStamp}`;
-      await onUpdateDocument(docToSave, { silent: true });
+      const updateOutcome = await onUpdateDocument(docToSave, { silent: true });
+      const confirmedOk = updateOutcome !== false;
 
       if (saveSeqRef.current === seq) {
-        isDirtyRef.current = false;
-        latestDocRef.current = docToSave;
-        setDraftDoc(prev => (prev && prev.id === docToSave.id ? docToSave : prev));
-        setLocalSaveState('saved');
-        if (savedResetTimerRef.current) clearTimeout(savedResetTimerRef.current);
-        savedResetTimerRef.current = setTimeout(() => {
-          if (saveSeqRef.current === seq) {
-            setLocalSaveState('idle');
-          }
-        }, 3200);
+        setIsSaving(false);
+        if (confirmedOk) {
+          isDirtyRef.current = false;
+          hasUserEditedDocRef.current = false;
+          lastSyncedSignatureRef.current = computeSheetsContentSignature(docToSave.sheets);
+          latestDocRef.current = docToSave;
+          setDraftDoc(prev => (prev && prev.id === docToSave.id ? docToSave : prev));
+          setLocalSaveState('saved');
+          if (savedResetTimerRef.current) clearTimeout(savedResetTimerRef.current);
+          savedResetTimerRef.current = setTimeout(() => {
+            if (saveSeqRef.current === seq) {
+              setLocalSaveState('idle');
+            }
+          }, 3000);
+        } else {
+          setLocalSaveState('error');
+        }
       }
     } catch (err) {
       console.error('Error en autoguardado de hoja:', err);
       if (saveSeqRef.current === seq) {
+        setIsSaving(false);
         setLocalSaveState('error');
       }
     }
@@ -317,11 +383,14 @@ export const OriginalDocumentViewer: React.FC<OriginalDocumentViewerProps> = ({
         autosaveTimerRef.current = null;
       }
       isDirtyRef.current = false;
+      hasUserEditedDocRef.current = false;
+      lastSyncedSignatureRef.current = '';
       latestDocRef.current = null;
       latestFortuneSheetsRef.current = null;
       setDraftDoc(null);
       setWorkbookSessionKey('');
       setWorkbookSeedSheets([]);
+      setIsSaving(false);
       setLocalSaveState('idle');
       return;
     }
@@ -339,14 +408,16 @@ export const OriginalDocumentViewer: React.FC<OriginalDocumentViewerProps> = ({
         void persistDocSnapshotToDb(latestDocRef.current);
       }
       isDirtyRef.current = false;
+      hasUserEditedDocRef.current = false;
+      lastSyncedSignatureRef.current = computeSheetsContentSignature(storeDoc.sheets);
       latestDocRef.current = storeDoc;
       setDraftDoc(storeDoc);
+      setIsSaving(false);
       setLocalSaveState('idle');
 
       if (getDocVisualType(storeDoc) === 'spreadsheet') {
         const converted = uploadedDocToFortuneSheets(storeDoc);
         latestFortuneSheetsRef.current = converted;
-        ignoreInitialOnChangeRef.current = true;
         setWorkbookSeedSheets(converted);
         setWorkbookSessionKey(`${storeDoc.id}-${Date.now()}`);
       } else {
@@ -363,12 +434,13 @@ export const OriginalDocumentViewer: React.FC<OriginalDocumentViewerProps> = ({
     if (!isFromSelfSave && !isDirtyRef.current && storeDoc !== latestDocRef.current) {
       const prevStamp = `${latestDocRef.current?.id}:${latestDocRef.current?.updatedAt || latestDocRef.current?.uploadDate}`;
       if (incomingStamp !== prevStamp) {
+        hasUserEditedDocRef.current = false;
+        lastSyncedSignatureRef.current = computeSheetsContentSignature(storeDoc.sheets);
         latestDocRef.current = storeDoc;
         setDraftDoc(storeDoc);
         if (getDocVisualType(storeDoc) === 'spreadsheet') {
           const converted = uploadedDocToFortuneSheets(storeDoc);
           latestFortuneSheetsRef.current = converted;
-          ignoreInitialOnChangeRef.current = true;
           setWorkbookSeedSheets(converted);
           setWorkbookSessionKey(`${storeDoc.id}-remote-${Date.now()}`);
         }
@@ -400,20 +472,30 @@ export const OriginalDocumentViewer: React.FC<OriginalDocumentViewerProps> = ({
     };
   }, [previewBlobUrl]);
 
+  // Filtrar operaciones reales de edición del usuario (ignora montaje inicial, resize, foco y selección)
+  const handleFortuneSheetOp = useCallback((ops: Op[]) => {
+    if (Array.isArray(ops) && ops.some(isRealSheetMutationOp)) {
+      hasUserEditedDocRef.current = true;
+    }
+  }, []);
+
   // FortuneSheet live onChange: 0ms Optimistic UI + 450ms off-thread Web Worker PostgreSQL autosave
   const handleFortuneSheetChange = useCallback((nextSheets: FortuneSheet[]) => {
     if (!latestDocRef.current || !Array.isArray(nextSheets) || nextSheets.length === 0) return;
 
-    // Ignore FortuneSheet's immediate initialization mount callback unless real cell data changed
-    if (ignoreInitialOnChangeRef.current) {
-      ignoreInitialOnChangeRef.current = false;
-      latestFortuneSheetsRef.current = nextSheets;
+    latestFortuneSheetsRef.current = nextSheets;
+
+    // Si FortuneSheet disparó onChange sin una operación real de edición del usuario, ignorar completamente
+    if (!hasUserEditedDocRef.current) {
       return;
     }
 
-    latestFortuneSheetsRef.current = nextSheets;
     const baseDoc = latestDocRef.current;
     const mappedSheets = fortuneSheetsToUploadedSheets(nextSheets, baseDoc.sheets);
+    const nextSig = computeSheetsContentSignature(mappedSheets);
+    if (nextSig === lastSyncedSignatureRef.current) {
+      return;
+    }
 
     const optimisticDoc: UploadedDocument = {
       ...baseDoc,
@@ -427,6 +509,7 @@ export const OriginalDocumentViewer: React.FC<OriginalDocumentViewerProps> = ({
     latestDocRef.current = optimisticDoc;
     isDirtyRef.current = true;
     setDraftDoc(optimisticDoc);
+    setIsSaving(true);
     setLocalSaveState('saving');
 
     if (autosaveTimerRef.current) {
@@ -444,11 +527,16 @@ export const OriginalDocumentViewer: React.FC<OriginalDocumentViewerProps> = ({
     try {
       let targetDoc = doc;
       if (latestDocRef.current && latestDocRef.current.id === doc.id) {
-        const flushed = await flushPendingAutosave();
-        if (flushed) targetDoc = flushed;
-        else if (getDocVisualType(latestDocRef.current) === 'spreadsheet') {
-          const rebuiltBase64 = await rebuildWorkbookBase64FromDocOffThread(latestDocRef.current);
-          targetDoc = { ...latestDocRef.current, rawBase64: rebuiltBase64 };
+        if (isDirtyRef.current) {
+          const flushed = await flushPendingAutosave();
+          if (flushed) targetDoc = flushed;
+          else if (getDocVisualType(latestDocRef.current) === 'spreadsheet') {
+            const rebuiltBase64 = await rebuildWorkbookBase64FromDocOffThread(latestDocRef.current);
+            targetDoc = { ...latestDocRef.current, rawBase64: rebuiltBase64 };
+          }
+        } else if (latestDocRef.current.rawBase64) {
+          // Si el usuario no modificó celdas, descargar el binario original intacto bit a bit
+          targetDoc = latestDocRef.current;
         }
       }
       await openDocumentInComputerExcel(targetDoc);
@@ -476,13 +564,13 @@ export const OriginalDocumentViewer: React.FC<OriginalDocumentViewerProps> = ({
     }
   };
 
-  // Combined discreet save indicator (local serializer + PostgreSQL sync)
+  // Indicador de guardado desacoplado de sincronizaciones globales no relacionadas
   const effectiveSaveStatus: 'idle' | 'saving' | 'saved' | 'error' = useMemo(() => {
-    if (localSaveState === 'saving' || dbSyncStatus === 'saving') return 'saving';
-    if (localSaveState === 'error' || dbSyncStatus === 'error') return 'error';
-    if (localSaveState === 'saved' || dbSyncStatus === 'saved') return 'saved';
+    if (isSaving || localSaveState === 'saving') return 'saving';
+    if (localSaveState === 'error') return 'error';
+    if (localSaveState === 'saved') return 'saved';
     return 'idle';
-  }, [localSaveState, dbSyncStatus]);
+  }, [isSaving, localSaveState]);
 
   const renderDocIcon = (doc: UploadedDocument) => {
     const vType = getDocVisualType(doc);
@@ -1125,6 +1213,7 @@ export const OriginalDocumentViewer: React.FC<OriginalDocumentViewerProps> = ({
                 <Workbook
                   key={workbookSessionKey}
                   data={workbookSeedSheets}
+                  onOp={handleFortuneSheetOp}
                   onChange={handleFortuneSheetChange}
                   showToolbar
                   showFormulaBar

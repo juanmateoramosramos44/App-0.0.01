@@ -131,19 +131,87 @@ function parseMergeString(rangeStr: string): ExcelMergeRange | null {
   };
 }
 
-function extractCellDisplayValue(cell: ExcelJS.Cell): { value: string | number | boolean | null; formula?: string } {
+export function formatUtcDateValue(val: Date): string {
+  const y = val.getUTCFullYear();
+  const m = String(val.getUTCMonth() + 1).padStart(2, '0');
+  const d = String(val.getUTCDate()).padStart(2, '0');
+  const hh = val.getUTCHours();
+  const mm = val.getUTCMinutes();
+  const ss = val.getUTCSeconds();
+  const datePart = `${y}-${m}-${d}`;
+  if (hh === 0 && mm === 0 && ss === 0) return datePart;
+  const timePart = ss > 0
+    ? `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}:${String(ss).padStart(2, '0')}`
+    : `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
+  if (y <= 1900 && (datePart === '1899-12-30' || datePart === '1899-12-31')) {
+    return timePart;
+  }
+  return `${datePart} ${timePart}`;
+}
+
+export function isExcelDateNumFmt(numFmt?: string): boolean {
+  if (!numFmt || typeof numFmt !== 'string') return false;
+  const cleaned = numFmt
+    .replace(/\[[^\]]*\]/g, '')
+    .replace(/"[^"]*"/g, '')
+    .replace(/\\./g, '');
+  return /[yd]/i.test(cleaned) && !/[#0]/.test(cleaned);
+}
+
+function formatUtcDateWithNumFmt(val: Date, numFmt?: string): string {
+  const y = val.getUTCFullYear();
+  const yy = String(y).slice(-2);
+  const m = String(val.getUTCMonth() + 1).padStart(2, '0');
+  const d = String(val.getUTCDate()).padStart(2, '0');
+  if (!numFmt || numFmt === 'General') return `${d}/${m}/${y}`;
+  const lower = numFmt.toLowerCase();
+  if (lower.includes('yyyy-mm-dd')) return `${y}-${m}-${d}`;
+  if (lower.includes('dd/mm/yyyy')) return `${d}/${m}/${y}`;
+  if (lower.includes('dd-mm-yyyy')) return `${d}-${m}-${y}`;
+  if (lower.includes('mm/dd/yyyy')) return `${m}/${d}/${y}`;
+  if (lower.includes('d/m/yy') || lower.includes('dd/mm/yy')) return `${d}/${m}/${yy}`;
+  if (lower.includes('d-m-yy') || lower.includes('dd-mm-yy')) return `${d}-${m}-${yy}`;
+  return formatUtcDateValue(val);
+}
+
+function parseIsoDateToUtcDate(rawVal: string): Date | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2})(?::(\d{2}))?)?$/.exec(rawVal.trim());
+  if (!m) return null;
+  const y = Number(m[1]);
+  const mo = Number(m[2]) - 1;
+  const d = Number(m[3]);
+  const hh = m[4] ? Number(m[4]) : 0;
+  const mm = m[5] ? Number(m[5]) : 0;
+  const ss = m[6] ? Number(m[6]) : 0;
+  const dt = new Date(Date.UTC(y, mo, d, hh, mm, ss));
+  return isNaN(dt.getTime()) ? null : dt;
+}
+
+function extractCellDisplayValue(cell: ExcelJS.Cell): {
+  value: string | number | boolean | null;
+  displayText?: string;
+  formula?: string;
+} {
   const val: any = cell.value;
   if (val === null || val === undefined) return { value: '' };
 
-  if (typeof val === 'string' || typeof val === 'number' || typeof val === 'boolean') {
+  if (typeof val === 'number') {
+    const rawText = typeof cell.text === 'string' ? cell.text.trim() : '';
+    const displayText =
+      rawText && rawText !== String(val) && !/\[object/i.test(rawText) ? rawText : undefined;
+    return { value: val, displayText };
+  }
+
+  if (typeof val === 'string' || typeof val === 'boolean') {
     return { value: val };
   }
 
   if (val instanceof Date) {
-    const y = val.getFullYear();
-    const m = String(val.getMonth() + 1).padStart(2, '0');
-    const d = String(val.getDate()).padStart(2, '0');
-    return { value: `${y}-${m}-${d}` };
+    const utcValue = formatUtcDateValue(val);
+    const numFmtStr = typeof cell.numFmt === 'string' ? cell.numFmt : '';
+    const displayText =
+      numFmtStr && numFmtStr !== 'General' ? formatUtcDateWithNumFmt(val, numFmtStr) : undefined;
+    return { value: utcValue, displayText };
   }
 
   if (typeof val === 'object') {
@@ -153,17 +221,29 @@ function extractCellDisplayValue(cell: ExcelJS.Cell): { value: string | number |
     if (typeof val.formula === 'string' || typeof val.sharedFormula === 'string') {
       const res = val.result;
       let display: string | number | boolean | null = '';
+      let displayText: string | undefined;
       if (res instanceof Date) {
-        display = res.toISOString().split('T')[0];
+        display = formatUtcDateValue(res);
+        const numFmtStr = typeof cell.numFmt === 'string' ? cell.numFmt : '';
+        if (numFmtStr && numFmtStr !== 'General') {
+          displayText = formatUtcDateWithNumFmt(res, numFmtStr);
+        }
       } else if (res && typeof res === 'object' && res.error) {
         display = String(res.error);
       } else if (res !== undefined && res !== null) {
         display = res;
+        if (typeof res === 'number') {
+          const rawText = typeof cell.text === 'string' ? cell.text.trim() : '';
+          if (rawText && rawText !== String(res) && !/\[object/i.test(rawText)) {
+            displayText = rawText;
+          }
+        }
       } else if (cell.text) {
         display = cell.text;
       }
       return {
         value: display,
+        displayText,
         formula: val.formula ? `=${val.formula}` : undefined
       };
     }
@@ -214,16 +294,44 @@ export async function parseExcelFileToUploadedDocument(
   let workingBuffer: ArrayBuffer = buffer;
   let rawBase64 = '';
 
-  // For legacy .xls or .csv files, upgrade cleanly to .xlsx binary via SheetJS -> ExcelJS
+  // For legacy .xls or .csv files, upgrade cleanly to .xlsx binary via SheetJS -> ExcelJS preserving types & numFmt
   if (ext === 'xls' || ext === 'csv') {
     const XLSX = await import('xlsx');
-    const wbLegacy = XLSX.read(buffer, { type: 'array', cellStyles: true });
+    const wbLegacy = XLSX.read(buffer, { type: 'array', cellDates: false, cellNF: true, cellStyles: true, raw: true });
     const convertedWb = new ExcelJS.Workbook();
+    const excelEpochMs = Date.UTC(1899, 11, 30);
     for (const sName of wbLegacy.SheetNames) {
       const wsLegacy = wbLegacy.Sheets[sName];
-      const aoa: any[][] = XLSX.utils.sheet_to_json(wsLegacy, { header: 1, defval: '' });
       const wsNew = convertedWb.addWorksheet((sName || 'Hoja').substring(0, 31));
-      aoa.forEach(row => wsNew.addRow(row));
+      const refStr = wsLegacy?.['!ref'];
+      if (refStr) {
+        const range = XLSX.utils.decode_range(refStr);
+        for (let r = range.s.r; r <= range.e.r; r++) {
+          const excelRow = wsNew.getRow(r + 1);
+          for (let c = range.s.c; c <= range.e.c; c++) {
+            const addr = XLSX.utils.encode_cell({ r, c });
+            const wsCell = wsLegacy[addr];
+            if (!wsCell) continue;
+            const targetCell = excelRow.getCell(c + 1);
+            const zFmt = typeof wsCell.z === 'string' && wsCell.z !== 'General' ? wsCell.z : undefined;
+            if (wsCell.t === 'n' && typeof wsCell.v === 'number' && zFmt && isExcelDateNumFmt(zFmt)) {
+              targetCell.value = new Date(excelEpochMs + Math.round(wsCell.v * 86400000));
+            } else if (wsCell.f) {
+              targetCell.value = { formula: String(wsCell.f), result: wsCell.v ?? undefined };
+            } else {
+              targetCell.value = wsCell.v ?? wsCell.w ?? '';
+            }
+            if (zFmt) targetCell.numFmt = zFmt;
+          }
+        }
+        if (Array.isArray(wsLegacy['!merges'])) {
+          for (const m of wsLegacy['!merges']) {
+            try {
+              wsNew.mergeCells(m.s.r + 1, m.s.c + 1, m.e.r + 1, m.e.c + 1);
+            } catch {}
+          }
+        }
+      }
     }
     const xlsxOut = await convertedWb.xlsx.writeBuffer();
     workingBuffer = xlsxOut as ArrayBuffer;
@@ -302,6 +410,7 @@ export async function parseExcelFileToUploadedDocument(
     const rowHeights: Record<number, number> = {};
     const cellStyles: Record<string, CellStyleInfo> = {};
     const cellFormulas: Record<string, string> = {};
+    const cellDisplayValues: Record<string, string> = {};
 
     for (let r = 1; r <= finalRowCount; r++) {
       const excelRow = ws.getRow(r);
@@ -319,6 +428,9 @@ export async function parseExcelFileToUploadedDocument(
         rowArr.push(extracted.value);
         if (extracted.formula) {
           cellFormulas[`${rIdx}-${cIdx}`] = extracted.formula;
+        }
+        if (extracted.displayText) {
+          cellDisplayValues[`${rIdx}-${cIdx}`] = extracted.displayText;
         }
 
         const styleInfo: CellStyleInfo = {};
@@ -405,6 +517,7 @@ export async function parseExcelFileToUploadedDocument(
       merges: parsedMerges,
       cellStyles,
       cellFormulas,
+      cellDisplayValues: Object.keys(cellDisplayValues).length > 0 ? cellDisplayValues : undefined,
       isRawGrid: true,
       showGridLines: firstView.showGridLines !== false,
       frozenRows: typeof firstView.ySplit === 'number' ? firstView.ySplit : 0,
@@ -562,31 +675,62 @@ export async function rebuildWorkbookBase64FromDoc(doc: UploadedDocument): Promi
 
       const numCols = Math.max(rowArr.length, sheet.headers?.length || 0);
       for (let cIdx = 0; cIdx < numCols; cIdx++) {
+        const coord = `${rIdx}-${cIdx}`;
         const cell = excelRow.getCell(cIdx + 1);
-        const formula = sheet.cellFormulas?.[`${rIdx}-${cIdx}`];
+        const formula = sheet.cellFormulas?.[coord];
         const rawVal = rowArr[cIdx];
+        const st = sheet.cellStyles?.[coord];
+        const targetNumFmt = st?.numFmt || '';
 
-        if (formula && formula.startsWith('=')) {
-          cell.value = { formula: formula.slice(1), result: rawVal ?? undefined };
-        } else {
-          // Preserve numeric type if pure finite number string and not leading-zero code
-          if (typeof rawVal === 'number') {
+        const existingExtracted = loadedFromRaw ? extractCellDisplayValue(cell) : null;
+        const existingFormula = existingExtracted?.formula || '';
+        const targetFormula = formula || '';
+        const existingValStr =
+          existingExtracted && existingExtracted.value !== null && existingExtracted.value !== undefined
+            ? String(existingExtracted.value)
+            : '';
+        const targetValStr = rawVal === null || rawVal === undefined ? '' : String(rawVal);
+        const existingNumFmt = cell.numFmt && cell.numFmt !== 'General' ? String(cell.numFmt) : '';
+        const isCellValueUnchanged =
+          loadedFromRaw &&
+          existingValStr === targetValStr &&
+          existingFormula === targetFormula &&
+          existingNumFmt === targetNumFmt;
+
+        if (!isCellValueUnchanged) {
+          if (formula && formula.startsWith('=')) {
+            cell.value = { formula: formula.slice(1), result: rawVal ?? undefined };
+          } else if (typeof rawVal === 'number') {
             cell.value = rawVal;
-          } else if (
-            typeof rawVal === 'string' &&
-            rawVal.trim() !== '' &&
-            !/^0\d+/.test(rawVal.trim()) &&
-            !isNaN(Number(rawVal)) &&
-            isFinite(Number(rawVal))
-          ) {
-            cell.value = Number(rawVal);
+          } else if (typeof rawVal === 'string') {
+            const trimmed = rawVal.trim();
+            const parsedUtcDate =
+              (isExcelDateNumFmt(targetNumFmt) || cell.value instanceof Date)
+                ? parseIsoDateToUtcDate(trimmed)
+                : null;
+            if (parsedUtcDate) {
+              cell.value = parsedUtcDate;
+            } else if (
+              trimmed !== '' &&
+              !/^0\d+/.test(trimmed) &&
+              /^-?(0|[1-9]\d*)(\.\d+)?$/.test(trimmed) &&
+              // Avoid turning Spanish thousands like "1.250" into 1.25 when numFmt is missing or uses '.' grouping
+              !(/^\d{1,3}(\.\d{3})+$/.test(trimmed) && targetNumFmt.includes(',')) &&
+              isFinite(Number(trimmed))
+            ) {
+              cell.value = Number(trimmed);
+            } else {
+              cell.value = rawVal;
+            }
           } else {
             cell.value = rawVal ?? '';
           }
         }
 
-        const st = sheet.cellStyles?.[`${rIdx}-${cIdx}`];
         if (st) {
+          if (st.numFmt && cell.numFmt !== st.numFmt) {
+            cell.numFmt = st.numFmt;
+          }
           if (st.bgColor) {
             cell.fill = {
               type: 'pattern',

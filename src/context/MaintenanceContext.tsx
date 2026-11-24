@@ -323,7 +323,7 @@ interface MaintenanceContextType {
   // Uploaded Documents
   uploadedDocuments: UploadedDocument[];
   addUploadedDocument: (doc: Omit<UploadedDocument, 'id'>, options?: { silent?: boolean }) => Promise<UploadedDocument>;
-  updateUploadedDocument: (doc: UploadedDocument, options?: { silent?: boolean }) => Promise<void>;
+  updateUploadedDocument: (doc: UploadedDocument, options?: { silent?: boolean }) => Promise<boolean>;
   moveUploadedDocument: (docId: string, folderId: string | null) => Promise<void>;
   deleteUploadedDocument: (id: string) => Promise<void>;
   clearAllUploadedDocuments: () => Promise<void>;
@@ -3377,22 +3377,31 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
   }, [roundTemplate]);
 
   const saveRoundTemplateToCloud = async (items: RoundCheckpoint[]) => {
+    beginDbSave();
     try {
       const sanitized = items.map(sanitizeCheckpointTemplate);
       roundTemplateRef.current = sanitized;
       localStorage.setItem('hotel_round_template', JSON.stringify(sanitized));
       localActionIds.current.add('round_template');
       setTimeout(() => { localActionIds.current.delete('round_template'); }, 15000);
-      await fetch('/api/app-data/round_template', {
+      const res = await fetch('/api/app-data/round_template', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'X-Client-Id': clientSessionId.current
         },
         body: JSON.stringify({ items: sanitized, updatedAt: new Date().toISOString() })
-      }).catch(() => {});
+      });
+      if (res.ok) {
+        endDbSave(true);
+      } else {
+        hasPendingLocalChanges.current = true;
+        endDbSave(false);
+      }
     } catch (e) {
       console.error('Error saving round template to cloud:', e);
+      hasPendingLocalChanges.current = true;
+      endDbSave(false);
     }
   };
 
@@ -3445,19 +3454,21 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
     try {
       const existingStr = localStorage.getItem(STORAGE_KEYS.PENDING_OFFLINE_ROUNDS);
       const list: DailyRound[] = existingStr ? JSON.parse(existingStr) : [];
-      const updated = [round, ...list.filter(r => r.id !== round.id)];
-      localStorage.setItem(STORAGE_KEYS.PENDING_OFFLINE_ROUNDS, JSON.stringify(updated));
-    } catch (e) {}
+      const updated = [round, ...list.filter(r => r && r.id !== round.id)];
+      safeSetItem(STORAGE_KEYS.PENDING_OFFLINE_ROUNDS, JSON.stringify(updated));
+      idbSet(STORAGE_KEYS.PENDING_OFFLINE_ROUNDS, updated).catch(() => {});
+    } catch (e) {
+      idbSet(STORAGE_KEYS.PENDING_OFFLINE_ROUNDS, [round]).catch(() => {});
+    }
   }, []);
 
   const removePendingOfflineRound = useCallback((roundId: string) => {
     try {
       const existingStr = localStorage.getItem(STORAGE_KEYS.PENDING_OFFLINE_ROUNDS);
-      if (existingStr) {
-        const list: DailyRound[] = JSON.parse(existingStr);
-        const updated = list.filter(r => r && r.id !== roundId);
-        localStorage.setItem(STORAGE_KEYS.PENDING_OFFLINE_ROUNDS, JSON.stringify(updated));
-      }
+      const list: DailyRound[] = existingStr ? JSON.parse(existingStr) : [];
+      const updated = (Array.isArray(list) ? list : []).filter(r => r && r.id !== roundId);
+      safeSetItem(STORAGE_KEYS.PENDING_OFFLINE_ROUNDS, JSON.stringify(updated));
+      idbSet(STORAGE_KEYS.PENDING_OFFLINE_ROUNDS, updated).catch(() => {});
     } catch (e) {}
   }, []);
 
@@ -3465,8 +3476,16 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
     try {
       const deletedIds = getDeletedRoundIds();
       const existingStr = localStorage.getItem(STORAGE_KEYS.PENDING_OFFLINE_ROUNDS);
-      const rawList: DailyRound[] = existingStr ? JSON.parse(existingStr) : [];
-      const list = (Array.isArray(rawList) ? rawList : []).filter(r => r && r.id && !deletedIds.has(r.id));
+      const lsList: DailyRound[] = existingStr ? JSON.parse(existingStr) : [];
+      const idbListRaw = await idbGet<DailyRound[]>(STORAGE_KEYS.PENDING_OFFLINE_ROUNDS).catch(() => []);
+      const idbList: DailyRound[] = Array.isArray(idbListRaw) ? idbListRaw : [];
+      const mergedQueueMap = new Map<string, DailyRound>();
+      for (const item of [...idbList, ...(Array.isArray(lsList) ? lsList : [])]) {
+        if (item && item.id && !deletedIds.has(item.id)) {
+          mergedQueueMap.set(item.id, item);
+        }
+      }
+      const list: DailyRound[] = Array.from(mergedQueueMap.values());
 
       // Si existe una ronda activa en curso aún no completada, incluirla para sincronización
       if (
@@ -3475,7 +3494,7 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
         !completedRoundIdsRef.current.has(activeRoundRef.current.id) &&
         activeRoundRef.current.status !== 'completada' &&
         !deletedIds.has(activeRoundRef.current.id) &&
-        !list.some(r => r.id === activeRoundRef.current?.id)
+        !mergedQueueMap.has(activeRoundRef.current.id)
       ) {
         list.push(activeRoundRef.current);
       }
@@ -3501,7 +3520,7 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
         try {
           const isCompletedRound = round.status === 'completada' || Boolean(round.completedAt && round.technicianSignature);
           const preparedRound = isCompletedRound
-            ? await compressRoundPhotos(round, { maxDimension: 840, quality: 0.68, maxBytes: 135 * 1024 })
+            ? await compressRoundPhotos(round, { maxDimension: 800, quality: 0.65, maxBytes: 120 * 1024 })
             : round;
 
           const targetEndpoint = isCompletedRound ? '/api/rounds/atomic' : '/api/rounds';
@@ -3514,8 +3533,29 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
             body: JSON.stringify(preparedRound)
           });
           if (res.ok) {
-            removePendingOfflineRound(round.id);
-            markRoundSynced(round.id);
+            let okConfirmed = true;
+            let serverRound: DailyRound | undefined;
+            if (isCompletedRound) {
+              try {
+                const payload = await res.json();
+                okConfirmed = Boolean(payload && payload.status === 'ok' && payload.success);
+                if (payload?.round) serverRound = payload.round;
+              } catch {
+                okConfirmed = false;
+              }
+            }
+            if (okConfirmed) {
+              removePendingOfflineRound(round.id);
+              markRoundSynced(round.id);
+              setIsCloudSynced(true);
+              if (serverRound) {
+                const nextList = mergeRoundLists([serverRound], roundsRef.current || [], getDeletedRoundIds());
+                roundsRef.current = nextList;
+                setRounds(nextList);
+                safeSetItem(STORAGE_KEYS.ROUNDS, JSON.stringify(nextList));
+                idbSet(STORAGE_KEYS.ROUNDS, nextList).catch(() => {});
+              }
+            }
           } else if (res.status === 410) {
             markDeletedRoundId(round.id);
             removePendingOfflineRound(round.id);
@@ -7336,6 +7376,7 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
       return updatedRounds;
     });
 
+    beginDbSave();
     try {
       const res = await fetch(`/api/incidents/${id}`, {
         method: 'PUT',
@@ -7356,8 +7397,10 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
         }).catch(() => {});
       }
       if (!res.ok) throw new Error('Incident PUT failed');
+      endDbSave(true);
     } catch {
       hasPendingLocalChanges.current = true;
+      endDbSave(false);
       persistToServer();
     }
   };
@@ -7554,6 +7597,7 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
     const target = updated.find(s => s.id === id);
     if (target) {
       roundsChannel.current?.postMessage({ type: 'schedule_updated', schedule: target });
+      beginDbSave();
       try {
         const res = await fetch('/api/schedules', {
           method: 'POST',
@@ -7564,8 +7608,10 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
           body: JSON.stringify(target)
         });
         if (!res.ok) throw new Error('Schedule update failed');
+        endDbSave(true);
       } catch {
         hasPendingLocalChanges.current = true;
+        endDbSave(false);
         persistToServer();
       }
     }
@@ -7841,6 +7887,7 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
     const target = updated.find(c => c.id === id);
     if (target) {
       roundsChannel.current?.postMessage({ type: 'cronograma_updated', cronograma: target });
+      beginDbSave();
       try {
         const res = await fetch(`/api/cronogramas/${id}`, {
           method: 'PUT',
@@ -7851,8 +7898,10 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
           body: JSON.stringify(target)
         });
         if (!res.ok) throw new Error('Cronograma PUT failed');
+        endDbSave(true);
       } catch {
         hasPendingLocalChanges.current = true;
+        endDbSave(false);
         persistToServer();
       }
     }
@@ -7958,6 +8007,7 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
     const target = updated.find(m => m.id === id);
     if (target) {
       roundsChannel.current?.postMessage({ type: 'meter_updated', meter: target });
+      beginDbSave();
       try {
         const res = await fetch('/api/meters', {
           method: 'POST',
@@ -7965,8 +8015,10 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
           body: JSON.stringify(target)
         });
         if (!res.ok) throw new Error('Meter update failed');
+        endDbSave(true);
       } catch {
         hasPendingLocalChanges.current = true;
+        endDbSave(false);
         persistToServer();
       }
     }
@@ -8222,6 +8274,7 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
       roundsChannel.current?.postMessage({ type: 'bitacora_updated', entry: updatedEntry });
     } catch {}
 
+    beginDbSave();
     try {
       const res = await fetch(`/api/bitacora/${id}`, {
         method: 'PUT',
@@ -8232,13 +8285,15 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
         body: JSON.stringify(updatedEntry)
       });
       if (res.ok) {
-        setIsCloudSynced(true);
+        endDbSave(true);
       } else {
         hasPendingLocalChanges.current = true;
+        endDbSave(false);
       }
     } catch (e) {
       console.warn('Error updating bitacora entry in PostgreSQL:', e);
       hasPendingLocalChanges.current = true;
+      endDbSave(false);
     }
 
     notify('✅ Registro de Bitácora actualizado');
@@ -8321,6 +8376,7 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
       });
     }
 
+    beginDbSave();
     try {
       const res = await fetch(`/api/requests/${id}`, {
         method: 'PUT',
@@ -8331,8 +8387,10 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
         body: JSON.stringify(updatedReq || { ...data, updatedAt: updatedTimestamp })
       });
       if (!res.ok) throw new Error('Request PUT failed');
+      endDbSave(true);
     } catch {
       hasPendingLocalChanges.current = true;
+      endDbSave(false);
       persistToServer();
     }
   };
@@ -8462,6 +8520,7 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
     let taskSavedOnServer = false;
     if (updatedTask) {
       roundsChannel.current?.postMessage({ type: 'task_updated', task: updatedTask });
+      beginDbSave();
       try {
         const res = await fetch('/api/tasks', {
           method: 'POST',
@@ -8472,7 +8531,10 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
           body: JSON.stringify(updatedTask)
         });
         taskSavedOnServer = res.ok;
-      } catch {}
+        endDbSave(res.ok);
+      } catch {
+        endDbSave(false);
+      }
     }
 
     // Notificaciones Push al sistema operativo aunque la aplicación esté cerrada o minimizada
@@ -8635,6 +8697,7 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
     notify('Equipo actualizado correctamente');
 
     const target = updated.find(e => e.id === id);
+    beginDbSave();
     try {
       const res = await fetch(`/api/equipments/${id}`, {
         method: 'PUT',
@@ -8645,8 +8708,10 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
         body: JSON.stringify(target || data)
       });
       if (!res.ok) throw new Error('Equipment PUT failed');
+      endDbSave(true);
     } catch {
       hasPendingLocalChanges.current = true;
+      endDbSave(false);
       persistToServer();
     }
   };
@@ -8811,7 +8876,7 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
   const updateUploadedDocument = async (
     updatedDoc: UploadedDocument,
     options?: { silent?: boolean }
-  ) => {
+  ): Promise<boolean> => {
     markCollectionMutation('uploadedDocuments');
     const prevTs = new Date(updatedDoc.updatedAt || 0).getTime() || 0;
     const stampedDoc: UploadedDocument = {
@@ -8827,6 +8892,7 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
       safeSetItem(STORAGE_KEYS.DOCUMENTS, JSON.stringify(updated.map(d => ({ ...d, rawBase64: undefined }))));
     }
 
+    let ok = false;
     beginDbSave();
     try {
       const res = await fetch('/api/uploaded-documents', {
@@ -8838,6 +8904,7 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
         body: JSON.stringify(stampedDoc)
       });
       if (res.ok) {
+        ok = true;
         endDbSave(true);
       } else {
         hasPendingLocalChanges.current = true;
@@ -8848,8 +8915,9 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
       endDbSave(false);
     }
     if (options?.silent === false) {
-      notify('Documento actualizado en PostgreSQL');
+      notify(ok ? 'Documento actualizado en PostgreSQL' : '⚠️ No se pudo confirmar el guardado del documento en PostgreSQL');
     }
+    return ok;
   };
 
   const moveUploadedDocument = async (docId: string, folderId: string | null) => {
@@ -10184,7 +10252,7 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
       return undefined;
     }
 
-    // Cancelar sincronizaciones parciales previas y bloquear paquetes 'en_progreso' durante el envío atómico
+    // Cancelar sincronizaciones parciales previas y bloquear paquetes 'en_progreso' durante el cierre optimista
     if (syncActiveRoundTimeoutRef.current) {
       clearTimeout(syncActiveRoundTimeoutRef.current);
       syncActiveRoundTimeoutRef.current = null;
@@ -10198,269 +10266,300 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
       setRoundsDebounceTimer.current = null;
     }
 
-    completingAtomicRoundIdsRef.current.add(currentActive.id);
+    onProgress?.('Cerrando ronda y asegurando copia local...');
+
+    const autoAnomalies: RoundAnomaly[] = [];
+    const sanitizedCheckpoints = currentActive.checkpoints.map(chk => {
+      const parsedCurrentVal = typeof chk.currentValue === 'string' && chk.currentValue.trim() !== '' && !isNaN(Number(chk.currentValue))
+        ? Number(chk.currentValue)
+        : chk.currentValue;
+
+      const alarmCheck = isCheckpointAlarmActive(chk, roundTemplate);
+      const chkAction = chk.statusValue ? getCheckpointButtonAction(chk, chk.statusValue, roundTemplate) : 'default';
+      const isChkOff = chkAction === 'turn_off';
+      const isAlarm = (val: any, min?: number, max?: number, fieldObj?: any, fIdx?: number) => {
+        if (isChkOff) return false;
+        if (fieldObj) {
+          const fAct = fieldObj.statusValue ? getFieldButtonAction(fieldObj, fieldObj.statusValue, chk, roundTemplate, fIdx ?? 0) : 'default';
+          if (fAct === 'turn_off') return false;
+        }
+        const v = String(val ?? '').toLowerCase();
+        if (!v || v === '' || v === 'apagado') return false;
+
+        const isTextAlarm = (v.includes('alarma') && !v.includes('sin alarma') && !v.includes('no alarma')) || v.includes('falla') || v.includes('crítico') || v.includes('critico') || v === 'no ok' || v === 'false';
+        if (isTextAlarm) return true;
+
+        const num = typeof val === 'number' ? val : parseFloat(v.replace(',', '.'));
+        if (!isNaN(num) && (min !== undefined || max !== undefined)) {
+          if (min !== undefined && num < min) return true;
+          if (max !== undefined && num > max) return true;
+        }
+        return false;
+      };
+
+      let chkHasAlarm = alarmCheck.isAlarm || (!isChkOff && (chkAction === 'failure' || isAlarm(chk.statusValue, chk.minValue, chk.maxValue) || isAlarm(chk.currentValue, chk.minValue, chk.maxValue)));
+
+      const tplItem = findTemplateCheckpoint(chk, currentTpl);
+      const resolvedButtonActions = (chk.buttonActions && Object.keys(chk.buttonActions).length > 0)
+        ? chk.buttonActions
+        : tplItem?.buttonActions;
+
+      const mappedFields = chk.measurementFields?.map((f, fIdx) => {
+        const fieldAction = f.statusValue ? getFieldButtonAction(f, f.statusValue, chk, roundTemplate, fIdx) : 'default';
+        const isFieldOff = fieldAction === 'turn_off';
+        if (!isFieldOff && (fieldAction === 'failure' || isAlarm(f.statusValue, f.minValue, f.maxValue, f, fIdx) || isAlarm(f.value, f.minValue, f.maxValue, f, fIdx))) {
+          chkHasAlarm = true;
+        }
+
+        const tplField = tplItem?.measurementFields?.[fIdx];
+        const resolvedFieldButtonActions = (f.buttonActions && Object.keys(f.buttonActions).length > 0)
+          ? f.buttonActions
+          : tplField?.buttonActions;
+
+        const fieldPhotos = mergeUniquePhotos(f.photos, f.photoUrl ? [f.photoUrl] : []);
+
+        return {
+          ...f,
+          buttonActions: resolvedFieldButtonActions,
+          value: typeof f.value === 'string' && f.value.trim() !== '' && !isNaN(Number(f.value))
+            ? Number(f.value)
+            : f.value,
+          photoUrl: f.photoUrl || fieldPhotos[fieldPhotos.length - 1],
+          photos: fieldPhotos.length > 0 ? fieldPhotos : undefined
+        };
+      });
+
+      if (chkHasAlarm) {
+        const isAlreadyReported = (currentActive.anomalies || []).some(a =>
+          (a.title && (a.title.includes(chk.title) || chk.title.includes(a.title))) ||
+          (a.area && chk.area && String(a.area).toLowerCase() === String(chk.area).toLowerCase() && String(a.title || '').toLowerCase().includes('alarma'))
+        );
+
+        if (!isAlreadyReported) {
+          const timestamp = getLocalDateTimeString();
+          const autoId = `inc-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
+          autoAnomalies.push({
+            id: autoId,
+            area: chk.area || 'General',
+            title: `Alarma en: ${chk.title}`,
+            description: alarmCheck.reason
+              ? `${alarmCheck.reason}.\nNotas: ${chk.notes || 'Sin comentarios adicionales.'}`
+              : `Equipo detectado en estado de alarma o falla durante la ronda.\nNotas: ${chk.notes || 'Sin comentarios adicionales.'}`,
+            severity: chk.isCritical ? 'urgente' : 'alta',
+            status: 'pendiente',
+            registeredBy: signature || currentActive.technicianName,
+            timestamp
+          });
+        }
+      }
+
+      const chkPhotos = mergeUniquePhotos(chk.photos, chk.photoUrl ? [chk.photoUrl] : []);
+
+      return {
+        ...chk,
+        photoRequired: chk.photoRequired ?? tplItem?.photoRequired,
+        buttonActions: resolvedButtonActions,
+        currentValue: parsedCurrentVal,
+        measurementFields: mappedFields,
+        photoUrl: chk.photoUrl || chkPhotos[chkPhotos.length - 1],
+        photos: chkPhotos.length > 0 ? chkPhotos : undefined,
+        isAlarmActive: chkHasAlarm,
+        alarmReason: alarmCheck.reason || (chkHasAlarm ? 'Equipo detectado en estado de alarma o falla durante la ronda.' : undefined)
+      };
+    });
+
+    const finalAnomalies = [...(currentActive.anomalies || []), ...autoAnomalies].map(a => {
+      const anomPhotos = mergeUniquePhotos(a.photos, a.photoUrl ? [a.photoUrl] : []);
+      return {
+        ...a,
+        photoUrl: a.photoUrl || anomPhotos[anomPhotos.length - 1],
+        photos: anomPhotos.length > 0 ? anomPhotos : undefined
+      };
+    });
+
+    const resolvedClosingTechName = (signature && signature.trim()) ? signature.trim() : currentActive.technicianName;
+    const optimisticCompleted: DailyRound = {
+      ...currentActive,
+      technicianName: resolvedClosingTechName,
+      checkpoints: sanitizedCheckpoints,
+      status: 'completada',
+      anomalies: finalAnomalies,
+      anomaliesCount: finalAnomalies.length,
+      meterReadings: {
+        ...currentActive.meterReadings,
+        ...readings
+      },
+      generalNotes: notes,
+      technicianSignature: signature,
+      compliancePercentage: 100,
+      completedAt: currentActive.completedAt || new Date().toISOString(),
+      lastUpdated: new Date().toISOString()
+    };
+
+    // 2. OPTIMISTIC UI (0ms): Cerrar la ronda al instante en UI, respaldar en IndexedDB + Cola Offline y sincronizar en segundo plano
+    markCollectionMutation('rounds');
+    completedRoundIdsRef.current.add(optimisticCompleted.id);
+    unmarkDeletedRoundId(optimisticCompleted.id);
+    trackLocalCreation(optimisticCompleted.id);
+    localActionIds.current.add(optimisticCompleted.id);
+    syncedRoundChunksRef.current.delete(optimisticCompleted.id);
+    markRoundUnsynced(optimisticCompleted.id);
+    queuePendingOfflineRound(optimisticCompleted);
+    completingAtomicRoundIdsRef.current.add(optimisticCompleted.id);
+
+    const updatedLocalList = mergeRoundLists([optimisticCompleted], roundsRef.current || [], getDeletedRoundIds());
+    roundsRef.current = updatedLocalList;
+    setRounds(updatedLocalList);
+    safeSetItem(STORAGE_KEYS.ROUNDS, JSON.stringify(updatedLocalList));
+    idbSet(STORAGE_KEYS.ROUNDS, updatedLocalList).catch(() => {});
+
+    activeRoundRef.current = null;
+    setActiveRound(null);
+    localStorage.removeItem(STORAGE_KEYS.ACTIVE_ROUND);
+    localStorage.removeItem('active_round_draft_backup');
+    localStorage.removeItem('active_round_resume_lock');
+    idbRemove(STORAGE_KEYS.ACTIVE_ROUND).catch(() => {});
+
+    finalAnomalies.forEach(anomaly => {
+      reportIncident({
+        id: anomaly.id,
+        timestamp: anomaly.timestamp,
+        title: anomaly.title,
+        description: anomaly.description,
+        area: anomaly.area,
+        severity: anomaly.severity,
+        status: anomaly.status || 'pendiente',
+        registeredBy: anomaly.registeredBy || signature || currentActive.technicianName,
+        equipmentId: anomaly.equipmentId,
+        equipmentTag: anomaly.equipmentTag,
+        photoUrl: anomaly.photoUrl,
+        photos: anomaly.photos
+      });
+    });
+
+    notify('✅ Ronda cerrada al instante. Sincronizando fotos y registros en PostgreSQL...');
 
     try {
-      onProgress?.('Comprimiendo fotografías localmente (<= 135 KB)...');
+      roundsChannel.current?.postMessage({ type: 'round_completed', round: optimisticCompleted });
+    } catch (e) {}
 
-      const autoAnomalies: RoundAnomaly[] = [];
-      const sanitizedCheckpoints = currentActive.checkpoints.map(chk => {
-        const parsedCurrentVal = typeof chk.currentValue === 'string' && chk.currentValue.trim() !== '' && !isNaN(Number(chk.currentValue))
-          ? Number(chk.currentValue)
-          : chk.currentValue;
-
-        const alarmCheck = isCheckpointAlarmActive(chk, roundTemplate);
-        const chkAction = chk.statusValue ? getCheckpointButtonAction(chk, chk.statusValue, roundTemplate) : 'default';
-        const isChkOff = chkAction === 'turn_off';
-        const isAlarm = (val: any, min?: number, max?: number, fieldObj?: any, fIdx?: number) => {
-          if (isChkOff) return false;
-          if (fieldObj) {
-            const fAct = fieldObj.statusValue ? getFieldButtonAction(fieldObj, fieldObj.statusValue, chk, roundTemplate, fIdx ?? 0) : 'default';
-            if (fAct === 'turn_off') return false;
-          }
-          const v = String(val ?? '').toLowerCase();
-          if (!v || v === '' || v === 'apagado') return false;
-
-          const isTextAlarm = (v.includes('alarma') && !v.includes('sin alarma') && !v.includes('no alarma')) || v.includes('falla') || v.includes('crítico') || v.includes('critico') || v === 'no ok' || v === 'false';
-          if (isTextAlarm) return true;
-
-          const num = typeof val === 'number' ? val : parseFloat(v.replace(',', '.'));
-          if (!isNaN(num) && (min !== undefined || max !== undefined)) {
-            if (min !== undefined && num < min) return true;
-            if (max !== undefined && num > max) return true;
-          }
-          return false;
-        };
-
-        let chkHasAlarm = alarmCheck.isAlarm || (!isChkOff && (chkAction === 'failure' || isAlarm(chk.statusValue, chk.minValue, chk.maxValue) || isAlarm(chk.currentValue, chk.minValue, chk.maxValue)));
-
-        const tplItem = findTemplateCheckpoint(chk, currentTpl);
-        const resolvedButtonActions = (chk.buttonActions && Object.keys(chk.buttonActions).length > 0)
-          ? chk.buttonActions
-          : tplItem?.buttonActions;
-
-        const mappedFields = chk.measurementFields?.map((f, fIdx) => {
-          const fieldAction = f.statusValue ? getFieldButtonAction(f, f.statusValue, chk, roundTemplate, fIdx) : 'default';
-          const isFieldOff = fieldAction === 'turn_off';
-          if (!isFieldOff && (fieldAction === 'failure' || isAlarm(f.statusValue, f.minValue, f.maxValue, f, fIdx) || isAlarm(f.value, f.minValue, f.maxValue, f, fIdx))) {
-            chkHasAlarm = true;
-          }
-
-          const tplField = tplItem?.measurementFields?.[fIdx];
-          const resolvedFieldButtonActions = (f.buttonActions && Object.keys(f.buttonActions).length > 0)
-            ? f.buttonActions
-            : tplField?.buttonActions;
-
-          const fieldPhotos = mergeUniquePhotos(f.photos, f.photoUrl ? [f.photoUrl] : []);
-
-          return {
-            ...f,
-            buttonActions: resolvedFieldButtonActions,
-            value: typeof f.value === 'string' && f.value.trim() !== '' && !isNaN(Number(f.value))
-              ? Number(f.value)
-              : f.value,
-            photoUrl: f.photoUrl || fieldPhotos[fieldPhotos.length - 1],
-            photos: fieldPhotos.length > 0 ? fieldPhotos : undefined
-          };
+    // 3. BACKGROUND SYNC WORKER: Compresión secuencial ligera (RAM estable) + envío atómico con reintentos
+    void (async () => {
+      beginDbSave();
+      try {
+        const compressedRound = await compressRoundPhotos(optimisticCompleted, {
+          maxDimension: 800,
+          quality: 0.65,
+          maxBytes: 120 * 1024
         });
 
-        if (chkHasAlarm) {
-          const isAlreadyReported = (currentActive.anomalies || []).some(a =>
-            (a.title && (a.title.includes(chk.title) || chk.title.includes(a.title))) ||
-            (a.area && chk.area && String(a.area).toLowerCase() === String(chk.area).toLowerCase() && String(a.title || '').toLowerCase().includes('alarma'))
-          );
+        // Actualizar copia local + cola pendiente con versión comprimida ligera
+        queuePendingOfflineRound(compressedRound);
+        const compressedList = mergeRoundLists([compressedRound], roundsRef.current || [], getDeletedRoundIds());
+        roundsRef.current = compressedList;
+        setRounds(compressedList);
+        safeSetItem(STORAGE_KEYS.ROUNDS, JSON.stringify(compressedList));
+        idbSet(STORAGE_KEYS.ROUNDS, compressedList).catch(() => {});
 
-          if (!isAlreadyReported) {
-            const timestamp = getLocalDateTimeString();
-            const autoId = `inc-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
-            autoAnomalies.push({
-              id: autoId,
-              area: chk.area || 'General',
-              title: `Alarma en: ${chk.title}`,
-              description: alarmCheck.reason
-                ? `${alarmCheck.reason}.\nNotas: ${chk.notes || 'Sin comentarios adicionales.'}`
-                : `Equipo detectado en estado de alarma o falla durante la ronda.\nNotas: ${chk.notes || 'Sin comentarios adicionales.'}`,
-              severity: chk.isCritical ? 'urgente' : 'alta',
-              status: 'pendiente',
-              registeredBy: signature || currentActive.technicianName,
-              timestamp
+        const retryDelays = [1500, 3500];
+        let authoritativeRound: DailyRound | null = null;
+        let savedCheckpointsCount = compressedRound.checkpoints.length;
+
+        for (let attempt = 0; attempt <= retryDelays.length; attempt++) {
+          if (getDeletedRoundIds().has(compressedRound.id)) {
+            removePendingOfflineRound(compressedRound.id);
+            endDbSave(true);
+            return;
+          }
+
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 45000);
+          try {
+            const response = await fetch('/api/rounds/atomic', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'X-Client-Id': clientSessionId.current
+              },
+              body: JSON.stringify(compressedRound),
+              signal: controller.signal
             });
+            clearTimeout(timeoutId);
+
+            let resPayload: any = null;
+            try {
+              resPayload = await response.json();
+            } catch {
+              resPayload = null;
+            }
+
+            if (response.ok && resPayload && resPayload.status === 'ok' && resPayload.success) {
+              authoritativeRound = resPayload.round
+                ? (mergeRoundLists([compressedRound], [resPayload.round], getDeletedRoundIds())[0] || resPayload.round)
+                : compressedRound;
+              savedCheckpointsCount = resPayload.savedCheckpointsCount || compressedRound.checkpoints.length;
+              break;
+            }
+          } catch {
+            clearTimeout(timeoutId);
+          }
+
+          if (attempt < retryDelays.length) {
+            await new Promise(r => setTimeout(r, retryDelays[attempt]));
           }
         }
 
-        const chkPhotos = mergeUniquePhotos(chk.photos, chk.photoUrl ? [chk.photoUrl] : []);
+        if (!authoritativeRound) {
+          hasPendingLocalChanges.current = true;
+          endDbSave(false);
+          notify('📶 Señal débil: tu ronda quedó cerrada y respaldada localmente; se sincronizará automáticamente al reconectar.');
+          return;
+        }
 
-        return {
-          ...chk,
-          photoRequired: chk.photoRequired ?? tplItem?.photoRequired,
-          buttonActions: resolvedButtonActions,
-          currentValue: parsedCurrentVal,
-          measurementFields: mappedFields,
-          photoUrl: chk.photoUrl || chkPhotos[chkPhotos.length - 1],
-          photos: chkPhotos.length > 0 ? chkPhotos : undefined,
-          isAlarmActive: chkHasAlarm,
-          alarmReason: alarmCheck.reason || (chkHasAlarm ? 'Equipo detectado en estado de alarma o falla durante la ronda.' : undefined)
-        };
-      });
+        removePendingOfflineRound(authoritativeRound.id);
+        markRoundSynced(authoritativeRound.id);
+        endDbSave(true);
 
-      const finalAnomalies = [...(currentActive.anomalies || []), ...autoAnomalies].map(a => {
-        const anomPhotos = mergeUniquePhotos(a.photos, a.photoUrl ? [a.photoUrl] : []);
-        return {
-          ...a,
-          photoUrl: a.photoUrl || anomPhotos[anomPhotos.length - 1],
-          photos: anomPhotos.length > 0 ? anomPhotos : undefined
-        };
-      });
+        const syncedList = mergeRoundLists([authoritativeRound], roundsRef.current || [], getDeletedRoundIds());
+        roundsRef.current = syncedList;
+        setRounds(syncedList);
+        safeSetItem(STORAGE_KEYS.ROUNDS, JSON.stringify(syncedList));
+        idbSet(STORAGE_KEYS.ROUNDS, syncedList).catch(() => {});
 
-      const resolvedClosingTechName = (signature && signature.trim()) ? signature.trim() : currentActive.technicianName;
-      const draftCompleted: DailyRound = {
-        ...currentActive,
-        technicianName: resolvedClosingTechName,
-        checkpoints: sanitizedCheckpoints,
-        status: 'completada',
-        anomalies: finalAnomalies,
-        anomaliesCount: finalAnomalies.length,
-        meterReadings: {
-          ...currentActive.meterReadings,
-          ...readings
-        },
-        generalNotes: notes,
-        technicianSignature: signature,
-        compliancePercentage: 100,
-        completedAt: currentActive.completedAt || new Date().toISOString(),
-        lastUpdated: new Date().toISOString()
-      };
+        notify('✅ Ronda guardada y confirmada en PostgreSQL');
 
-      // 2. COMPRESIÓN EXTREMA EN CLIENTE: todas las imágenes pasan a <= 135KB antes de enviar el paquete único
-      const completed = await compressRoundPhotos(draftCompleted, {
-        maxDimension: 840,
-        quality: 0.68,
-        maxBytes: 135 * 1024
-      });
+        const compShift = authoritativeRound.shift === 'manana' ? 'Turno Mañana' : authoritativeRound.shift === 'tarde' ? 'Turno Tarde' : 'Turno Noche';
+        const anomaliesCount = authoritativeRound.anomaliesCount || (authoritativeRound.anomalies ? authoritativeRound.anomalies.length : 0);
 
-      // Respaldar localmente la versión ya comprimida ANTES de enviar para que un corte de red nunca pierda datos
-      const backupDraft: DailyRound = {
-        ...currentActive,
-        checkpoints: completed.checkpoints,
-        meterReadings: completed.meterReadings,
-        anomalies: completed.anomalies,
-        anomaliesCount: completed.anomaliesCount,
-        generalNotes: notes,
-        technicianSignature: signature,
-        compliancePercentage: 100,
-        lastUpdated: new Date().toISOString()
-      };
-      activeRoundRef.current = backupDraft;
-      setActiveRound(backupDraft);
-      safeSetItem(STORAGE_KEYS.ACTIVE_ROUND, JSON.stringify(backupDraft));
-      safeSetItem('active_round_draft_backup', JSON.stringify(backupDraft));
-      idbSet(STORAGE_KEYS.ACTIVE_ROUND, backupDraft).catch(() => {});
-
-      onProgress?.(`Enviando ${completed.checkpoints.length} puntos y fotos en un paquete único a PostgreSQL...`);
-
-      // 3. UNA SOLA PETICIÓN ATÓMICA (POST /api/rounds/atomic) — cero bucles punto-por-punto
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 45000);
-      let response: Response;
-      try {
-        response = await fetch('/api/rounds/atomic', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-Client-Id': clientSessionId.current
-          },
-          body: JSON.stringify(completed),
-          signal: controller.signal
+        sendSystemNotification('📋 ✅ Ronda Guardada en Base de Datos', {
+          body: `Ronda finalizada por ${signature || currentActive.technicianName}.\n• Turno: ${compShift}\n• Puntos confirmados: ${savedCheckpointsCount}/${authoritativeRound.checkpoints.length}`,
+          tag: `round-saved-${authoritativeRound.id}`,
+          icon: '/pwa-192x192.png'
         });
+        broadcastServerPushNotification({
+          category: 'rondas',
+          title: '📋 ✅ Ronda Técnica Guardada',
+          body: `Ronda finalizada por ${signature || currentActive.technicianName} (${compShift})\n• Cumplimiento: 100%\n• Anomalías detectadas: ${anomaliesCount}`,
+          url: '/?tab=rondas',
+          tag: `round-completed-${authoritativeRound.id}`,
+          excludeUserId: currentUser?.id,
+          excludeEmail: currentUser?.email
+        });
+        playAlertSound();
+
+        try {
+          roundsChannel.current?.postMessage({ type: 'round_completed', round: authoritativeRound });
+        } catch (e) {}
+      } catch (bgErr) {
+        console.warn('Error en sincronización de ronda en segundo plano:', bgErr);
+        hasPendingLocalChanges.current = true;
+        endDbSave(false);
       } finally {
-        clearTimeout(timeoutId);
+        completingAtomicRoundIdsRef.current.delete(optimisticCompleted.id);
       }
+    })();
 
-      let resPayload: any = null;
-      try {
-        resPayload = await response.json();
-      } catch {
-        resPayload = null;
-      }
-
-      if (!response.ok || !resPayload || resPayload.status !== 'ok' || !resPayload.success) {
-        const errMsg = resPayload?.error || `Error del servidor (${response.status}). No se guardaron datos parciales.`;
-        throw new Error(errMsg);
-      }
-
-      // 4. GARANTÍA VISUAL STRICT HTTP 200: SOLO tras confirmación real de PostgreSQL cerramos la vista activa
-      const authoritativeRound: DailyRound = resPayload.round
-        ? (mergeRoundLists([completed], [resPayload.round], getDeletedRoundIds())[0] || resPayload.round)
-        : completed;
-
-      markCollectionMutation('rounds');
-      completedRoundIdsRef.current.add(authoritativeRound.id);
-      unmarkDeletedRoundId(authoritativeRound.id);
-      trackLocalCreation(authoritativeRound.id);
-      syncedRoundChunksRef.current.delete(authoritativeRound.id);
-      removePendingOfflineRound(authoritativeRound.id);
-      markRoundSynced(authoritativeRound.id);
-      setIsCloudSynced(true);
-
-      finalAnomalies.forEach(anomaly => {
-        reportIncident({
-          id: anomaly.id,
-          timestamp: anomaly.timestamp,
-          title: anomaly.title,
-          description: anomaly.description,
-          area: anomaly.area,
-          severity: anomaly.severity,
-          status: anomaly.status || 'pendiente',
-          registeredBy: anomaly.registeredBy || signature || currentActive.technicianName,
-          equipmentId: anomaly.equipmentId,
-          equipmentTag: anomaly.equipmentTag,
-          photoUrl: anomaly.photoUrl,
-          photos: anomaly.photos
-        });
-      });
-
-      const updatedLocalList = mergeRoundLists([authoritativeRound], roundsRef.current || [], getDeletedRoundIds());
-      roundsRef.current = updatedLocalList;
-      setRounds(updatedLocalList);
-      safeSetItem(STORAGE_KEYS.ROUNDS, JSON.stringify(updatedLocalList));
-      idbSet(STORAGE_KEYS.ROUNDS, updatedLocalList).catch(() => {});
-
-      activeRoundRef.current = null;
-      setActiveRound(null);
-      localStorage.removeItem(STORAGE_KEYS.ACTIVE_ROUND);
-      localStorage.removeItem('active_round_draft_backup');
-      localStorage.removeItem('active_round_resume_lock');
-      idbRemove(STORAGE_KEYS.ACTIVE_ROUND).catch(() => {});
-
-      notify('✅ Ronda guardada exitosamente en la base de datos');
-
-      const compShift = authoritativeRound.shift === 'manana' ? 'Turno Mañana' : authoritativeRound.shift === 'tarde' ? 'Turno Tarde' : 'Turno Noche';
-      const anomaliesCount = authoritativeRound.anomaliesCount || (authoritativeRound.anomalies ? authoritativeRound.anomalies.length : 0);
-
-      sendSystemNotification('📋 ✅ Ronda Guardada en Base de Datos', {
-        body: `Ronda finalizada por ${signature || currentActive.technicianName}.\n• Turno: ${compShift}\n• Puntos confirmados: ${resPayload.savedCheckpointsCount || authoritativeRound.checkpoints.length}/${authoritativeRound.checkpoints.length}`,
-        tag: `round-saved-${authoritativeRound.id}`,
-        icon: '/pwa-192x192.png'
-      });
-      broadcastServerPushNotification({
-        category: 'rondas',
-        title: '📋 ✅ Ronda Técnica Guardada',
-        body: `Ronda finalizada por ${signature || currentActive.technicianName} (${compShift})\n• Cumplimiento: 100%\n• Anomalías detectadas: ${anomaliesCount}`,
-        url: '/?tab=rondas',
-        tag: `round-completed-${authoritativeRound.id}`,
-        excludeUserId: currentUser?.id,
-        excludeEmail: currentUser?.email
-      });
-      playAlertSound();
-
-      try {
-        roundsChannel.current?.postMessage({ type: 'round_completed', round: authoritativeRound });
-      } catch (e) {}
-
-      return authoritativeRound;
-    } finally {
-      completingAtomicRoundIdsRef.current.delete(currentActive.id);
-    }
+    return optimisticCompleted;
   };
 
   const cancelActiveRound = async () => {
@@ -10667,11 +10766,21 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
   };
 
   const updateRound = async (roundId: string, data: Partial<DailyRound>) => {
-    const nowIso = new Date().toISOString();
+    markCollectionMutation('rounds');
+    trackLocalCreation(roundId);
+    localActionIds.current.add(roundId);
+    setTimeout(() => { localActionIds.current.delete(roundId); }, 15000);
+
+    const prevRound = (roundsRef.current || []).find(r => r.id === roundId);
+    const prevTs = new Date(prevRound?.lastUpdated || prevRound?.completedAt || 0).getTime() || 0;
+    const nowIso = new Date(Math.max(Date.now(), prevTs + 1)).toISOString();
+
     const updatedRounds = (roundsRef.current || []).map(r => r.id === roundId ? { ...r, ...data, lastUpdated: nowIso } : r);
+    const updatedTarget = updatedRounds.find(r => r.id === roundId);
     roundsRef.current = updatedRounds;
     setRounds(updatedRounds);
     safeSetItem(STORAGE_KEYS.ROUNDS, JSON.stringify(updatedRounds));
+    idbSet(STORAGE_KEYS.ROUNDS, updatedRounds).catch(() => {});
 
     if (activeRoundRef.current && activeRoundRef.current.id === roundId) {
       const updatedActive = { ...activeRoundRef.current, ...data, lastUpdated: nowIso };
@@ -10679,10 +10788,16 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
       setActiveRound(updatedActive);
       safeSetItem(STORAGE_KEYS.ACTIVE_ROUND, JSON.stringify(updatedActive));
       safeSetItem('active_round_draft_backup', JSON.stringify(updatedActive));
+      idbSet(STORAGE_KEYS.ACTIVE_ROUND, updatedActive).catch(() => {});
     }
 
-    notify('Ronda actualizada correctamente');
+    if (updatedTarget) {
+      try {
+        roundsChannel.current?.postMessage({ type: 'round_updated', round: updatedTarget });
+      } catch {}
+    }
 
+    beginDbSave();
     try {
       const res = await fetch(`/api/rounds/${roundId}`, {
         method: 'PUT',
@@ -10690,13 +10805,29 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
           'Content-Type': 'application/json',
           'X-Client-Id': clientSessionId.current
         },
-        body: JSON.stringify({ ...data, lastUpdated: nowIso })
+        body: JSON.stringify(updatedTarget ? { ...updatedTarget, ...data, lastUpdated: nowIso } : { ...data, lastUpdated: nowIso })
       });
-      if (res.ok) setIsCloudSynced(true);
+      if (!res.ok) {
+        throw new Error(`Round PUT failed (${res.status})`);
+      }
+      try {
+        const resData = await res.json();
+        if (resData?.round) {
+          const mergedAfterPut = mergeRoundLists([resData.round], roundsRef.current || [], getDeletedRoundIds());
+          roundsRef.current = mergedAfterPut;
+          setRounds(mergedAfterPut);
+          safeSetItem(STORAGE_KEYS.ROUNDS, JSON.stringify(mergedAfterPut));
+          idbSet(STORAGE_KEYS.ROUNDS, mergedAfterPut).catch(() => {});
+        }
+      } catch {}
+      endDbSave(true);
+      notify('✅ Ronda actualizada y guardada en PostgreSQL');
     } catch (e) {
       console.warn('Error updating round in PostgreSQL:', e);
       hasPendingLocalChanges.current = true;
+      endDbSave(false);
       persistToServer();
+      notify('⚠️ Cambio guardado localmente; reintentando sincronización con PostgreSQL...');
     }
   };
 
@@ -10776,6 +10907,7 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
     notify('Plan preventivo modificado');
 
     const updatedPlan = updatedPlans.find(p => p.id === id);
+    beginDbSave();
     try {
       const res = await fetch(`/api/preventive-plans/${id}`, {
         method: 'PUT',
@@ -10785,10 +10917,12 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
         },
         body: JSON.stringify(updatedPlan || data)
       });
-      if (res.ok) setIsCloudSynced(true);
+      if (!res.ok) throw new Error('PreventivePlan PUT failed');
+      endDbSave(true);
     } catch (e) {
       console.warn('Error updating plan in PostgreSQL:', e);
       hasPendingLocalChanges.current = true;
+      endDbSave(false);
       persistToServer();
     }
   };
@@ -10878,10 +11012,12 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
 
     notify('Orden de trabajo preventiva completada con éxito');
 
+    beginDbSave();
     try {
       const updatedOrder = updatedOrders.find(o => o.id === orderId);
+      let allOk = true;
       if (updatedOrder) {
-        await fetch(`/api/work-orders/${orderId}`, {
+        const woRes = await fetch(`/api/work-orders/${orderId}`, {
           method: 'PUT',
           headers: {
             'Content-Type': 'application/json',
@@ -10889,9 +11025,10 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
           },
           body: JSON.stringify(updatedOrder)
         });
+        if (!woRes.ok) allOk = false;
       }
       if (updatedEqId) {
-        await fetch(`/api/equipments/${updatedEqId}`, {
+        const eqRes = await fetch(`/api/equipments/${updatedEqId}`, {
           method: 'PUT',
           headers: {
             'Content-Type': 'application/json',
@@ -10902,11 +11039,14 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
             nextPreventiveDate: nextDateStr
           })
         });
+        if (!eqRes.ok) allOk = false;
       }
-      setIsCloudSynced(true);
+      if (!allOk) throw new Error('WorkOrder/Equipment PUT failed');
+      endDbSave(true);
     } catch (e) {
       console.warn('Error updating work order in PostgreSQL:', e);
       hasPendingLocalChanges.current = true;
+      endDbSave(false);
       persistToServer();
     }
   };

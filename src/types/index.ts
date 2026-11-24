@@ -417,6 +417,7 @@ export interface UploadedDocumentSheet {
   totalRows?: number;
   cellStyles?: Record<string, CellStyleInfo>; // Key format "rowIdx-colIdx"
   cellFormulas?: Record<string, string>; // Key format "rowIdx-colIdx"
+  cellDisplayValues?: Record<string, string>; // Key format "rowIdx-colIdx" (formatted display text)
   colWidths?: number[]; // Column widths in pixels
   rowHeights?: Record<number, number>; // Row heights in pixels (0-indexed)
   merges?: ExcelMergeRange[];

@@ -872,7 +872,7 @@ export const DailyRoundsView: React.FC = () => {
     const compressedList: string[] = [];
     for (const file of files) {
       try {
-        const compressed = await compressImageFile(file, { maxDimension: 840, quality: 0.68, maxBytes: 135 * 1024 });
+        const compressed = await compressImageFile(file, { maxDimension: 800, quality: 0.65, maxBytes: 120 * 1024 });
         if (compressed) compressedList.push(compressed);
       } catch (err) {
         console.warn('Error comprimiendo foto de incidencia:', err);
@@ -924,14 +924,8 @@ export const DailyRoundsView: React.FC = () => {
       return;
     }
 
-    // Envío atómico único tras comprimir todas las fotos localmente
-    setSubmitErrorMessage(null);
-    setSubmittingStatusText('Comprimiendo fotos localmente (<= 135 KB)...');
-    setIsSubmittingRound(true);
-
     const finalSignature = (signatureName && signatureName.trim()) || activeRound.technicianName || currentUser?.displayName || 'Técnico';
     if (!finalSignature.trim()) {
-      setIsSubmittingRound(false);
       notify('⚠️ Por favor ingresa el nombre del técnico firmante para validar la ronda.');
       const sigEl = document.getElementById('signature-name-input') as HTMLInputElement | null;
       if (sigEl) {
@@ -941,26 +935,18 @@ export const DailyRoundsView: React.FC = () => {
       return;
     }
 
-    try {
-      await completeActiveRound(
-        meterReadings,
-        generalNotes,
-        finalSignature,
-        false,
-        (stage) => setSubmittingStatusText(stage)
-      );
-      setShowOfflineModal(false);
-    } catch (err: any) {
-      console.error('Error guardando ronda atómicamente:', err);
-      const msg = err?.name === 'AbortError'
-        ? 'Tiempo de espera agotado por señal débil. No se guardaron datos parciales; tus registros y fotos siguen 100% intactos.'
-        : (err?.message || 'Sin conexión estable con PostgreSQL. Tus 26 puntos y fotos siguen intactos en el dispositivo.');
-      setSubmitErrorMessage(msg);
-      setShowOfflineModal(true);
-      notify('⚠️ No se pudo confirmar el guardado en PostgreSQL. Tus datos siguen 100% intactos para reintentar.');
-    } finally {
-      setIsSubmittingRound(false);
-    }
+    // Optimistic UI (0ms): cierra la ronda al instante sin esperar red ni bloquear la pantalla;
+    // la compresión secuencial y subida atómica se ejecutan en segundo plano con cola de reintentos.
+    setSubmitErrorMessage(null);
+    setShowOfflineModal(false);
+    setIsSubmittingRound(false);
+
+    await completeActiveRound(
+      meterReadings,
+      generalNotes,
+      finalSignature,
+      false
+    );
   };
 
   const handleAddAnomalySubmit = (e: React.FormEvent) => {
