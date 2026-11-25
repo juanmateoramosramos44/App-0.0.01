@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
-import { Workbook } from '@fortune-sheet/react';
+import { Workbook, type WorkbookInstance } from '@fortune-sheet/react';
 import type { Op, Sheet as FortuneSheet } from '@fortune-sheet/core';
 import '@fortune-sheet/react/dist/index.css';
 import { useMaintenance } from '../../context/MaintenanceContext';
@@ -26,7 +26,8 @@ import {
   Loader2,
   Database,
   AlertCircle,
-  X
+  X,
+  AlignCenter
 } from 'lucide-react';
 import { UploadedDocument, DocumentFolder, UploadedDocumentSheet } from '../../types';
 import {
@@ -43,7 +44,7 @@ interface OriginalDocumentViewerProps {
   documents: UploadedDocument[];
   activeDocId?: string;
   onSelectDocument: (docId: string) => void;
-  onUpdateDocument?: (doc: UploadedDocument, options?: { silent?: boolean }) => Promise<boolean | void> | void;
+  onUpdateDocument?: (doc: UploadedDocument, options?: { silent?: boolean; omitRawBase64?: boolean }) => Promise<boolean | void> | void;
   onMoveDocument?: (docId: string, folderId: string | null) => Promise<void> | void;
   onDeleteDocument: (docId: string) => Promise<void>;
   onClearAllDocuments?: () => Promise<void>;
@@ -138,15 +139,22 @@ const computeSheetsContentSignature = (sheets?: UploadedDocumentSheet[]): string
         r: s.rows,
         f: s.cellFormulas || null,
         st: s.cellStyles || null,
+        dv: s.cellDisplayValues || null,
         m: s.merges || null,
         cw: s.colWidths || null,
-        rh: s.rowHeights || null
+        rh: s.rowHeights || null,
+        gl: s.showGridLines ?? true,
+        fr: s.frozenRows || 0,
+        fc: s.frozenCols || 0
       }))
     );
   } catch {
     return String(Date.now());
   }
 };
+
+const AUTOSAVE_DEBOUNCE_MS = 1200;
+const AUTO_CENTER_STORAGE_KEY = 'hdv_excel_auto_center';
 
 export const OriginalDocumentViewer: React.FC<OriginalDocumentViewerProps> = ({
   documents,
@@ -186,22 +194,46 @@ export const OriginalDocumentViewer: React.FC<OriginalDocumentViewerProps> = ({
   // Drag & Drop state on viewer
   const [isDraggingFiles, setIsDraggingFiles] = useState(false);
 
-  // Optimistic / off-thread autosave state for FortuneSheet (explícito en false al abrir)
+  // Optimistic / debounced autosave state for FortuneSheet (explícito en false al abrir)
   const [draftDoc, setDraftDoc] = useState<UploadedDocument | null>(null);
   const [isSaving, setIsSaving] = useState<boolean>(false);
   const [localSaveState, setLocalSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [workbookSessionKey, setWorkbookSessionKey] = useState<string>('');
   const [workbookSeedSheets, setWorkbookSeedSheets] = useState<FortuneSheet[]>([]);
 
+  // Auto-Centrar texto toggle (persistido por preferencia local)
+  const [autoCenterEnabled, setAutoCenterEnabled] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem(AUTO_CENTER_STORAGE_KEY) === 'true';
+    } catch {
+      return false;
+    }
+  });
+  const autoCenterRef = useRef<boolean>(autoCenterEnabled);
+  autoCenterRef.current = autoCenterEnabled;
+
+  const workbookRef = useRef<WorkbookInstance | null>(null);
   const latestDocRef = useRef<UploadedDocument | null>(null);
   const latestFortuneSheetsRef = useRef<FortuneSheet[] | null>(null);
   const autosaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const savedResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const bgBinarySyncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const saveSeqRef = useRef<number>(0);
   const isDirtyRef = useRef<boolean>(false);
   const hasUserEditedDocRef = useRef<boolean>(false);
   const lastSavedStampRef = useRef<string>('');
   const lastSyncedSignatureRef = useRef<string>('');
+
+  const toggleAutoCenter = useCallback(() => {
+    setAutoCenterEnabled(prev => {
+      const next = !prev;
+      autoCenterRef.current = next;
+      try {
+        localStorage.setItem(AUTO_CENTER_STORAGE_KEY, String(next));
+      } catch {}
+      return next;
+    });
+  }, []);
 
   // Fast folder lookup & recursive tree helpers (infinite nesting depth)
   const folderMap = useMemo(() => {
@@ -302,16 +334,25 @@ export const OriginalDocumentViewer: React.FC<OriginalDocumentViewerProps> = ({
     return currentFolderDocuments[0];
   }, [currentFolderDocuments, activeDocId]);
 
-  // Execute background serialization (Web Worker) + silent PostgreSQL persist
-  const persistDocSnapshotToDb = useCallback(async (docSnapshot: UploadedDocument) => {
+  // Fast asynchronous PostgreSQL persistence (JSON sheets + styles first, silent background binary sync)
+  const persistDocSnapshotToDb = useCallback(async (docSnapshot: UploadedDocument, options?: { syncBinaryNow?: boolean }) => {
     if (!onUpdateDocument) return;
     const seq = ++saveSeqRef.current;
+    if (savedResetTimerRef.current) {
+      clearTimeout(savedResetTimerRef.current);
+      savedResetTimerRef.current = null;
+    }
+    if (bgBinarySyncTimerRef.current) {
+      clearTimeout(bgBinarySyncTimerRef.current);
+      bgBinarySyncTimerRef.current = null;
+    }
     setIsSaving(true);
     setLocalSaveState('saving');
     try {
       const isSpreadsheet = getDocVisualType(docSnapshot) === 'spreadsheet';
+      const syncBinaryNow = Boolean(options?.syncBinaryNow && isSpreadsheet);
       let rebuiltBase64 = docSnapshot.rawBase64 || '';
-      if (isSpreadsheet) {
+      if (syncBinaryNow) {
         rebuiltBase64 = await rebuildWorkbookBase64FromDocOffThread(docSnapshot);
       }
       const approxBytes = rebuiltBase64 ? Math.round((rebuiltBase64.length * 3) / 4) : docSnapshot.sizeBytes;
@@ -319,11 +360,15 @@ export const OriginalDocumentViewer: React.FC<OriginalDocumentViewerProps> = ({
       const docToSave: UploadedDocument = {
         ...docSnapshot,
         rawBase64: rebuiltBase64 || docSnapshot.rawBase64,
+        sheetsModifiedAfterRaw: isSpreadsheet ? !syncBinaryNow : docSnapshot.sheetsModifiedAfterRaw,
         sizeBytes: approxBytes || docSnapshot.sizeBytes,
         updatedAt: updatedStamp
       };
       lastSavedStampRef.current = `${docToSave.id}:${updatedStamp}`;
-      const updateOutcome = await onUpdateDocument(docToSave, { silent: true });
+      const updateOutcome = await onUpdateDocument(docToSave, {
+        silent: true,
+        omitRawBase64: isSpreadsheet && !syncBinaryNow
+      });
       const confirmedOk = updateOutcome !== false;
 
       if (saveSeqRef.current === seq) {
@@ -335,12 +380,36 @@ export const OriginalDocumentViewer: React.FC<OriginalDocumentViewerProps> = ({
           latestDocRef.current = docToSave;
           setDraftDoc(prev => (prev && prev.id === docToSave.id ? docToSave : prev));
           setLocalSaveState('saved');
-          if (savedResetTimerRef.current) clearTimeout(savedResetTimerRef.current);
           savedResetTimerRef.current = setTimeout(() => {
             if (saveSeqRef.current === seq) {
               setLocalSaveState('idle');
             }
-          }, 3000);
+          }, 1600);
+
+          // Silent off-thread .xlsx binary refresh when idle (never flashes "Guardando...")
+          if (isSpreadsheet && !syncBinaryNow) {
+            const targetId = docToSave.id;
+            const targetSig = lastSyncedSignatureRef.current;
+            bgBinarySyncTimerRef.current = setTimeout(() => {
+              void (async () => {
+                if (isDirtyRef.current || latestDocRef.current?.id !== targetId) return;
+                try {
+                  const fullBase64 = await rebuildWorkbookBase64FromDocOffThread(docToSave);
+                  if (!fullBase64 || isDirtyRef.current || latestDocRef.current?.id !== targetId) return;
+                  if (computeSheetsContentSignature(latestDocRef.current?.sheets) !== targetSig) return;
+                  const withBinary: UploadedDocument = {
+                    ...docToSave,
+                    rawBase64: fullBase64,
+                    sheetsModifiedAfterRaw: false,
+                    sizeBytes: Math.round((fullBase64.length * 3) / 4) || docToSave.sizeBytes,
+                    updatedAt: new Date().toISOString()
+                  };
+                  lastSavedStampRef.current = `${withBinary.id}:${withBinary.updatedAt}`;
+                  await onUpdateDocument(withBinary, { silent: true });
+                } catch {}
+              })();
+            }, 2200);
+          }
         } else {
           setLocalSaveState('error');
         }
@@ -354,14 +423,14 @@ export const OriginalDocumentViewer: React.FC<OriginalDocumentViewerProps> = ({
     }
   }, [onUpdateDocument]);
 
-  const flushPendingAutosave = useCallback(async (): Promise<UploadedDocument | null> => {
+  const flushPendingAutosave = useCallback(async (syncBinaryNow = false): Promise<UploadedDocument | null> => {
     if (autosaveTimerRef.current) {
       clearTimeout(autosaveTimerRef.current);
       autosaveTimerRef.current = null;
     }
     const snap = latestDocRef.current;
-    if (snap && isDirtyRef.current && onUpdateDocument) {
-      await persistDocSnapshotToDb(snap);
+    if (snap && (isDirtyRef.current || (syncBinaryNow && snap.sheetsModifiedAfterRaw)) && onUpdateDocument) {
+      await persistDocSnapshotToDb(snap, { syncBinaryNow });
       return latestDocRef.current;
     }
     return snap;
@@ -372,15 +441,20 @@ export const OriginalDocumentViewer: React.FC<OriginalDocumentViewerProps> = ({
     return () => {
       if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
       if (savedResetTimerRef.current) clearTimeout(savedResetTimerRef.current);
+      if (bgBinarySyncTimerRef.current) clearTimeout(bgBinarySyncTimerRef.current);
     };
   }, []);
 
-  // Synchronize storeDoc -> FortuneSheet seed ONLY when switching documents or receiving an external remote update
+  // Synchronize storeDoc -> FortuneSheet seed ONLY when switching documents or receiving a true remote change
   useEffect(() => {
     if (!storeDoc) {
       if (autosaveTimerRef.current) {
         clearTimeout(autosaveTimerRef.current);
         autosaveTimerRef.current = null;
+      }
+      if (bgBinarySyncTimerRef.current) {
+        clearTimeout(bgBinarySyncTimerRef.current);
+        bgBinarySyncTimerRef.current = null;
       }
       isDirtyRef.current = false;
       hasUserEditedDocRef.current = false;
@@ -405,7 +479,7 @@ export const OriginalDocumentViewer: React.FC<OriginalDocumentViewerProps> = ({
           clearTimeout(autosaveTimerRef.current);
           autosaveTimerRef.current = null;
         }
-        void persistDocSnapshotToDb(latestDocRef.current);
+        void persistDocSnapshotToDb(latestDocRef.current, { syncBinaryNow: true });
       }
       isDirtyRef.current = false;
       hasUserEditedDocRef.current = false;
@@ -428,14 +502,23 @@ export const OriginalDocumentViewer: React.FC<OriginalDocumentViewerProps> = ({
       return;
     }
 
-    // Same document updated externally from another device via SSE while user is NOT actively typing locally
+    // Same document updated in store: NEVER remount Workbook if content signature matches our own synced state
+    const incomingSig = computeSheetsContentSignature(storeDoc.sheets);
+    if (incomingSig === lastSyncedSignatureRef.current) {
+      if (!isDirtyRef.current && storeDoc !== latestDocRef.current) {
+        latestDocRef.current = storeDoc;
+        setDraftDoc(storeDoc);
+      }
+      return;
+    }
+
     const incomingStamp = `${storeDoc.id}:${storeDoc.updatedAt || storeDoc.uploadDate}`;
     const isFromSelfSave = incomingStamp === lastSavedStampRef.current;
     if (!isFromSelfSave && !isDirtyRef.current && storeDoc !== latestDocRef.current) {
       const prevStamp = `${latestDocRef.current?.id}:${latestDocRef.current?.updatedAt || latestDocRef.current?.uploadDate}`;
       if (incomingStamp !== prevStamp) {
         hasUserEditedDocRef.current = false;
-        lastSyncedSignatureRef.current = computeSheetsContentSignature(storeDoc.sheets);
+        lastSyncedSignatureRef.current = incomingSig;
         latestDocRef.current = storeDoc;
         setDraftDoc(storeDoc);
         if (getDocVisualType(storeDoc) === 'spreadsheet') {
@@ -472,14 +555,89 @@ export const OriginalDocumentViewer: React.FC<OriginalDocumentViewerProps> = ({
     };
   }, [previewBlobUrl]);
 
-  // Filtrar operaciones reales de edición del usuario (ignora montaje inicial, resize, foco y selección)
-  const handleFortuneSheetOp = useCallback((ops: Op[]) => {
-    if (Array.isArray(ops) && ops.some(isRealSheetMutationOp)) {
-      hasUserEditedDocRef.current = true;
+  // Auto-centrado automático al escribir o pegar texto nuevo cuando el interruptor está activo
+  const applyAutoCenterToCoords = useCallback((coords: Array<{ r: number; c: number }>) => {
+    if (!autoCenterRef.current || !workbookRef.current || coords.length === 0) return;
+    queueMicrotask(() => {
+      const wb = workbookRef.current;
+      if (!wb || !autoCenterRef.current) return;
+      const seen = new Set<string>();
+      for (const { r, c } of coords) {
+        if (isNaN(r) || isNaN(c) || r < 0 || c < 0) continue;
+        const key = `${r}-${c}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        try {
+          const val = wb.getCellValue(r, c, { type: 'v' });
+          const mVal = wb.getCellValue(r, c, { type: 'm' });
+          const fVal = wb.getCellValue(r, c, { type: 'f' });
+          const hasText =
+            (val !== undefined && val !== null && val !== '') ||
+            (mVal !== undefined && mVal !== null && mVal !== '') ||
+            Boolean(fVal);
+          if (!hasText) continue;
+          const currentHt = wb.getCellValue(r, c, { type: 'ht' });
+          if (currentHt !== 0 && String(currentHt) !== '0') {
+            hasUserEditedDocRef.current = true;
+            wb.setCellFormat(r, c, 'ht', '0');
+          }
+        } catch {}
+      }
+    });
+  }, []);
+
+  const handleAfterUpdateCell = useCallback((row: number, column: number, _oldValue: any, newValue: any) => {
+    hasUserEditedDocRef.current = true;
+    if (!autoCenterRef.current || !workbookRef.current) return;
+    const hasText =
+      newValue !== null &&
+      newValue !== undefined &&
+      ((typeof newValue === 'object' &&
+        ((newValue.v !== undefined && newValue.v !== null && newValue.v !== '') ||
+          (newValue.m !== undefined && newValue.m !== null && newValue.m !== '') ||
+          Boolean(newValue.f))) ||
+        (typeof newValue !== 'object' && String(newValue) !== ''));
+    if (!hasText) return;
+    const htVal = typeof newValue === 'object' ? newValue?.ht : undefined;
+    if (htVal !== 0 && String(htVal) !== '0') {
+      try {
+        workbookRef.current.setCellFormat(row, column, 'ht', '0');
+      } catch {}
     }
   }, []);
 
-  // FortuneSheet live onChange: 0ms Optimistic UI + 450ms off-thread Web Worker PostgreSQL autosave
+  const workbookHooks = useMemo(
+    () => ({ afterUpdateCell: handleAfterUpdateCell }),
+    [handleAfterUpdateCell]
+  );
+
+  // Filtrar operaciones reales de edición del usuario (ignora montaje inicial, resize, foco y selección)
+  const handleFortuneSheetOp = useCallback((ops: Op[]) => {
+    if (!Array.isArray(ops) || ops.length === 0) return;
+    if (ops.some(isRealSheetMutationOp)) {
+      hasUserEditedDocRef.current = true;
+    }
+    if (!autoCenterRef.current) return;
+
+    const coordsToCenter: Array<{ r: number; c: number }> = [];
+    for (const op of ops) {
+      if (!op || !Array.isArray(op.path) || op.path[0] !== 'data' || op.path.length < 3) continue;
+      // Solo disparar en escritura de celda o valor/texto (nunca sobre cambios manuales de ht/vt)
+      const subKey = op.path.length > 3 ? String(op.path[3]) : '';
+      if (op.path.length === 3 || subKey === 'v' || subKey === 'm' || subKey === 'ct') {
+        const r = Number(op.path[1]);
+        const c = Number(op.path[2]);
+        if (!isNaN(r) && !isNaN(c)) {
+          coordsToCenter.push({ r, c });
+        }
+      }
+    }
+    if (coordsToCenter.length > 0) {
+      applyAutoCenterToCoords(coordsToCenter);
+    }
+  }, [applyAutoCenterToCoords]);
+
+  // FortuneSheet live onChange: 0ms Optimistic UI + 1200ms debounce -> async background PostgreSQL save
   const handleFortuneSheetChange = useCallback((nextSheets: FortuneSheet[]) => {
     if (!latestDocRef.current || !Array.isArray(nextSheets) || nextSheets.length === 0) return;
 
@@ -502,6 +660,7 @@ export const OriginalDocumentViewer: React.FC<OriginalDocumentViewerProps> = ({
       sheets: mappedSheets,
       totalRows: mappedSheets.reduce((acc, s) => acc + (s.rows?.length || 0), 0),
       totalColumns: Math.max(...mappedSheets.map(s => s.headers?.length || 0), 1),
+      sheetsModifiedAfterRaw: true,
       updatedAt: new Date().toISOString()
     };
 
@@ -509,8 +668,11 @@ export const OriginalDocumentViewer: React.FC<OriginalDocumentViewerProps> = ({
     latestDocRef.current = optimisticDoc;
     isDirtyRef.current = true;
     setDraftDoc(optimisticDoc);
-    setIsSaving(true);
-    setLocalSaveState('saving');
+    if (savedResetTimerRef.current) {
+      clearTimeout(savedResetTimerRef.current);
+      savedResetTimerRef.current = null;
+    }
+    setLocalSaveState(prev => (prev === 'saved' || prev === 'error' ? 'idle' : prev));
 
     if (autosaveTimerRef.current) {
       clearTimeout(autosaveTimerRef.current);
@@ -520,19 +682,19 @@ export const OriginalDocumentViewer: React.FC<OriginalDocumentViewerProps> = ({
       if (snap && isDirtyRef.current) {
         void persistDocSnapshotToDb(snap);
       }
-    }, 450);
+    }, AUTOSAVE_DEBOUNCE_MS);
   }, [persistDocSnapshotToDb]);
 
   const handleOpenInComputerExcel = async (doc: UploadedDocument) => {
     try {
       let targetDoc = doc;
       if (latestDocRef.current && latestDocRef.current.id === doc.id) {
-        if (isDirtyRef.current) {
-          const flushed = await flushPendingAutosave();
+        if (isDirtyRef.current || latestDocRef.current.sheetsModifiedAfterRaw) {
+          const flushed = await flushPendingAutosave(true);
           if (flushed) targetDoc = flushed;
           else if (getDocVisualType(latestDocRef.current) === 'spreadsheet') {
             const rebuiltBase64 = await rebuildWorkbookBase64FromDocOffThread(latestDocRef.current);
-            targetDoc = { ...latestDocRef.current, rawBase64: rebuiltBase64 };
+            targetDoc = { ...latestDocRef.current, rawBase64: rebuiltBase64, sheetsModifiedAfterRaw: false };
           }
         } else if (latestDocRef.current.rawBase64) {
           // Si el usuario no modificó celdas, descargar el binario original intacto bit a bit
@@ -1148,7 +1310,7 @@ export const OriginalDocumentViewer: React.FC<OriginalDocumentViewerProps> = ({
                       {effectiveSaveStatus === 'saving'
                         ? 'Guardando...'
                         : effectiveSaveStatus === 'saved'
-                        ? 'Guardado en base de datos'
+                        ? 'Guardado'
                         : 'Error al guardar'}
                     </span>
                   </span>
@@ -1181,6 +1343,35 @@ export const OriginalDocumentViewer: React.FC<OriginalDocumentViewerProps> = ({
 
             {/* Document Actions */}
             <div className="flex items-center gap-2 flex-wrap">
+              {currentVisualType === 'spreadsheet' && (
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={autoCenterEnabled}
+                  onClick={toggleAutoCenter}
+                  title="Cuando está activo, todo texto nuevo que escribas o pegues se centrará automáticamente"
+                  className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs font-bold transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                    autoCenterEnabled
+                      ? 'bg-emerald-50 border-emerald-400 text-emerald-800'
+                      : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-100'
+                  }`}
+                >
+                  <AlignCenter className={`w-3.5 h-3.5 ${autoCenterEnabled ? 'text-emerald-600' : 'text-slate-500'}`} />
+                  <span>Auto-centrar texto</span>
+                  <span
+                    className={`relative inline-flex h-4 w-7 items-center rounded-full transition-colors ${
+                      autoCenterEnabled ? 'bg-emerald-600' : 'bg-slate-300'
+                    }`}
+                  >
+                    <span
+                      className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${
+                        autoCenterEnabled ? 'translate-x-3.5' : 'translate-x-0.5'
+                      }`}
+                    />
+                  </span>
+                </button>
+              )}
+
               <button
                 type="button"
                 onClick={() => handleOpenInComputerExcel(currentDoc)}
@@ -1211,8 +1402,10 @@ export const OriginalDocumentViewer: React.FC<OriginalDocumentViewerProps> = ({
             >
               {workbookSessionKey && workbookSeedSheets.length > 0 ? (
                 <Workbook
+                  ref={workbookRef}
                   key={workbookSessionKey}
                   data={workbookSeedSheets}
+                  hooks={workbookHooks}
                   onOp={handleFortuneSheetOp}
                   onChange={handleFortuneSheetChange}
                   showToolbar

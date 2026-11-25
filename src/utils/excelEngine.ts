@@ -737,25 +737,27 @@ export async function rebuildWorkbookBase64FromDoc(doc: UploadedDocument): Promi
               pattern: 'solid',
               fgColor: { argb: hexToArgb(st.bgColor) }
             };
+          } else if (loadedFromRaw && cell.fill) {
+            cell.fill = { type: 'pattern', pattern: 'none' };
           }
-          if (st.textColor || st.bold || st.italic || st.underline || st.strike || st.fontSize || st.fontFamily) {
+          if (st.textColor || st.bold !== undefined || st.italic !== undefined || st.underline !== undefined || st.strike !== undefined || st.fontSize || st.fontFamily || (loadedFromRaw && cell.font)) {
             cell.font = {
               ...(cell.font || {}),
               ...(st.fontFamily ? { name: st.fontFamily } : {}),
               ...(st.fontSize ? { size: st.fontSize } : {}),
-              ...(st.bold !== undefined ? { bold: st.bold } : {}),
-              ...(st.italic !== undefined ? { italic: st.italic } : {}),
-              ...(st.underline !== undefined ? { underline: st.underline } : {}),
-              ...(st.strike !== undefined ? { strike: st.strike } : {}),
+              bold: Boolean(st.bold),
+              italic: Boolean(st.italic),
+              underline: Boolean(st.underline),
+              strike: Boolean(st.strike),
               ...(st.textColor ? { color: { argb: hexToArgb(st.textColor) } } : {})
             };
           }
-          if (st.align || st.valign || st.wrapText !== undefined) {
+          if (st.align || st.valign || st.wrapText !== undefined || (loadedFromRaw && cell.alignment)) {
             cell.alignment = {
               ...(cell.alignment || {}),
-              ...(st.align ? { horizontal: st.align } : {}),
-              ...(st.valign ? { vertical: st.valign } : {}),
-              ...(st.wrapText !== undefined ? { wrapText: st.wrapText } : {})
+              horizontal: st.align,
+              vertical: st.valign,
+              wrapText: Boolean(st.wrapText)
             };
           }
           const parseSide = (css?: string) => {
@@ -1036,9 +1038,12 @@ export async function openDocumentInComputerExcel(doc: UploadedDocument): Promis
         : '';
   const safeName = hasAnyExt ? doc.name : `${doc.name}${fallbackExt}`;
 
-  // Ensure exact binary is used (either original preserved rawBase64 or rebuilt with full styles)
+  // Ensure exact binary is used (either original preserved rawBase64 or rebuilt with full styles when edited in-app)
   let base64ToUse = doc.rawBase64;
-  if (!base64ToUse && doc.id) {
+  if (isSpreadsheet && doc.sheetsModifiedAfterRaw) {
+    base64ToUse = await rebuildWorkbookBase64FromDocOffThread(doc);
+  }
+  if (!base64ToUse && doc.id && !doc.sheetsModifiedAfterRaw) {
     try {
       const res = await fetch(`/api/uploaded-documents/${encodeURIComponent(doc.id)}/download?_t=${Date.now()}`, { cache: 'no-store' });
       if (res.ok) {

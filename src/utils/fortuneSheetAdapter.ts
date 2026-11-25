@@ -43,10 +43,12 @@ function alignToFortuneHt(align?: CellStyleInfo['align']): number | undefined {
   return undefined;
 }
 
-function fortuneHtToAlign(ht?: number): CellStyleInfo['align'] | undefined {
-  if (ht === 0) return 'center';
-  if (ht === 1) return 'left';
-  if (ht === 2) return 'right';
+function fortuneHtToAlign(ht?: number | string): CellStyleInfo['align'] | undefined {
+  if (ht === undefined || ht === null || ht === '') return undefined;
+  const s = String(ht).trim().toLowerCase();
+  if (s === '0' || s === 'center') return 'center';
+  if (s === '1' || s === 'left') return 'left';
+  if (s === '2' || s === 'right') return 'right';
   return undefined;
 }
 
@@ -57,11 +59,17 @@ function valignToFortuneVt(valign?: CellStyleInfo['valign']): number | undefined
   return undefined;
 }
 
-function fortuneVtToValign(vt?: number): CellStyleInfo['valign'] | undefined {
-  if (vt === 0) return 'middle';
-  if (vt === 1) return 'top';
-  if (vt === 2) return 'bottom';
+function fortuneVtToValign(vt?: number | string): CellStyleInfo['valign'] | undefined {
+  if (vt === undefined || vt === null || vt === '') return undefined;
+  const s = String(vt).trim().toLowerCase();
+  if (s === '0' || s === 'middle') return 'middle';
+  if (s === '1' || s === 'top') return 'top';
+  if (s === '2' || s === 'bottom') return 'bottom';
   return undefined;
+}
+
+function isTruthyStyleFlag(val: unknown): boolean {
+  return val === 1 || val === '1' || val === true || val === 'true';
 }
 
 /**
@@ -334,16 +342,30 @@ export function fortuneSheetsToUploadedSheets(
         for (let c = 0; c < rowArr.length; c++) {
           const cell = rowArr[c];
           if (cell && typeof cell === 'object') {
+            const hasAlign = cell.ht !== undefined && cell.ht !== null && (cell.ht as unknown) !== '';
+            const hasValign = cell.vt !== undefined && cell.vt !== null && (cell.vt as unknown) !== '';
+            const hasWrap = cell.tb !== undefined && cell.tb !== null && cell.tb !== '';
+            const hasFont =
+              (cell.fs !== undefined && cell.fs !== null && (cell.fs as unknown) !== '') ||
+              Boolean(cell.ff);
+            const hasInlineRuns = Array.isArray(cell.ct?.s) && cell.ct.s.length > 0;
+            const hasCt = Boolean(cell.ct && (cell.ct.fa || hasInlineRuns));
             const hasContent =
               (cell.v !== undefined && cell.v !== null && cell.v !== '') ||
+              (cell.m !== undefined && cell.m !== null && cell.m !== '') ||
               Boolean(cell.f) ||
               Boolean(cell.bg) ||
               Boolean(cell.fc) ||
-              Boolean(cell.bl) ||
-              Boolean(cell.it) ||
-              Boolean(cell.un) ||
-              Boolean(cell.cl) ||
-              Boolean(cell.mc);
+              isTruthyStyleFlag(cell.bl) ||
+              isTruthyStyleFlag(cell.it) ||
+              isTruthyStyleFlag(cell.un) ||
+              isTruthyStyleFlag(cell.cl) ||
+              Boolean(cell.mc) ||
+              hasAlign ||
+              hasValign ||
+              hasWrap ||
+              hasFont ||
+              hasCt;
             if (hasContent) {
               cellMap.set(`${r}-${c}`, cell);
               if (r > maxUsedRow) maxUsedRow = r;
@@ -473,7 +495,18 @@ export function fortuneSheetsToUploadedSheets(
         const borderSides = bordersByCoord.get(coord);
 
         if (cell) {
-          const rawCellVal = cell.v !== undefined && cell.v !== null ? cell.v : (cell.m !== undefined ? cell.m : '');
+          const inlineText =
+            Array.isArray(cell.ct?.s) && cell.ct.s.length > 0
+              ? cell.ct.s.map((run: any) => (run && run.v !== undefined && run.v !== null ? String(run.v) : '')).join('')
+              : undefined;
+          const rawCellVal =
+            cell.v !== undefined && cell.v !== null && cell.v !== ''
+              ? cell.v
+              : cell.m !== undefined && cell.m !== null && cell.m !== ''
+                ? cell.m
+                : inlineText !== undefined
+                  ? inlineText
+                  : '';
           const normalizedVal: string | number | boolean | null =
             (rawCellVal as unknown) instanceof Date
               ? formatUtcDateValue(rawCellVal as unknown as Date)
@@ -493,21 +526,31 @@ export function fortuneSheetsToUploadedSheets(
             cellFormulas[coord] = cell.f.startsWith('=') ? cell.f : `=${cell.f}`;
           }
 
+          const firstInlineRun = Array.isArray(cell.ct?.s) && cell.ct.s.length > 0 ? cell.ct.s[0] : null;
           const st: CellStyleInfo = {};
           let hasStyle = false;
           if (cell.bg) { st.bgColor = String(cell.bg); hasStyle = true; }
-          if (cell.fc) { st.textColor = String(cell.fc); hasStyle = true; }
-          if (cell.bl) { st.bold = true; hasStyle = true; }
-          if (cell.it) { st.italic = true; hasStyle = true; }
-          if (cell.un) { st.underline = true; hasStyle = true; }
-          if (cell.cl) { st.strike = true; hasStyle = true; }
-          if (typeof cell.fs === 'number') { st.fontSize = cell.fs; hasStyle = true; }
-          if (typeof cell.ff === 'string' && cell.ff) { st.fontFamily = cell.ff; hasStyle = true; }
+          const fcVal = cell.fc || firstInlineRun?.fc;
+          if (fcVal) { st.textColor = String(fcVal); hasStyle = true; }
+          if (isTruthyStyleFlag(cell.bl) || isTruthyStyleFlag(firstInlineRun?.bl)) { st.bold = true; hasStyle = true; }
+          if (isTruthyStyleFlag(cell.it) || isTruthyStyleFlag(firstInlineRun?.it)) { st.italic = true; hasStyle = true; }
+          if (isTruthyStyleFlag(cell.un) || isTruthyStyleFlag(firstInlineRun?.un)) { st.underline = true; hasStyle = true; }
+          if (isTruthyStyleFlag(cell.cl) || isTruthyStyleFlag(firstInlineRun?.cl)) { st.strike = true; hasStyle = true; }
+          const fsVal = cell.fs ?? firstInlineRun?.fs;
+          if (fsVal !== undefined && fsVal !== null && (fsVal as unknown) !== '') {
+            const fsNum = Number(fsVal);
+            if (!isNaN(fsNum) && fsNum > 0) {
+              st.fontSize = fsNum;
+              hasStyle = true;
+            }
+          }
+          const ffVal = cell.ff ?? firstInlineRun?.ff;
+          if (typeof ffVal === 'string' && ffVal) { st.fontFamily = ffVal; hasStyle = true; }
           const align = fortuneHtToAlign(cell.ht);
           if (align) { st.align = align; hasStyle = true; }
           const valign = fortuneVtToValign(cell.vt);
           if (valign) { st.valign = valign; hasStyle = true; }
-          if (cell.tb === '2') { st.wrapText = true; hasStyle = true; }
+          if (String(cell.tb) === '2') { st.wrapText = true; hasStyle = true; }
           if (cell.ct?.fa && cell.ct.fa !== 'General') {
             st.numFmt = String(cell.ct.fa);
             hasStyle = true;

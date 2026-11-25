@@ -443,6 +443,7 @@ export interface UploadedDocument {
   totalRows: number;
   totalColumns: number;
   rawBase64?: string;
+  sheetsModifiedAfterRaw?: boolean;
   notes?: string;
   folderId?: string; // ID of the folder this document belongs to
 }

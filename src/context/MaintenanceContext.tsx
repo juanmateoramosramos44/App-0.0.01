@@ -323,7 +323,7 @@ interface MaintenanceContextType {
   // Uploaded Documents
   uploadedDocuments: UploadedDocument[];
   addUploadedDocument: (doc: Omit<UploadedDocument, 'id'>, options?: { silent?: boolean }) => Promise<UploadedDocument>;
-  updateUploadedDocument: (doc: UploadedDocument, options?: { silent?: boolean }) => Promise<boolean>;
+  updateUploadedDocument: (doc: UploadedDocument, options?: { silent?: boolean; omitRawBase64?: boolean }) => Promise<boolean>;
   moveUploadedDocument: (docId: string, folderId: string | null) => Promise<void>;
   deleteUploadedDocument: (id: string) => Promise<void>;
   clearAllUploadedDocuments: () => Promise<void>;
@@ -8875,7 +8875,7 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
 
   const updateUploadedDocument = async (
     updatedDoc: UploadedDocument,
-    options?: { silent?: boolean }
+    options?: { silent?: boolean; omitRawBase64?: boolean }
   ): Promise<boolean> => {
     markCollectionMutation('uploadedDocuments');
     const prevTs = new Date(updatedDoc.updatedAt || 0).getTime() || 0;
@@ -8888,20 +8888,26 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
     uploadedDocumentsRef.current = updated;
     setUploadedDocuments(updated);
     idbSet(STORAGE_KEYS.DOCUMENTS, updated).catch(() => {});
-    if (!safeSetItem(STORAGE_KEYS.DOCUMENTS, JSON.stringify(updated))) {
+    if (options?.omitRawBase64) {
+      safeSetItem(STORAGE_KEYS.DOCUMENTS, JSON.stringify(updated.map(d => ({ ...d, rawBase64: undefined }))));
+    } else if (!safeSetItem(STORAGE_KEYS.DOCUMENTS, JSON.stringify(updated))) {
       safeSetItem(STORAGE_KEYS.DOCUMENTS, JSON.stringify(updated.map(d => ({ ...d, rawBase64: undefined }))));
     }
+
+    const payloadDoc: UploadedDocument = options?.omitRawBase64
+      ? { ...stampedDoc, rawBase64: undefined }
+      : stampedDoc;
 
     let ok = false;
     beginDbSave();
     try {
-      const res = await fetch('/api/uploaded-documents', {
-        method: 'POST',
+      const res = await fetch(`/api/uploaded-documents/${encodeURIComponent(stampedDoc.id)}`, {
+        method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
           'X-Client-Id': clientSessionId.current
         },
-        body: JSON.stringify(stampedDoc)
+        body: JSON.stringify(payloadDoc)
       });
       if (res.ok) {
         ok = true;
