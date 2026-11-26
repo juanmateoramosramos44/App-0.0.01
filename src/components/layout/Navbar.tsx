@@ -1,8 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useMaintenance, isUserOwnRound } from '../../context/MaintenanceContext';
 import { UpdateBell } from '../updates/UpdateBell';
-import { NotificationBell } from '../notifications/NotificationBell';
-import { SecurityShieldButton } from '../common/SecurityShieldButton';
 import { 
   Shield, 
   Wrench, 
@@ -23,7 +21,6 @@ import {
   Smartphone,
   Plus,
   AlertTriangle,
-  Radio,
   FileSpreadsheet,
   Trash2,
   Users,
@@ -60,7 +57,6 @@ export const Navbar: React.FC = () => {
     cronogramas,
     bitacora,
     users,
-    isCloudSynced,
     dbSyncStatus,
     setIsIncidentModalOpen,
     currentUser,
@@ -148,6 +144,14 @@ export const Navbar: React.FC = () => {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
+
+  // Mantener siempre visible en la barra superior el módulo activo
+  useEffect(() => {
+    const el = document.getElementById(`tab-${selectedTab}`);
+    if (el && typeof el.scrollIntoView === 'function') {
+      el.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+    }
+  }, [selectedTab]);
 
   const getShift = () => {
     const hours = new Date().getHours();
@@ -387,14 +391,6 @@ export const Navbar: React.FC = () => {
                   <p className="text-xs text-slate-400 hidden sm:block">
                     Dpto. de Mantenimiento & Sala de Bombas
                   </p>
-                  <span 
-                    className={`inline-flex items-center space-x-1 text-[11px] font-medium sm:hidden ${
-                      isCloudSynced ? 'text-emerald-400' : 'text-amber-400'
-                    }`}
-                  >
-                    <Radio className="w-2.5 h-2.5 animate-pulse" />
-                    <span>{isCloudSynced ? 'En vivo' : 'Conectando...'}</span>
-                  </span>
                   {dbSyncStatus !== 'idle' && (
                     <span
                       className={`inline-flex items-center space-x-1 text-[11px] font-medium sm:hidden ${
@@ -417,7 +413,7 @@ export const Navbar: React.FC = () => {
                           ? 'Guardando...'
                           : dbSyncStatus === 'saved'
                           ? 'Guardado en base de datos'
-                          : 'Error de guardado'}
+                          : 'Reintentando guardado...'}
                       </span>
                     </span>
                   )}
@@ -427,18 +423,6 @@ export const Navbar: React.FC = () => {
 
             {/* Center Status Indicators */}
             <div className="hidden lg:flex items-center space-x-3 text-xs">
-              {/* Real-time Cloud Badge */}
-              <div 
-                className={`flex items-center space-x-1.5 px-3 py-1 rounded-full border ${
-                  isCloudSynced 
-                    ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30' 
-                    : 'bg-amber-500/10 text-amber-300 border-amber-500/30'
-                }`}
-                title="Sincronización en la nube con todos los compañeros"
-              >
-                <Radio className={`w-3.5 h-3.5 ${isCloudSynced ? 'text-emerald-400 animate-pulse' : 'text-amber-400'}`} />
-                <span>{isCloudSynced ? 'En Línea • Tiempo Real' : 'Modo Local'}</span>
-              </div>
 
               {dbSyncStatus !== 'idle' && (
                 <div
@@ -501,9 +485,6 @@ export const Navbar: React.FC = () => {
 
             {/* Quick Actions */}
             <div className="flex items-center space-x-2 sm:space-x-3">
-              {/* Notificaciones del Sistema, Escudo de Seguridad y Actualizaciones */}
-              <SecurityShieldButton />
-              <NotificationBell />
               <UpdateBell />
 
               {currentUser && (
@@ -532,7 +513,7 @@ export const Navbar: React.FC = () => {
           </div>
 
           {/* Navigation Tabs (Filtered strictly by user permissions and visibleSections, excluding hojas_vida) */}
-          <nav className="flex space-x-1 border-t border-slate-800/80 overflow-x-auto py-2 no-scrollbar" aria-label="Tabs">
+          <nav className="flex items-center gap-1 border-t border-slate-800/80 overflow-x-auto py-2 no-scrollbar" aria-label="Tabs">
             {horizontalTabs.map(tab => {
               const Icon = tab.icon;
               const isSelected = selectedTab === tab.id;
@@ -540,14 +521,18 @@ export const Navbar: React.FC = () => {
                 <button
                   key={tab.id}
                   id={`tab-${tab.id}`}
+                  type="button"
+                  aria-current={isSelected ? 'page' : undefined}
                   onClick={() => setSelectedTab(tab.id as any)}
-                  className={`flex items-center space-x-2 px-3.5 py-2 text-sm font-medium rounded-lg whitespace-nowrap transition-colors relative cursor-pointer ${
+                  className={`flex items-center space-x-2 px-3.5 py-2 text-sm rounded-lg whitespace-nowrap shrink-0 transition-all relative cursor-pointer ${
                     isSelected
-                      ? (tab.activeColor || 'bg-blue-600 text-white shadow-sm')
-                      : 'text-slate-300 hover:text-white hover:bg-slate-800/60'
+                      ? (tab.activeColor
+                          ? `${tab.activeColor} font-bold shadow-md ring-1 ring-white/25 after:content-[''] after:absolute after:left-2.5 after:right-2.5 after:-bottom-1 after:h-0.5 after:rounded-full after:bg-white`
+                          : 'bg-blue-600 text-white font-bold shadow-md shadow-blue-900/40 ring-1 ring-blue-300/40 after:content-[\'\'] after:absolute after:left-2.5 after:right-2.5 after:-bottom-1 after:h-0.5 after:rounded-full after:bg-cyan-300')
+                      : 'text-slate-300 font-medium hover:text-white hover:bg-slate-800/70'
                   }`}
                 >
-                  <Icon className={`w-4 h-4 ${isSelected ? 'text-white' : tab.color}`} />
+                  <Icon className={`w-4 h-4 shrink-0 ${isSelected ? 'text-white' : tab.color}`} />
                   <span>{tab.label}</span>
                   {tab.id === 'rondas' && tab.badge ? (
                     <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-black bg-gradient-to-r from-amber-400 via-yellow-400 to-amber-500 text-slate-950 shadow-sm border border-yellow-200 ring-2 ring-amber-400/60 animate-pulse">
@@ -560,11 +545,11 @@ export const Navbar: React.FC = () => {
                   ) : tab.badge === 'active' ? (
                     <span className="w-2 h-2 rounded-full bg-amber-400 ring-2 ring-slate-900 animate-pulse" />
                   ) : typeof tab.badge === 'number' && tab.badge > 0 ? (
-                    <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${tab.badgeColor}`}>
+                    <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold tabular-nums ${isSelected ? 'bg-white/20 text-white' : tab.badgeColor}`}>
                       {tab.badge}
                     </span>
                   ) : typeof tab.badge === 'string' ? (
-                    <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${tab.badgeColor}`}>
+                    <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold tabular-nums ${isSelected ? 'bg-white/20 text-white' : tab.badgeColor}`}>
                       {tab.badge}
                     </span>
                   ) : null}
@@ -648,13 +633,17 @@ export const Navbar: React.FC = () => {
                   <button
                     key={`drawer-${tab.id}`}
                     id={`drawer-nav-${tab.id}`}
+                    type="button"
+                    aria-current={isSelected ? 'page' : undefined}
                     onClick={() => navigateTo(tab.id as any)}
-                    className={`w-full flex items-center justify-between px-3.5 py-3 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+                    className={`w-full flex items-center justify-between px-3.5 py-3 rounded-xl text-xs transition-all cursor-pointer border-l-4 ${
                       isSelected
-                        ? (tab.activeColor || 'bg-blue-600 text-white shadow-sm')
+                        ? (tab.activeColor
+                            ? `${tab.activeColor} border-white font-bold shadow-md`
+                            : 'bg-blue-600 text-white border-cyan-300 font-bold shadow-md shadow-blue-950/40')
                         : isRondaWithProgress
-                          ? 'text-amber-100 bg-amber-500/15 border border-amber-400/50 hover:bg-amber-500/25 shadow-sm shadow-amber-500/10'
-                          : 'text-slate-300 hover:text-white hover:bg-slate-800/80'
+                          ? 'text-amber-100 bg-amber-500/15 border-amber-400 font-semibold hover:bg-amber-500/25 shadow-sm shadow-amber-500/10'
+                          : 'text-slate-300 border-transparent font-semibold hover:text-white hover:bg-slate-800/80'
                     }`}
                   >
                     <div className="flex items-center space-x-3">

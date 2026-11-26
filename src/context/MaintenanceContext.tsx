@@ -322,8 +322,8 @@ interface MaintenanceContextType {
 
   // Uploaded Documents
   uploadedDocuments: UploadedDocument[];
-  addUploadedDocument: (doc: Omit<UploadedDocument, 'id'>, options?: { silent?: boolean }) => Promise<UploadedDocument>;
-  updateUploadedDocument: (doc: UploadedDocument, options?: { silent?: boolean; omitRawBase64?: boolean }) => Promise<boolean>;
+  addUploadedDocument: (doc: Omit<UploadedDocument, 'id'>, options?: { silent?: boolean; onOptimistic?: (doc: UploadedDocument) => void }) => Promise<UploadedDocument>;
+  updateUploadedDocument: (doc: UploadedDocument, options?: { silent?: boolean; omitRawBase64?: boolean; skipGlobalSyncBadge?: boolean }) => Promise<boolean>;
   moveUploadedDocument: (docId: string, folderId: string | null) => Promise<void>;
   deleteUploadedDocument: (id: string) => Promise<void>;
   clearAllUploadedDocuments: () => Promise<void>;
@@ -936,7 +936,7 @@ const markDeletedScheduleId = (id: string) => {
   unmarkLocalCreation(id);
   const set = getDeletedScheduleIds();
   set.add(id);
-  localStorage.setItem(DELETED_SCHEDULES_STORAGE_KEY, JSON.stringify(Array.from(set)));
+  safeSetItem(DELETED_SCHEDULES_STORAGE_KEY, JSON.stringify(Array.from(set)));
 };
 
 const unmarkDeletedScheduleId = (id: string) => {
@@ -944,7 +944,7 @@ const unmarkDeletedScheduleId = (id: string) => {
   const set = getDeletedScheduleIds();
   if (set.has(id)) {
     set.delete(id);
-    localStorage.setItem(DELETED_SCHEDULES_STORAGE_KEY, JSON.stringify(Array.from(set)));
+    safeSetItem(DELETED_SCHEDULES_STORAGE_KEY, JSON.stringify(Array.from(set)));
   }
 };
 
@@ -2777,6 +2777,17 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
   const [dbSyncStatus, setDbSyncStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const dbSyncResetTimerRef = useRef<any>(null);
   const dbSyncInFlightCountRef = useRef<number>(0);
+  const scheduleRetryTimerRef = useRef<any>(null);
+
+  const fetchWithTimeout = useCallback(async (url: string, init: RequestInit = {}, timeoutMs: number = 10000) => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      return await fetch(url, { ...init, signal: controller.signal });
+    } finally {
+      clearTimeout(timer);
+    }
+  }, []);
 
   const beginDbSave = useCallback(() => {
     dbSyncInFlightCountRef.current += 1;
@@ -2798,7 +2809,7 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
         if (dbSyncInFlightCountRef.current === 0) {
           setDbSyncStatus('idle');
         }
-      }, 3500);
+      }, 2500);
     } else {
       setDbSyncStatus('error');
     }
@@ -3524,14 +3535,14 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
             : round;
 
           const targetEndpoint = isCompletedRound ? '/api/rounds/atomic' : '/api/rounds';
-          const res = await fetch(targetEndpoint, {
+          const res = await fetchWithTimeout(targetEndpoint, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
               'X-Client-Id': clientSessionId.current
             },
             body: JSON.stringify(preparedRound)
-          });
+          }, 15000);
           if (res.ok) {
             let okConfirmed = true;
             let serverRound: DailyRound | undefined;
@@ -6131,7 +6142,7 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
         if (JSON.stringify(mergedSchedules) !== JSON.stringify(schedulesRef.current)) {
           schedulesRef.current = mergedSchedules;
           setSchedules(mergedSchedules);
-          localStorage.setItem(STORAGE_KEYS.SCHEDULES, JSON.stringify(mergedSchedules));
+          safeSetItem(STORAGE_KEYS.SCHEDULES, JSON.stringify(mergedSchedules));
           idbSet(STORAGE_KEYS.SCHEDULES, mergedSchedules).catch(() => {});
         }
       }
@@ -6314,13 +6325,22 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
     window.addEventListener('pageshow', onVisibilityOrFocus);
     window.addEventListener('online', onVisibilityOrFocus);
 
-    // 3. Server-Sent Events (SSE) stream for ultra-fast instant sync across all screens (<30ms)
+    // 3. Server-Sent Events (SSE) stream for ultra-fast instant sync across all screens (<30ms) with auto-reconnect
     let sseSource: EventSource | null = null;
-    try {
-      sseSource = new EventSource('/api/events');
-      sseSource.onmessage = (event) => {
+    let sseReconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let isEffectCleanedUp = false;
+    let hasConnectedSseOnce = false;
+
+    const handleSseMessage = (event: MessageEvent) => {
         try {
           const payload = JSON.parse(event.data);
+          if (payload && payload.type === 'connected') {
+            setIsCloudSynced(true);
+            if (hasConnectedSseOnce) {
+              performBackgroundSync();
+            }
+            hasConnectedSseOnce = true;
+          }
           if (payload && typeof payload.serverVersion === 'number') {
             checkServerVersion(payload.serverVersion);
           }
@@ -6394,13 +6414,14 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
             const incomingItems: TechnicianSchedule[] = Array.isArray(payload.schedules)
               ? payload.schedules
               : [payload.schedule];
-            const deletedIds = getDeletedScheduleIds();
-            const validItems = incomingItems.filter(s => s && s.id && !deletedIds.has(s.id) && !isRecentlyLocallyDeleted(s.id));
+            const validItems = incomingItems.filter(s => s && s.id && !isRecentlyLocallyDeleted(s.id));
             if (validItems.length > 0) {
+              validItems.forEach(s => unmarkDeletedScheduleId(s.id));
+              const deletedIds = getDeletedScheduleIds();
               const merged = mergeScheduleLists(schedulesRef.current || [], validItems, deletedIds);
               schedulesRef.current = merged;
               setSchedules(merged);
-              localStorage.setItem(STORAGE_KEYS.SCHEDULES, JSON.stringify(merged));
+              safeSetItem(STORAGE_KEYS.SCHEDULES, JSON.stringify(merged));
               idbSet(STORAGE_KEYS.SCHEDULES, merged).catch(() => {});
             }
           } else if (payload && payload.type === 'schedule_deleted' && payload.scheduleId) {
@@ -6410,7 +6431,7 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
             const updated = (schedulesRef.current || []).filter(s => s.id !== delId);
             schedulesRef.current = updated;
             setSchedules(updated);
-            localStorage.setItem(STORAGE_KEYS.SCHEDULES, JSON.stringify(updated));
+            safeSetItem(STORAGE_KEYS.SCHEDULES, JSON.stringify(updated));
             idbSet(STORAGE_KEYS.SCHEDULES, updated).catch(() => {});
           } else if (payload && payload.type === 'swap_updated' && payload.swap) {
             const incomingSwap = payload.swap as ShiftSwapRequest;
@@ -6763,9 +6784,40 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
           console.warn('SSE message parse warning:', e);
         }
       };
-    } catch (e) {
-      console.warn('SSE connection warning:', e);
-    }
+
+    const connectSse = () => {
+      if (isEffectCleanedUp) return;
+      try {
+        sseSource?.close();
+      } catch {}
+      try {
+        const nextSource = new EventSource('/api/events');
+        nextSource.onmessage = handleSseMessage;
+        nextSource.onerror = () => {
+          if (isEffectCleanedUp) return;
+          if (nextSource.readyState === EventSource.CLOSED) {
+            try { nextSource.close(); } catch {}
+            if (!sseReconnectTimer) {
+              sseReconnectTimer = setTimeout(() => {
+                sseReconnectTimer = null;
+                connectSse();
+              }, 2000);
+            }
+          }
+        };
+        sseSource = nextSource;
+      } catch (e) {
+        console.warn('SSE connection warning:', e);
+        if (!isEffectCleanedUp && !sseReconnectTimer) {
+          sseReconnectTimer = setTimeout(() => {
+            sseReconnectTimer = null;
+            connectSse();
+          }, 3000);
+        }
+      }
+    };
+
+    connectSse();
 
     // 4. BroadcastChannel listener for instant same-device inter-tab sync (0ms)
     const handleBroadcast = (e: MessageEvent) => {
@@ -6923,13 +6975,19 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
         usersRef.current = updated;
         setUsers(updated);
         localStorage.setItem('hotel_maint_users', JSON.stringify(updated));
-      } else if (e.data && e.data.type === 'schedule_updated' && e.data.schedule) {
-        const item = e.data.schedule as TechnicianSchedule;
-        if (getDeletedScheduleIds().has(item.id) || isRecentlyLocallyDeleted(item.id)) return;
-        const merged = mergeScheduleLists(schedulesRef.current || [], [item], getDeletedScheduleIds());
-        schedulesRef.current = merged;
-        setSchedules(merged);
-        localStorage.setItem(STORAGE_KEYS.SCHEDULES, JSON.stringify(merged));
+      } else if (e.data && e.data.type === 'schedule_updated' && (e.data.schedule || Array.isArray(e.data.schedules))) {
+        const incomingItems: TechnicianSchedule[] = Array.isArray(e.data.schedules)
+          ? e.data.schedules
+          : [e.data.schedule];
+        const validItems = incomingItems.filter(s => s && s.id && !isRecentlyLocallyDeleted(s.id));
+        if (validItems.length > 0) {
+          validItems.forEach(s => unmarkDeletedScheduleId(s.id));
+          const merged = mergeScheduleLists(schedulesRef.current || [], validItems, getDeletedScheduleIds());
+          schedulesRef.current = merged;
+          setSchedules(merged);
+          safeSetItem(STORAGE_KEYS.SCHEDULES, JSON.stringify(merged));
+          idbSet(STORAGE_KEYS.SCHEDULES, merged).catch(() => {});
+        }
       } else if (e.data && e.data.type === 'schedule_deleted' && e.data.scheduleId) {
         const delId = e.data.scheduleId;
         trackLocalDeletion(delId);
@@ -6937,7 +6995,8 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
         const updated = (schedulesRef.current || []).filter(s => s.id !== delId);
         schedulesRef.current = updated;
         setSchedules(updated);
-        localStorage.setItem(STORAGE_KEYS.SCHEDULES, JSON.stringify(updated));
+        safeSetItem(STORAGE_KEYS.SCHEDULES, JSON.stringify(updated));
+        idbSet(STORAGE_KEYS.SCHEDULES, updated).catch(() => {});
       } else if (e.data && e.data.type === 'cronograma_updated' && e.data.cronograma) {
         const item = e.data.cronograma as Cronograma;
         if (getDeletedCronogramaIds().has(item.id) || isRecentlyLocallyDeleted(item.id)) return;
@@ -7007,12 +7066,56 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
         bitacoraRef.current = updated;
         setBitacora(updated);
         safeSetItem(STORAGE_KEYS.BITACORA, JSON.stringify(updated));
+      } else if (e.data && e.data.type === 'uploaded_document_updated' && e.data.document) {
+        const docItem = e.data.document as UploadedDocument;
+        if (!docItem?.id || getDeletedUploadedDocumentIds().has(docItem.id) || isRecentlyLocallyDeleted(docItem.id)) return;
+        const updated = [docItem, ...(uploadedDocumentsRef.current || []).filter(d => d.id !== docItem.id)];
+        uploadedDocumentsRef.current = updated;
+        setUploadedDocuments(updated);
+        idbSet(STORAGE_KEYS.DOCUMENTS, updated).catch(() => {});
+      } else if (e.data && e.data.type === 'uploaded_document_deleted' && e.data.documentId) {
+        const delId = e.data.documentId;
+        trackLocalDeletion(delId);
+        markDeletedUploadedDocumentId(delId);
+        const updated = (uploadedDocumentsRef.current || []).filter(d => d.id !== delId);
+        uploadedDocumentsRef.current = updated;
+        setUploadedDocuments(updated);
+        idbSet(STORAGE_KEYS.DOCUMENTS, updated).catch(() => {});
+      } else if (e.data && e.data.type === 'document_folder_updated' && e.data.folder) {
+        const folderItem = e.data.folder as DocumentFolder;
+        if (!folderItem?.id || getDeletedDocumentFolderIds().has(folderItem.id) || isRecentlyLocallyDeleted(folderItem.id)) return;
+        const updated = [folderItem, ...(documentFoldersRef.current || []).filter(f => f.id !== folderItem.id)];
+        documentFoldersRef.current = updated;
+        setDocumentFolders(updated);
+        idbSet('hotel_doc_folders', updated).catch(() => {});
+        safeSetItem('hotel_doc_folders', JSON.stringify(updated));
+      } else if (e.data && e.data.type === 'document_folder_deleted' && e.data.folderId) {
+        const delId = e.data.folderId;
+        const fallbackParentId = e.data.fallbackParentId || null;
+        const nowIso = new Date().toISOString();
+        trackLocalDeletion(delId);
+        markDeletedDocumentFolderId(delId);
+        const updatedFolders = (documentFoldersRef.current || [])
+          .filter(f => f.id !== delId)
+          .map(f => f.parentFolderId === delId ? { ...f, parentFolderId: fallbackParentId, updatedAt: nowIso } : f);
+        const updatedDocs = (uploadedDocumentsRef.current || []).map(d =>
+          d.folderId === delId ? { ...d, folderId: fallbackParentId || undefined, updatedAt: nowIso } : d
+        );
+        documentFoldersRef.current = updatedFolders;
+        uploadedDocumentsRef.current = updatedDocs;
+        setDocumentFolders(updatedFolders);
+        setUploadedDocuments(updatedDocs);
+        idbSet('hotel_doc_folders', updatedFolders).catch(() => {});
+        idbSet(STORAGE_KEYS.DOCUMENTS, updatedDocs).catch(() => {});
+        safeSetItem('hotel_doc_folders', JSON.stringify(updatedFolders));
       }
     };
     roundsChannel.current?.addEventListener('message', handleBroadcast);
 
     return () => {
+      isEffectCleanedUp = true;
       clearInterval(pollInterval);
+      if (sseReconnectTimer) clearTimeout(sseReconnectTimer);
       window.removeEventListener('visibilitychange', onVisibilityOrFocus);
       window.removeEventListener('focus', onVisibilityOrFocus);
       window.removeEventListener('pageshow', onVisibilityOrFocus);
@@ -7144,7 +7247,8 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
         workOrders: (workOrdersRef.current || []).filter(w => w && w.id && !delOrders.has(w.id) && !isRecentlyLocallyDeleted(w.id)),
         settings: settingsRef.current,
         uploadedDocuments: (uploadedDocumentsRef.current || [])
-          .filter(d => d && d.id && !delDocs.has(d.id) && !isRecentlyLocallyDeleted(d.id)),
+          .filter(d => d && d.id && !delDocs.has(d.id) && !isRecentlyLocallyDeleted(d.id))
+          .map(d => ({ ...d, rawBase64: undefined })),
         documentFolders: (documentFoldersRef.current || []).filter(f => f && f.id && !delFolders.has(f.id) && !isRecentlyLocallyDeleted(f.id)),
         users: (usersRef.current || []).filter(u => u && u.id && !delUsers.has(u.id) && !isRecentlyLocallyDeleted(u.id) && !FAKE_USER_IDS.has(u.id) && u.displayName !== 'Administrador Principal'),
         schedules: (schedulesRef.current || []).filter(s => s && s.id && !delSchedules.has(s.id) && !isRecentlyLocallyDeleted(s.id) && !isLegacyMockSchedule(s)),
@@ -7155,14 +7259,14 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
         roundTemplate: roundTemplateRef.current
       };
 
-      const res = await fetch('/api/data', {
+      const res = await fetchWithTimeout('/api/data', {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',
           'X-Client-Id': clientSessionId.current
         },
         body: JSON.stringify(payload)
-      });
+      }, 18000);
       if (res.ok) {
         setIsCloudSynced(true);
         endDbSave(true);
@@ -7522,13 +7626,51 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
   // -------------------------------------------------------------
   // GESTIÓN DE HORARIOS Y TURNOS TÉCNICOS (SCHEDULES)
   // -------------------------------------------------------------
+  const scheduleQueueRetrySync = (itemsToRetry: TechnicianSchedule[]) => {
+    if (scheduleRetryTimerRef.current) {
+      clearTimeout(scheduleRetryTimerRef.current);
+      scheduleRetryTimerRef.current = null;
+    }
+    if (!itemsToRetry || itemsToRetry.length === 0) return;
+    scheduleRetryTimerRef.current = setTimeout(async () => {
+      scheduleRetryTimerRef.current = null;
+      beginDbSave();
+      let ok = false;
+      try {
+        const res = await fetchWithTimeout('/api/schedules', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Client-Id': clientSessionId.current
+          },
+          body: JSON.stringify(itemsToRetry.map(s => ({ ...s, forceRestore: true })))
+        }, 10000);
+        if (res.ok) {
+          const json = await res.json().catch(() => null);
+          const serverItems: TechnicianSchedule[] = Array.isArray(json?.schedules) ? json.schedules : [];
+          if (serverItems.length > 0) {
+            serverItems.forEach(s => s?.id && unmarkDeletedScheduleId(s.id));
+            const merged = mergeScheduleLists(schedulesRef.current || [], serverItems, getDeletedScheduleIds());
+            schedulesRef.current = merged;
+            setSchedules(merged);
+            safeSetItem(STORAGE_KEYS.SCHEDULES, JSON.stringify(merged));
+            idbSet(STORAGE_KEYS.SCHEDULES, merged).catch(() => {});
+          }
+          ok = true;
+        }
+      } catch {}
+      endDbSave(ok);
+    }, 3000);
+  };
+
   const addSchedule = async (scheduleData: Omit<TechnicianSchedule, 'id' | 'createdAt'>) => {
     markCollectionMutation('schedules');
+    const nowIso = new Date().toISOString();
     const newSchedule: TechnicianSchedule = {
       ...scheduleData,
       id: `sched-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
+      createdAt: nowIso,
+      updatedAt: nowIso
     };
 
     const newTechKey = getCanonicalScheduleTechKey(newSchedule.technicianId, newSchedule.technicianName);
@@ -7551,69 +7693,165 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
     ];
     schedulesRef.current = updated;
     setSchedules(updated);
-    localStorage.setItem(STORAGE_KEYS.SCHEDULES, JSON.stringify(updated));
+    safeSetItem(STORAGE_KEYS.SCHEDULES, JSON.stringify(updated));
     idbSet(STORAGE_KEYS.SCHEDULES, updated).catch(() => {});
 
-    roundsChannel.current?.postMessage({ type: 'schedule_updated', schedule: newSchedule });
+    try {
+      roundsChannel.current?.postMessage({ type: 'schedule_updated', schedule: newSchedule });
+    } catch {}
 
+    beginDbSave();
+    let ok = false;
     try {
       await Promise.all(
         replaced.map(old =>
-          fetch(`/api/schedules/${old.id}`, {
+          fetchWithTimeout(`/api/schedules/${encodeURIComponent(old.id)}`, {
             method: 'DELETE',
             headers: { 'X-Client-Id': clientSessionId.current }
-          }).catch(() => {})
+          }, 8000).catch(() => {})
         )
       );
-      const res = await fetch('/api/schedules', {
+      const res = await fetchWithTimeout('/api/schedules', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'X-Client-Id': clientSessionId.current
         },
-        body: JSON.stringify(newSchedule)
-      });
+        body: JSON.stringify({ ...newSchedule, forceRestore: true })
+      }, 10000);
       if (!res.ok) throw new Error('Schedule POST failed');
+      const json = await res.json().catch(() => null);
+      const savedList: TechnicianSchedule[] = Array.isArray(json?.schedules) ? json.schedules : (json?.schedule ? [json.schedule] : []);
+      if (savedList.length > 0) {
+        const merged = mergeScheduleLists(schedulesRef.current || [], savedList, getDeletedScheduleIds());
+        schedulesRef.current = merged;
+        setSchedules(merged);
+        safeSetItem(STORAGE_KEYS.SCHEDULES, JSON.stringify(merged));
+        idbSet(STORAGE_KEYS.SCHEDULES, merged).catch(() => {});
+      }
+      if (scheduleRetryTimerRef.current) {
+        clearTimeout(scheduleRetryTimerRef.current);
+        scheduleRetryTimerRef.current = null;
+      }
+      ok = true;
     } catch {
       hasPendingLocalChanges.current = true;
-      persistToServer();
+      scheduleQueueRetrySync([newSchedule]);
+    } finally {
+      endDbSave(ok);
     }
   };
 
   const updateSchedule = async (id: string, data: Partial<TechnicianSchedule>) => {
     markCollectionMutation('schedules');
+    unmarkDeletedScheduleId(id);
     trackLocalCreation(id);
-    const updated = (schedulesRef.current || []).map(s => {
-      if (s.id !== id) return s;
-      const prevTs = new Date(s.updatedAt || s.createdAt || 0).getTime() || 0;
-      const monoIso = new Date(Math.max(Date.now(), prevTs + 1)).toISOString();
-      return { ...s, ...data, updatedAt: monoIso };
+
+    const currentList = schedulesRef.current || [];
+    const existingItem = currentList.find(s => s && s.id === id);
+    const prevTs = new Date(existingItem?.updatedAt || existingItem?.createdAt || 0).getTime() || 0;
+    const monoIso = new Date(Math.max(Date.now(), prevTs + 1)).toISOString();
+
+    const target: TechnicianSchedule = existingItem
+      ? { ...existingItem, ...data, id, updatedAt: monoIso }
+      : {
+          technicianId: data.technicianId || '',
+          technicianName: data.technicianName || 'Técnico de Turno',
+          technicianRole: data.technicianRole || 'Técnico',
+          department: data.department || 'Mantenimiento e Ingeniería',
+          date: data.date || new Date().toISOString().split('T')[0],
+          shiftType: data.shiftType || 'manana',
+          startTime: data.startTime || '06:00',
+          endTime: data.endTime || '15:00',
+          breakDurationMinutes: data.breakDurationMinutes ?? 60,
+          assignedAreas: data.assignedAreas || ['Toda la Infraestructura'],
+          isOnCall: Boolean(data.isOnCall),
+          status: data.status || 'programado',
+          notes: data.notes,
+          createdAt: data.createdAt || monoIso,
+          ...data,
+          id,
+          updatedAt: monoIso
+        };
+
+    const targetTechKey = getCanonicalScheduleTechKey(target.technicianId, target.technicianName);
+    const replaced = currentList.filter(
+      s => s && s.id !== id && s.date === target.date && getCanonicalScheduleTechKey(s.technicianId, s.technicianName) === targetTechKey
+    );
+    replaced.forEach(s => {
+      trackLocalDeletion(s.id);
+      markDeletedScheduleId(s.id);
     });
+
+    const replacedIds = new Set(replaced.map(r => r.id));
+    const baseFiltered = currentList.filter(s => s && s.id !== id && !replacedIds.has(s.id));
+    const updated = mergeScheduleLists(baseFiltered, [target], getDeletedScheduleIds());
     schedulesRef.current = updated;
     setSchedules(updated);
-    localStorage.setItem(STORAGE_KEYS.SCHEDULES, JSON.stringify(updated));
+    safeSetItem(STORAGE_KEYS.SCHEDULES, JSON.stringify(updated));
     idbSet(STORAGE_KEYS.SCHEDULES, updated).catch(() => {});
 
-    const target = updated.find(s => s.id === id);
-    if (target) {
+    try {
       roundsChannel.current?.postMessage({ type: 'schedule_updated', schedule: target });
-      beginDbSave();
-      try {
-        const res = await fetch('/api/schedules', {
+    } catch {}
+
+    beginDbSave();
+    let ok = false;
+    try {
+      if (replaced.length > 0) {
+        await Promise.all(
+          replaced.map(old =>
+            fetchWithTimeout(`/api/schedules/${encodeURIComponent(old.id)}`, {
+              method: 'DELETE',
+              headers: { 'X-Client-Id': clientSessionId.current }
+            }, 8000).catch(() => {})
+          )
+        );
+      }
+
+      let res = await fetchWithTimeout(`/api/schedules/${encodeURIComponent(id)}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Client-Id': clientSessionId.current
+        },
+        body: JSON.stringify({ ...target, forceRestore: true })
+      }, 10000);
+
+      if (!res.ok) {
+        res = await fetchWithTimeout('/api/schedules', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             'X-Client-Id': clientSessionId.current
           },
-          body: JSON.stringify(target)
-        });
-        if (!res.ok) throw new Error('Schedule update failed');
-        endDbSave(true);
-      } catch {
-        hasPendingLocalChanges.current = true;
-        endDbSave(false);
-        persistToServer();
+          body: JSON.stringify({ ...target, forceRestore: true })
+        }, 10000);
       }
+
+      if (!res.ok) throw new Error('Schedule update failed');
+
+      const json = await res.json().catch(() => null);
+      const serverItem: TechnicianSchedule | null =
+        json?.schedule || (Array.isArray(json?.schedules) ? json.schedules[0] : null);
+      if (serverItem && serverItem.id) {
+        unmarkDeletedScheduleId(serverItem.id);
+        const reconciled = mergeScheduleLists(schedulesRef.current || [], [serverItem], getDeletedScheduleIds());
+        schedulesRef.current = reconciled;
+        setSchedules(reconciled);
+        safeSetItem(STORAGE_KEYS.SCHEDULES, JSON.stringify(reconciled));
+        idbSet(STORAGE_KEYS.SCHEDULES, reconciled).catch(() => {});
+      }
+      if (scheduleRetryTimerRef.current) {
+        clearTimeout(scheduleRetryTimerRef.current);
+        scheduleRetryTimerRef.current = null;
+      }
+      ok = true;
+    } catch {
+      hasPendingLocalChanges.current = true;
+      scheduleQueueRetrySync([target]);
+    } finally {
+      endDbSave(ok);
     }
   };
 
@@ -7625,19 +7863,26 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
     const updated = (schedulesRef.current || []).filter(s => s.id !== id);
     schedulesRef.current = updated;
     setSchedules(updated);
-    localStorage.setItem(STORAGE_KEYS.SCHEDULES, JSON.stringify(updated));
+    safeSetItem(STORAGE_KEYS.SCHEDULES, JSON.stringify(updated));
     idbSet(STORAGE_KEYS.SCHEDULES, updated).catch(() => {});
 
     try {
       roundsChannel.current?.postMessage({ type: 'schedule_deleted', scheduleId: id });
     } catch {}
 
+    beginDbSave();
+    let ok = false;
     try {
-      await fetch(`/api/schedules/${id}`, {
+      const res = await fetchWithTimeout(`/api/schedules/${encodeURIComponent(id)}`, {
         method: 'DELETE',
         headers: { 'X-Client-Id': clientSessionId.current }
-      });
-    } catch {}
+      }, 8000);
+      ok = res.ok;
+    } catch {
+      ok = false;
+    } finally {
+      endDbSave(ok);
+    }
   };
 
   const bulkGenerateSchedules = async (params: BulkScheduleParams) => {
@@ -7728,32 +7973,54 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
 
     schedulesRef.current = merged;
     setSchedules(merged);
-    localStorage.setItem(STORAGE_KEYS.SCHEDULES, JSON.stringify(merged));
+    safeSetItem(STORAGE_KEYS.SCHEDULES, JSON.stringify(merged));
     idbSet(STORAGE_KEYS.SCHEDULES, merged).catch(() => {});
 
+    try {
+      roundsChannel.current?.postMessage({ type: 'schedule_updated', schedules: newGenerated });
+    } catch {}
+
+    beginDbSave();
+    let ok = false;
     try {
       await Promise.all(
         replacedItems.map(old => {
           trackLocalDeletion(old.id);
           markDeletedScheduleId(old.id);
-          return fetch(`/api/schedules/${old.id}`, {
+          return fetchWithTimeout(`/api/schedules/${encodeURIComponent(old.id)}`, {
             method: 'DELETE',
             headers: { 'X-Client-Id': clientSessionId.current }
-          }).catch(() => {});
+          }, 8000).catch(() => {});
         })
       );
-      const res = await fetch('/api/schedules', {
+      const res = await fetchWithTimeout('/api/schedules', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'X-Client-Id': clientSessionId.current
         },
-        body: JSON.stringify(newGenerated)
-      });
+        body: JSON.stringify(newGenerated.map(s => ({ ...s, forceRestore: true })))
+      }, 15000);
       if (!res.ok) throw new Error('Bulk schedules POST failed');
+      const json = await res.json().catch(() => null);
+      const serverItems: TechnicianSchedule[] = Array.isArray(json?.schedules) ? json.schedules : [];
+      if (serverItems.length > 0) {
+        const reconciled = mergeScheduleLists(schedulesRef.current || [], serverItems, getDeletedScheduleIds());
+        schedulesRef.current = reconciled;
+        setSchedules(reconciled);
+        safeSetItem(STORAGE_KEYS.SCHEDULES, JSON.stringify(reconciled));
+        idbSet(STORAGE_KEYS.SCHEDULES, reconciled).catch(() => {});
+      }
+      if (scheduleRetryTimerRef.current) {
+        clearTimeout(scheduleRetryTimerRef.current);
+        scheduleRetryTimerRef.current = null;
+      }
+      ok = true;
     } catch {
       hasPendingLocalChanges.current = true;
-      persistToServer();
+      scheduleQueueRetrySync(newGenerated);
+    } finally {
+      endDbSave(ok);
     }
   };
 
@@ -8828,7 +9095,7 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
   // -------------------------------------------------------------
   const addUploadedDocument = async (
     docData: Omit<UploadedDocument, 'id'>,
-    options?: { silent?: boolean }
+    options?: { silent?: boolean; onOptimistic?: (doc: UploadedDocument) => void }
   ): Promise<UploadedDocument> => {
     markCollectionMutation('uploadedDocuments');
     const nowIso = new Date().toISOString();
@@ -8847,16 +9114,22 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
       safeSetItem(STORAGE_KEYS.DOCUMENTS, JSON.stringify(updated.map(d => ({ ...d, rawBase64: undefined }))));
     }
 
+    try {
+      roundsChannel.current?.postMessage({ type: 'uploaded_document_updated', document: newDoc });
+    } catch {}
+
+    options?.onOptimistic?.(newDoc);
+
     beginDbSave();
     try {
-      const res = await fetch('/api/uploaded-documents', {
+      const res = await fetchWithTimeout('/api/uploaded-documents', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'X-Client-Id': clientSessionId.current
         },
         body: JSON.stringify(newDoc)
-      });
+      }, 15000);
       if (res.ok) {
         endDbSave(true);
       } else {
@@ -8875,7 +9148,7 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
 
   const updateUploadedDocument = async (
     updatedDoc: UploadedDocument,
-    options?: { silent?: boolean; omitRawBase64?: boolean }
+    options?: { silent?: boolean; omitRawBase64?: boolean; skipGlobalSyncBadge?: boolean }
   ): Promise<boolean> => {
     markCollectionMutation('uploadedDocuments');
     const prevTs = new Date(updatedDoc.updatedAt || 0).getTime() || 0;
@@ -8898,27 +9171,30 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
       ? { ...stampedDoc, rawBase64: undefined }
       : stampedDoc;
 
-    let ok = false;
-    beginDbSave();
     try {
-      const res = await fetch(`/api/uploaded-documents/${encodeURIComponent(stampedDoc.id)}`, {
+      roundsChannel.current?.postMessage({ type: 'uploaded_document_updated', document: payloadDoc });
+    } catch {}
+
+    let ok = false;
+    if (!options?.skipGlobalSyncBadge) beginDbSave();
+    try {
+      const res = await fetchWithTimeout(`/api/uploaded-documents/${encodeURIComponent(stampedDoc.id)}`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
           'X-Client-Id': clientSessionId.current
         },
         body: JSON.stringify(payloadDoc)
-      });
+      }, 12000);
       if (res.ok) {
         ok = true;
-        endDbSave(true);
       } else {
         hasPendingLocalChanges.current = true;
-        endDbSave(false);
       }
     } catch {
       hasPendingLocalChanges.current = true;
-      endDbSave(false);
+    } finally {
+      if (!options?.skipGlobalSyncBadge) endDbSave(ok);
     }
     if (options?.silent === false) {
       notify(ok ? 'Documento actualizado en PostgreSQL' : '⚠️ No se pudo confirmar el guardado del documento en PostgreSQL');
@@ -8951,13 +9227,16 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
     setUploadedDocuments(updated);
     idbSet(STORAGE_KEYS.DOCUMENTS, updated).catch(() => {});
     safeSetItem(STORAGE_KEYS.DOCUMENTS, JSON.stringify(updated.map(d => ({ ...d, rawBase64: undefined }))));
+    try {
+      roundsChannel.current?.postMessage({ type: 'uploaded_document_deleted', documentId: id });
+    } catch {}
     notify('Documento eliminado correctamente');
     beginDbSave();
     try {
-      const res = await fetch(`/api/uploaded-documents/${id}`, {
+      const res = await fetchWithTimeout(`/api/uploaded-documents/${id}`, {
         method: 'DELETE',
         headers: { 'X-Client-Id': clientSessionId.current }
-      });
+      }, 10000);
       endDbSave(res.ok);
     } catch {
       endDbSave(false);
@@ -8991,16 +9270,19 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
     setDocumentFolders(updated);
     idbSet('hotel_doc_folders', updated).catch(() => {});
     safeSetItem('hotel_doc_folders', JSON.stringify(updated));
+    try {
+      roundsChannel.current?.postMessage({ type: 'document_folder_updated', folder: newFolder });
+    } catch {}
     beginDbSave();
     try {
-      const res = await fetch('/api/document-folders', {
+      const res = await fetchWithTimeout('/api/document-folders', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'X-Client-Id': clientSessionId.current
         },
         body: JSON.stringify(newFolder)
-      });
+      }, 10000);
       if (res.ok) {
         endDbSave(true);
       } else {
@@ -9032,16 +9314,19 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
     setDocumentFolders(updated);
     idbSet('hotel_doc_folders', updated).catch(() => {});
     safeSetItem('hotel_doc_folders', JSON.stringify(updated));
+    try {
+      roundsChannel.current?.postMessage({ type: 'document_folder_updated', folder: updatedFolderObj });
+    } catch {}
     beginDbSave();
     try {
-      const res = await fetch(`/api/document-folders/${folderId}`, {
+      const res = await fetchWithTimeout(`/api/document-folders/${folderId}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
           'X-Client-Id': clientSessionId.current
         },
         body: JSON.stringify(updatedFolderObj)
-      });
+      }, 10000);
       if (res.ok) {
         endDbSave(true);
       } else {
@@ -9080,12 +9365,15 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
     idbSet('hotel_doc_folders', updatedFolders).catch(() => {});
     idbSet(STORAGE_KEYS.DOCUMENTS, updatedDocs).catch(() => {});
     safeSetItem('hotel_doc_folders', JSON.stringify(updatedFolders));
+    try {
+      roundsChannel.current?.postMessage({ type: 'document_folder_deleted', folderId, fallbackParentId });
+    } catch {}
     notify('Carpeta eliminada correctamente');
     try {
-      await fetch(`/api/document-folders/${folderId}`, {
+      await fetchWithTimeout(`/api/document-folders/${folderId}`, {
         method: 'DELETE',
         headers: { 'X-Client-Id': clientSessionId.current }
-      });
+      }, 10000);
     } catch {}
   };
 
@@ -10467,7 +10755,7 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
         safeSetItem(STORAGE_KEYS.ROUNDS, JSON.stringify(compressedList));
         idbSet(STORAGE_KEYS.ROUNDS, compressedList).catch(() => {});
 
-        const retryDelays = [1500, 3500];
+        const retryDelays = [1200, 2500];
         let authoritativeRound: DailyRound | null = null;
         let savedCheckpointsCount = compressedRound.checkpoints.length;
 
@@ -10479,7 +10767,7 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
           }
 
           const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 45000);
+          const timeoutId = setTimeout(() => controller.abort(), 16000);
           try {
             const response = await fetch('/api/rounds/atomic', {
               method: 'POST',
@@ -10519,6 +10807,9 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
           hasPendingLocalChanges.current = true;
           endDbSave(false);
           notify('📶 Señal débil: tu ronda quedó cerrada y respaldada localmente; se sincronizará automáticamente al reconectar.');
+          setTimeout(() => {
+            void flushPendingOfflineRounds();
+          }, 8000);
           return;
         }
 

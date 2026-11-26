@@ -456,8 +456,10 @@ export const TechnicianSchedulesView: React.FC = () => {
 
       schedulePersonnelRef.current = newList;
       techOrderRef.current = effectiveOrder;
-      localStorage.setItem('hotel_maint_schedule_personnel', JSON.stringify(newList));
-      localStorage.setItem('hotel_maint_tech_order', JSON.stringify(effectiveOrder));
+      try {
+        localStorage.setItem('hotel_maint_schedule_personnel', JSON.stringify(newList));
+        localStorage.setItem('hotel_maint_tech_order', JSON.stringify(effectiveOrder));
+      } catch {}
 
       const res = await fetch(`/api/app-data/schedule_config?_t=${Date.now()}`, {
         method: 'POST',

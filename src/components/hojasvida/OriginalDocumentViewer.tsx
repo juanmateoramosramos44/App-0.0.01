@@ -27,7 +27,9 @@ import {
   Database,
   AlertCircle,
   X,
-  AlignCenter
+  AlignCenter,
+  LayoutGrid,
+  List
 } from 'lucide-react';
 import { UploadedDocument, DocumentFolder, UploadedDocumentSheet } from '../../types';
 import {
@@ -44,7 +46,7 @@ interface OriginalDocumentViewerProps {
   documents: UploadedDocument[];
   activeDocId?: string;
   onSelectDocument: (docId: string) => void;
-  onUpdateDocument?: (doc: UploadedDocument, options?: { silent?: boolean; omitRawBase64?: boolean }) => Promise<boolean | void> | void;
+  onUpdateDocument?: (doc: UploadedDocument, options?: { silent?: boolean; omitRawBase64?: boolean; skipGlobalSyncBadge?: boolean }) => Promise<boolean | void> | void;
   onMoveDocument?: (docId: string, folderId: string | null) => Promise<void> | void;
   onDeleteDocument: (docId: string) => Promise<void>;
   onClearAllDocuments?: () => Promise<void>;
@@ -153,8 +155,10 @@ const computeSheetsContentSignature = (sheets?: UploadedDocumentSheet[]): string
   }
 };
 
-const AUTOSAVE_DEBOUNCE_MS = 1200;
+const AUTOSAVE_DEBOUNCE_MS = 450;
+const SAVED_DISPLAY_DURATION_MS = 2200;
 const AUTO_CENTER_STORAGE_KEY = 'hdv_excel_auto_center';
+const FOLDER_VIEW_MODE_STORAGE_KEY = 'hdv_folder_view_mode';
 
 export const OriginalDocumentViewer: React.FC<OriginalDocumentViewerProps> = ({
   documents,
@@ -194,12 +198,27 @@ export const OriginalDocumentViewer: React.FC<OriginalDocumentViewerProps> = ({
   // Drag & Drop state on viewer
   const [isDraggingFiles, setIsDraggingFiles] = useState(false);
 
-  // Optimistic / debounced autosave state for FortuneSheet (explícito en false al abrir)
+  // Optimistic / debounced autosave state for FortuneSheet (explícito en 'idle' al abrir)
   const [draftDoc, setDraftDoc] = useState<UploadedDocument | null>(null);
-  const [isSaving, setIsSaving] = useState<boolean>(false);
-  const [localSaveState, setLocalSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [workbookSessionKey, setWorkbookSessionKey] = useState<string>('');
   const [workbookSeedSheets, setWorkbookSeedSheets] = useState<FortuneSheet[]>([]);
+
+  // Vista de carpetas persistida (Cuadrícula o Lista)
+  const [folderViewMode, setFolderViewMode] = useState<'grid' | 'list'>(() => {
+    try {
+      return localStorage.getItem(FOLDER_VIEW_MODE_STORAGE_KEY) === 'list' ? 'list' : 'grid';
+    } catch {
+      return 'grid';
+    }
+  });
+
+  const handleSetFolderViewMode = useCallback((mode: 'grid' | 'list') => {
+    setFolderViewMode(mode);
+    try {
+      localStorage.setItem(FOLDER_VIEW_MODE_STORAGE_KEY, mode);
+    } catch {}
+  }, []);
 
   // Auto-Centrar texto toggle (persistido por preferencia local)
   const [autoCenterEnabled, setAutoCenterEnabled] = useState<boolean>(() => {
@@ -219,8 +238,10 @@ export const OriginalDocumentViewer: React.FC<OriginalDocumentViewerProps> = ({
   const savedResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const bgBinarySyncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const saveSeqRef = useRef<number>(0);
+  const editVersionRef = useRef<number>(0);
   const isDirtyRef = useRef<boolean>(false);
   const hasUserEditedDocRef = useRef<boolean>(false);
+  const isMountedRef = useRef<boolean>(true);
   const lastSavedStampRef = useRef<string>('');
   const lastSyncedSignatureRef = useRef<string>('');
 
@@ -336,8 +357,9 @@ export const OriginalDocumentViewer: React.FC<OriginalDocumentViewerProps> = ({
 
   // Fast asynchronous PostgreSQL persistence (JSON sheets + styles first, silent background binary sync)
   const persistDocSnapshotToDb = useCallback(async (docSnapshot: UploadedDocument, options?: { syncBinaryNow?: boolean }) => {
-    if (!onUpdateDocument) return;
+    if (!onUpdateDocument || !isMountedRef.current) return;
     const seq = ++saveSeqRef.current;
+    const capturedEditVersion = editVersionRef.current;
     if (savedResetTimerRef.current) {
       clearTimeout(savedResetTimerRef.current);
       savedResetTimerRef.current = null;
@@ -346,8 +368,7 @@ export const OriginalDocumentViewer: React.FC<OriginalDocumentViewerProps> = ({
       clearTimeout(bgBinarySyncTimerRef.current);
       bgBinarySyncTimerRef.current = null;
     }
-    setIsSaving(true);
-    setLocalSaveState('saving');
+    setSaveStatus('saving');
     try {
       const isSpreadsheet = getDocVisualType(docSnapshot) === 'spreadsheet';
       const syncBinaryNow = Boolean(options?.syncBinaryNow && isSpreadsheet);
@@ -365,26 +386,49 @@ export const OriginalDocumentViewer: React.FC<OriginalDocumentViewerProps> = ({
         updatedAt: updatedStamp
       };
       lastSavedStampRef.current = `${docToSave.id}:${updatedStamp}`;
-      const updateOutcome = await onUpdateDocument(docToSave, {
-        silent: true,
-        omitRawBase64: isSpreadsheet && !syncBinaryNow
+
+      const updatePromise = Promise.resolve(
+        onUpdateDocument(docToSave, {
+          silent: true,
+          omitRawBase64: isSpreadsheet && !syncBinaryNow
+        })
+      );
+      const timeoutPromise = new Promise<boolean>((resolve) => {
+        setTimeout(() => resolve(false), 12000);
       });
+      const updateOutcome = await Promise.race([updatePromise, timeoutPromise]);
       const confirmedOk = updateOutcome !== false;
 
-      if (saveSeqRef.current === seq) {
-        setIsSaving(false);
-        if (confirmedOk) {
+      if (!isMountedRef.current) return;
+      // Si el usuario cambió a otro documento mientras guardaba el anterior, no alterar el estado visual del nuevo documento
+      if (latestDocRef.current && latestDocRef.current.id !== docToSave.id) {
+        return;
+      }
+
+      if (confirmedOk) {
+        lastSyncedSignatureRef.current = computeSheetsContentSignature(docToSave.sheets);
+
+        // Si hubo una nueva edición mientras este guardado viajaba a PostgreSQL, asegurar que el último cambio también se guarde
+        const hasNewerUnflushedEdit = editVersionRef.current !== capturedEditVersion;
+        if (hasNewerUnflushedEdit) {
+          if (!autosaveTimerRef.current && latestDocRef.current && latestDocRef.current.id === docToSave.id) {
+            void persistDocSnapshotToDb(latestDocRef.current);
+          }
+          return;
+        }
+
+        if (saveSeqRef.current === seq) {
           isDirtyRef.current = false;
           hasUserEditedDocRef.current = false;
-          lastSyncedSignatureRef.current = computeSheetsContentSignature(docToSave.sheets);
           latestDocRef.current = docToSave;
           setDraftDoc(prev => (prev && prev.id === docToSave.id ? docToSave : prev));
-          setLocalSaveState('saved');
+          setSaveStatus('saved');
           savedResetTimerRef.current = setTimeout(() => {
-            if (saveSeqRef.current === seq) {
-              setLocalSaveState('idle');
+            if (!isMountedRef.current) return;
+            if (saveSeqRef.current === seq && !isDirtyRef.current) {
+              setSaveStatus('idle');
             }
-          }, 1600);
+          }, SAVED_DISPLAY_DURATION_MS);
 
           // Silent off-thread .xlsx binary refresh when idle (never flashes "Guardando...")
           if (isSpreadsheet && !syncBinaryNow) {
@@ -392,10 +436,10 @@ export const OriginalDocumentViewer: React.FC<OriginalDocumentViewerProps> = ({
             const targetSig = lastSyncedSignatureRef.current;
             bgBinarySyncTimerRef.current = setTimeout(() => {
               void (async () => {
-                if (isDirtyRef.current || latestDocRef.current?.id !== targetId) return;
+                if (!isMountedRef.current || isDirtyRef.current || latestDocRef.current?.id !== targetId) return;
                 try {
                   const fullBase64 = await rebuildWorkbookBase64FromDocOffThread(docToSave);
-                  if (!fullBase64 || isDirtyRef.current || latestDocRef.current?.id !== targetId) return;
+                  if (!fullBase64 || !isMountedRef.current || isDirtyRef.current || latestDocRef.current?.id !== targetId) return;
                   if (computeSheetsContentSignature(latestDocRef.current?.sheets) !== targetSig) return;
                   const withBinary: UploadedDocument = {
                     ...docToSave,
@@ -405,20 +449,19 @@ export const OriginalDocumentViewer: React.FC<OriginalDocumentViewerProps> = ({
                     updatedAt: new Date().toISOString()
                   };
                   lastSavedStampRef.current = `${withBinary.id}:${withBinary.updatedAt}`;
-                  await onUpdateDocument(withBinary, { silent: true });
+                  await onUpdateDocument(withBinary, { silent: true, skipGlobalSyncBadge: true });
                 } catch {}
               })();
             }, 2200);
           }
-        } else {
-          setLocalSaveState('error');
         }
+      } else if (saveSeqRef.current === seq) {
+        setSaveStatus('error');
       }
     } catch (err) {
       console.error('Error en autoguardado de hoja:', err);
-      if (saveSeqRef.current === seq) {
-        setIsSaving(false);
-        setLocalSaveState('error');
+      if (isMountedRef.current && saveSeqRef.current === seq && latestDocRef.current?.id === docSnapshot.id) {
+        setSaveStatus('error');
       }
     }
   }, [onUpdateDocument]);
@@ -438,7 +481,9 @@ export const OriginalDocumentViewer: React.FC<OriginalDocumentViewerProps> = ({
 
   // Cleanup timers on unmount
   useEffect(() => {
+    isMountedRef.current = true;
     return () => {
+      isMountedRef.current = false;
       if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
       if (savedResetTimerRef.current) clearTimeout(savedResetTimerRef.current);
       if (bgBinarySyncTimerRef.current) clearTimeout(bgBinarySyncTimerRef.current);
@@ -452,6 +497,10 @@ export const OriginalDocumentViewer: React.FC<OriginalDocumentViewerProps> = ({
         clearTimeout(autosaveTimerRef.current);
         autosaveTimerRef.current = null;
       }
+      if (savedResetTimerRef.current) {
+        clearTimeout(savedResetTimerRef.current);
+        savedResetTimerRef.current = null;
+      }
       if (bgBinarySyncTimerRef.current) {
         clearTimeout(bgBinarySyncTimerRef.current);
         bgBinarySyncTimerRef.current = null;
@@ -464,8 +513,7 @@ export const OriginalDocumentViewer: React.FC<OriginalDocumentViewerProps> = ({
       setDraftDoc(null);
       setWorkbookSessionKey('');
       setWorkbookSeedSheets([]);
-      setIsSaving(false);
-      setLocalSaveState('idle');
+      setSaveStatus('idle');
       return;
     }
 
@@ -479,15 +527,22 @@ export const OriginalDocumentViewer: React.FC<OriginalDocumentViewerProps> = ({
           clearTimeout(autosaveTimerRef.current);
           autosaveTimerRef.current = null;
         }
-        void persistDocSnapshotToDb(latestDocRef.current, { syncBinaryNow: true });
+        const prevDocToFlush = latestDocRef.current;
+        void onUpdateDocument(
+          { ...prevDocToFlush, updatedAt: new Date().toISOString() },
+          { silent: true, omitRawBase64: getDocVisualType(prevDocToFlush) === 'spreadsheet' }
+        );
+      }
+      if (savedResetTimerRef.current) {
+        clearTimeout(savedResetTimerRef.current);
+        savedResetTimerRef.current = null;
       }
       isDirtyRef.current = false;
       hasUserEditedDocRef.current = false;
       lastSyncedSignatureRef.current = computeSheetsContentSignature(storeDoc.sheets);
       latestDocRef.current = storeDoc;
       setDraftDoc(storeDoc);
-      setIsSaving(false);
-      setLocalSaveState('idle');
+      setSaveStatus('idle');
 
       if (getDocVisualType(storeDoc) === 'spreadsheet') {
         const converted = uploadedDocToFortuneSheets(storeDoc);
@@ -652,6 +707,13 @@ export const OriginalDocumentViewer: React.FC<OriginalDocumentViewerProps> = ({
     const mappedSheets = fortuneSheetsToUploadedSheets(nextSheets, baseDoc.sheets);
     const nextSig = computeSheetsContentSignature(mappedSheets);
     if (nextSig === lastSyncedSignatureRef.current) {
+      if (autosaveTimerRef.current) {
+        clearTimeout(autosaveTimerRef.current);
+        autosaveTimerRef.current = null;
+      }
+      isDirtyRef.current = false;
+      hasUserEditedDocRef.current = false;
+      setSaveStatus(curr => (curr === 'saving' ? 'idle' : curr));
       return;
     }
 
@@ -667,20 +729,29 @@ export const OriginalDocumentViewer: React.FC<OriginalDocumentViewerProps> = ({
     // 0ms instant optimistic update without resetting Workbook key
     latestDocRef.current = optimisticDoc;
     isDirtyRef.current = true;
+    editVersionRef.current += 1;
     setDraftDoc(optimisticDoc);
     if (savedResetTimerRef.current) {
       clearTimeout(savedResetTimerRef.current);
       savedResetTimerRef.current = null;
     }
-    setLocalSaveState(prev => (prev === 'saved' || prev === 'error' ? 'idle' : prev));
+    if (bgBinarySyncTimerRef.current) {
+      clearTimeout(bgBinarySyncTimerRef.current);
+      bgBinarySyncTimerRef.current = null;
+    }
+    // Al escribir o editar, mostrar inmediatamente "Guardando..."
+    setSaveStatus('saving');
 
     if (autosaveTimerRef.current) {
       clearTimeout(autosaveTimerRef.current);
     }
     autosaveTimerRef.current = setTimeout(() => {
+      autosaveTimerRef.current = null;
       const snap = latestDocRef.current;
       if (snap && isDirtyRef.current) {
         void persistDocSnapshotToDb(snap);
+      } else {
+        setSaveStatus(curr => (curr === 'saving' ? 'idle' : curr));
       }
     }, AUTOSAVE_DEBOUNCE_MS);
   }, [persistDocSnapshotToDb]);
@@ -727,12 +798,7 @@ export const OriginalDocumentViewer: React.FC<OriginalDocumentViewerProps> = ({
   };
 
   // Indicador de guardado desacoplado de sincronizaciones globales no relacionadas
-  const effectiveSaveStatus: 'idle' | 'saving' | 'saved' | 'error' = useMemo(() => {
-    if (isSaving || localSaveState === 'saving') return 'saving';
-    if (localSaveState === 'error') return 'error';
-    if (localSaveState === 'saved') return 'saved';
-    return 'idle';
-  }, [isSaving, localSaveState]);
+  const effectiveSaveStatus = saveStatus;
 
   const renderDocIcon = (doc: UploadedDocument) => {
     const vType = getDocVisualType(doc);
@@ -889,7 +955,7 @@ export const OriginalDocumentViewer: React.FC<OriginalDocumentViewerProps> = ({
         </div>
       )}
 
-      {/* Folders / Subfolders Grid */}
+      {/* Folders / Subfolders Grid & List View */}
       {!isFullscreen && (
         <div className="bg-white rounded-2xl p-4 border border-slate-200 space-y-3">
           <div className="flex items-center justify-between gap-2 flex-wrap">
@@ -901,14 +967,52 @@ export const OriginalDocumentViewer: React.FC<OriginalDocumentViewerProps> = ({
                   : `Carpetas Guardadas (${childFolders.length})`}
               </h4>
             </div>
-            <button
-              type="button"
-              onClick={() => openNewFolderModal(activeFolderId || null)}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition-colors whitespace-nowrap shrink-0 cursor-pointer"
-            >
-              <FolderPlus className="w-4 h-4" />
-              <span>{activeFolder ? 'Nueva Subcarpeta' : 'Nueva Carpeta'}</span>
-            </button>
+            <div className="flex items-center gap-2 flex-wrap">
+              {/* Toggle Vista Cuadrícula / Lista */}
+              <div
+                className="inline-flex items-center bg-slate-100 p-0.5 rounded-xl border border-slate-200"
+                role="group"
+                aria-label="Modo de vista de carpetas"
+              >
+                <button
+                  type="button"
+                  onClick={() => handleSetFolderViewMode('grid')}
+                  title="Vista en cuadrícula"
+                  aria-pressed={folderViewMode === 'grid'}
+                  className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                    folderViewMode === 'grid'
+                      ? 'bg-white text-slate-900 shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  <LayoutGrid className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Cuadrícula</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSetFolderViewMode('list')}
+                  title="Vista en lista"
+                  aria-pressed={folderViewMode === 'list'}
+                  className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                    folderViewMode === 'list'
+                      ? 'bg-white text-slate-900 shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  <List className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Lista</span>
+                </button>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => openNewFolderModal(activeFolderId || null)}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+              >
+                <FolderPlus className="w-4 h-4" />
+                <span>{activeFolder ? 'Nueva Subcarpeta' : 'Nueva Carpeta'}</span>
+              </button>
+            </div>
           </div>
 
           {childFolders.length === 0 ? (
@@ -916,6 +1020,138 @@ export const OriginalDocumentViewer: React.FC<OriginalDocumentViewerProps> = ({
               {activeFolder
                 ? `No hay subcarpetas dentro de "${activeFolder.name}". Pulsa "Nueva Subcarpeta" para organizar aún más este directorio.`
                 : 'No hay carpetas creadas todavía. Crea una carpeta para organizar tus archivos por equipos, zonas o años.'}
+            </div>
+          ) : folderViewMode === 'list' ? (
+            <div className="divide-y divide-slate-200/80 border border-slate-200 rounded-xl overflow-hidden bg-white">
+              {childFolders.map(folder => {
+                const descendantSet = getDescendantFolderIds(folder.id);
+                const directSubfoldersCount = folders.filter(f => getEffectiveParentId(f) === folder.id).length;
+                const directDocsCount = documents.filter(d => d.folderId === folder.id).length;
+                const totalNestedDocsCount = documents.filter(d => d.folderId && descendantSet.has(d.folderId)).length;
+                const colorKey = folder.color && FOLDER_COLOR_STYLES[folder.color] ? folder.color : 'amber';
+                const cStyle = FOLDER_COLOR_STYLES[colorKey];
+                const isRenaming = renamingFolderId === folder.id;
+
+                return (
+                  <div
+                    key={folder.id}
+                    onClick={() => { if (!isRenaming) onSelectFolder(folder.id); }}
+                    className="group flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 px-3.5 py-2.5 hover:bg-slate-50 cursor-pointer transition-colors"
+                  >
+                    <div className="flex items-center gap-3 min-w-0 flex-1">
+                      <div className={`w-8 h-8 rounded-lg ${cStyle.bg} ${cStyle.text} border ${cStyle.border} flex items-center justify-center shrink-0`}>
+                        <FolderOpen className="w-4 h-4" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        {isRenaming ? (
+                          <div className="flex items-center gap-1 max-w-xs" onClick={(e) => e.stopPropagation()}>
+                            <input
+                              type="text"
+                              value={renameFolderInput}
+                              onChange={(e) => setRenameFolderInput(e.target.value)}
+                              className="w-full px-2 py-1 text-xs font-bold border border-emerald-400 rounded-lg bg-white text-slate-900 focus:outline-none"
+                              autoFocus
+                              onKeyDown={async (e) => {
+                                if (e.key === 'Enter' && renameFolderInput.trim() && onUpdateFolder) {
+                                  await onUpdateFolder(folder.id, { name: renameFolderInput.trim() });
+                                  setRenamingFolderId(null);
+                                } else if (e.key === 'Escape') {
+                                  setRenamingFolderId(null);
+                                }
+                              }}
+                            />
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                if (renameFolderInput.trim() && onUpdateFolder) {
+                                  await onUpdateFolder(folder.id, { name: renameFolderInput.trim() });
+                                }
+                                setRenamingFolderId(null);
+                              }}
+                              className="p-1 bg-emerald-600 text-white rounded-md cursor-pointer"
+                            >
+                              <Check className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-2 min-w-0">
+                            <h5 className="text-xs font-bold text-slate-900 truncate group-hover:text-emerald-800">
+                              {folder.name}
+                            </h5>
+                            {folder.description && (
+                              <span className="text-[11px] text-slate-400 truncate hidden md:inline">
+                                • {folder.description}
+                              </span>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between sm:justify-end gap-2.5 shrink-0" onClick={(e) => e.stopPropagation()}>
+                      <span className="text-[11px] text-slate-500 font-medium tabular-nums whitespace-nowrap">
+                        {directSubfoldersCount > 0
+                          ? `${directSubfoldersCount} subc. • ${totalNestedDocsCount} arch.`
+                          : `${directDocsCount} ${directDocsCount === 1 ? 'archivo' : 'archivos'}`}
+                      </span>
+
+                      {onUpdateFolder && folders.length > 1 && (
+                        <select
+                          value={getEffectiveParentId(folder) || ''}
+                          onChange={(e) => {
+                            const nextParent = e.target.value || null;
+                            onUpdateFolder(folder.id, { parentFolderId: nextParent });
+                          }}
+                          className="text-[11px] font-semibold bg-white border border-slate-200 rounded-lg px-2 py-0.5 text-slate-700 max-w-[140px] truncate focus:outline-none focus:ring-1 focus:ring-emerald-500 cursor-pointer"
+                          title="Mover carpeta dentro de otra carpeta"
+                        >
+                          <option value="">Raíz</option>
+                          {flattenedFolderOptions
+                            .filter(opt => !descendantSet.has(opt.folder.id))
+                            .map(opt => (
+                              <option key={opt.folder.id} value={opt.folder.id}>{opt.label}</option>
+                            ))}
+                        </select>
+                      )}
+
+                      <div className="flex items-center gap-1">
+                        {onUpdateFolder && !isRenaming && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setRenamingFolderId(folder.id);
+                              setRenameFolderInput(folder.name);
+                            }}
+                            className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-200/70 transition-colors cursor-pointer"
+                            title="Renombrar carpeta"
+                          >
+                            <Edit3 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                        {canDeleteRecords && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const targetDest = getEffectiveParentId(folder) ? 'la carpeta superior' : 'la raíz';
+                              if (window.confirm(`¿Eliminar la carpeta "${folder.name}"? Sus subcarpetas y archivos pasarán a ${targetDest} sin borrarse.`)) {
+                                onDeleteFolder(folder.id);
+                              }
+                            }}
+                            className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
+                            title={`Eliminar carpeta "${folder.name}"`}
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                        <ChevronRight
+                          onClick={() => { if (!isRenaming) onSelectFolder(folder.id); }}
+                          className="w-4 h-4 text-slate-400 group-hover:text-emerald-600 cursor-pointer"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -1300,19 +1536,21 @@ export const OriginalDocumentViewer: React.FC<OriginalDocumentViewerProps> = ({
                     aria-live="polite"
                   >
                     {effectiveSaveStatus === 'saving' ? (
-                      <Loader2 className="w-3 h-3 animate-spin" />
+                      <>
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                        <span>Guardando...</span>
+                      </>
                     ) : effectiveSaveStatus === 'saved' ? (
-                      <Check className="w-3 h-3" />
+                      <>
+                        <Check className="w-3.5 h-3.5 text-emerald-600 stroke-[2.75]" />
+                        <span>Guardado</span>
+                      </>
                     ) : (
-                      <AlertCircle className="w-3 h-3" />
+                      <>
+                        <AlertCircle className="w-3 h-3" />
+                        <span>Error al guardar</span>
+                      </>
                     )}
-                    <span>
-                      {effectiveSaveStatus === 'saving'
-                        ? 'Guardando...'
-                        : effectiveSaveStatus === 'saved'
-                        ? 'Guardado'
-                        : 'Error al guardar'}
-                    </span>
                   </span>
                 )}
               </div>
@@ -1396,7 +1634,7 @@ export const OriginalDocumentViewer: React.FC<OriginalDocumentViewerProps> = ({
           {/* Interactive Renderer by File Type */}
           {currentVisualType === 'spreadsheet' ? (
             <div
-              className={`w-full relative bg-white ${
+              className={`w-full relative bg-white excel-precision-scroll ${
                 isFullscreen ? 'flex-1 min-h-[75vh]' : 'h-[660px]'
               }`}
             >
@@ -1420,7 +1658,7 @@ export const OriginalDocumentViewer: React.FC<OriginalDocumentViewerProps> = ({
               )}
             </div>
           ) : currentVisualType === 'pdf' && previewBlobUrl ? (
-            <div className={`w-full bg-slate-100 ${isFullscreen ? 'flex-1 min-h-[75vh]' : 'h-[660px]'}`}>
+            <div className={`w-full bg-slate-100 excel-precision-scroll ${isFullscreen ? 'flex-1 min-h-[75vh]' : 'h-[660px]'}`}>
               <iframe
                 src={previewBlobUrl}
                 title={currentDoc.name}
@@ -1428,7 +1666,7 @@ export const OriginalDocumentViewer: React.FC<OriginalDocumentViewerProps> = ({
               />
             </div>
           ) : currentVisualType === 'image' && previewBlobUrl ? (
-            <div className={`w-full bg-slate-950/5 flex items-center justify-center p-4 overflow-auto ${isFullscreen ? 'flex-1 min-h-[75vh]' : 'h-[560px]'}`}>
+            <div className={`w-full bg-slate-950/5 flex items-center justify-center p-4 overflow-auto excel-precision-scroll ${isFullscreen ? 'flex-1 min-h-[75vh]' : 'h-[560px]'}`}>
               <img
                 src={previewBlobUrl}
                 alt={currentDoc.name}

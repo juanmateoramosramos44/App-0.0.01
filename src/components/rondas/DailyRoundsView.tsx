@@ -947,6 +947,9 @@ export const DailyRoundsView: React.FC = () => {
       finalSignature,
       false
     );
+    try {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    } catch {}
   };
 
   const handleAddAnomalySubmit = (e: React.FormEvent) => {

@@ -335,7 +335,7 @@ export const EquipmentResumeView: React.FC = () => {
     }
   };
 
-  // Parse one or multiple files (Excel with exact ExcelJS fidelity + universal binary formats accept=*/*)
+  // Parse one or multiple files concurrently (Excel with exact ExcelJS fidelity + universal binary formats accept=*/*)
   const processSelectedExcelFiles = async (files: File[]) => {
     if (!files || files.length === 0) return;
     setImportError(null);
@@ -345,12 +345,9 @@ export const EquipmentResumeView: React.FC = () => {
     try {
       const uploader = currentUser?.displayName || (isAdmin ? 'Administrador' : 'Equipo Mantenimiento');
       const targetFolder = uploadTargetFolderId || activeFolderId || undefined;
-      const parsedList: Omit<UploadedDocument, 'id'>[] = [];
-
-      for (const file of files) {
-        const parsed = await parseUniversalFileToUploadedDocument(file, uploader, targetFolder);
-        parsedList.push(parsed);
-      }
+      const parsedList = await Promise.all(
+        files.map((file) => parseUniversalFileToUploadedDocument(file, uploader, targetFolder))
+      );
 
       setParsedUploadedDocs(parsedList);
       setExcelPreviewData([]);
@@ -369,29 +366,35 @@ export const EquipmentResumeView: React.FC = () => {
     await processSelectedExcelFiles(files);
   };
 
-  // Quick drag-and-drop direct upload into active folder (silent, optimistic PostgreSQL save)
+  // Quick drag-and-drop direct upload into active folder (0ms optimistic UI + parallel background PostgreSQL save)
   const handleQuickUploadFiles = async (files: File[]) => {
     if (!files || files.length === 0) return;
     const uploader = currentUser?.displayName || (isAdmin ? 'Administrador' : 'Equipo Mantenimiento');
     const targetFolder = activeFolderId || undefined;
     try {
-      let lastSavedId = '';
-      for (const file of files) {
-        const parsed = await parseUniversalFileToUploadedDocument(file, uploader, targetFolder);
-        const saved = await addUploadedDocument(parsed, { silent: true });
-        lastSavedId = saved.id;
-      }
-      if (lastSavedId) {
-        setActiveDocId(lastSavedId);
-        setActiveSubTab('visor_documentos');
-      }
+      const parsedList = await Promise.all(
+        files.map((file) => parseUniversalFileToUploadedDocument(file, uploader, targetFolder))
+      );
+      let firstOptimisticId = '';
+      parsedList.forEach((parsed) => {
+        void addUploadedDocument(parsed, {
+          silent: true,
+          onOptimistic: (optimisticDoc) => {
+            if (!firstOptimisticId) {
+              firstOptimisticId = optimisticDoc.id;
+              setActiveDocId(optimisticDoc.id);
+              setActiveSubTab('visor_documentos');
+            }
+          }
+        });
+      });
     } catch (err) {
       console.error(err);
       notify('Error al subir uno o más archivos');
     }
   };
 
-  // Confirm File Import and Save Documents silently into PostgreSQL
+  // Confirm File Import and Save Documents with 0ms Optimistic UI + parallel background PostgreSQL save
   const handleConfirmExcelImport = async () => {
     if (parsedUploadedDocs.length === 0) {
       notify('Por favor selecciona al menos un archivo');
@@ -401,21 +404,27 @@ export const EquipmentResumeView: React.FC = () => {
     setIsImporting(true);
     try {
       const targetFolderId = uploadTargetFolderId || undefined;
-      let lastSaved: UploadedDocument | null = null;
+      const docsSnapshot = [...parsedUploadedDocs];
+      let latestOptimisticId = '';
 
-      for (const docItem of parsedUploadedDocs) {
+      docsSnapshot.forEach((docItem) => {
         const docToSave: Omit<UploadedDocument, 'id'> = {
           ...docItem,
           folderId: targetFolderId
         };
-        lastSaved = await addUploadedDocument(docToSave, { silent: true });
-      }
+        void addUploadedDocument(docToSave, {
+          silent: true,
+          onOptimistic: (optimisticDoc) => {
+            latestOptimisticId = optimisticDoc.id;
+          }
+        });
+      });
 
-      if (lastSaved) {
-        setActiveFolderId(targetFolderId || activeFolderId || null);
-        setActiveDocId(lastSaved.id);
-        setActiveSubTab('visor_documentos');
+      setActiveFolderId(targetFolderId || activeFolderId || null);
+      if (latestOptimisticId) {
+        setActiveDocId(latestOptimisticId);
       }
+      setActiveSubTab('visor_documentos');
 
       setIsExcelModalOpen(false);
       setExcelPreviewData([]);
@@ -429,7 +438,7 @@ export const EquipmentResumeView: React.FC = () => {
     }
   };
 
-  // Create New Excel Document from Template
+  // Create New Excel Document from Template (0ms optimistic open)
   const handleCreateNewExcelDocument = async (e: React.FormEvent) => {
     e.preventDefault();
     const cleanName = newExcelFileName.trim();
@@ -448,10 +457,14 @@ export const EquipmentResumeView: React.FC = () => {
         uploader,
         targetFolder
       );
-      const saved = await addUploadedDocument(newDocDraft, { silent: true });
-      setActiveFolderId(targetFolder || null);
-      setActiveDocId(saved.id);
-      setActiveSubTab('visor_documentos');
+      void addUploadedDocument(newDocDraft, {
+        silent: true,
+        onOptimistic: (optimisticDoc) => {
+          setActiveFolderId(targetFolder || null);
+          setActiveDocId(optimisticDoc.id);
+          setActiveSubTab('visor_documentos');
+        }
+      });
       setIsCreateExcelModalOpen(false);
       setNewExcelFileName('');
     } catch (err) {

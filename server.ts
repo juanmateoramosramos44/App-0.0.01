@@ -4917,7 +4917,7 @@ app.get("/api/schedules", async (_req, res) => {
   res.json((store.schedules || []).filter((s: any) => s && s.id && !deletedSet.has(s.id)));
 });
 app.post("/api/schedules", async (req, res) => {
-  const items = Array.isArray(req.body) ? req.body : [req.body];
+  const rawList = Array.isArray(req.body) ? req.body : [req.body];
   const store = getCachedData();
   if (!Array.isArray(store.schedules)) store.schedules = [];
   const deletedSet = await getAuthoritativeDeletedIdsSet();
@@ -4925,14 +4925,18 @@ app.post("/api/schedules", async (req, res) => {
   const replacedConflictIds: string[] = [];
   const clientId = req.headers['x-client-id'] || null;
 
-  for (const rawItem of items) {
-    if (!rawItem || !rawItem.id || (deletedSet.has(rawItem.id) && !rawItem.forceRestore)) continue;
+  for (const rawItem of rawList) {
+    if (!rawItem || !rawItem.id) continue;
+    // Allow explicit schedule saves/edits to restore deleted IDs unless explicitly marked forceRestore: false
+    const shouldForceRestore = rawItem.forceRestore !== false;
+    if (deletedSet.has(rawItem.id) && !shouldForceRestore) continue;
+
     const cleanIncoming: Record<string, any> = {};
     for (const k of Object.keys(rawItem)) {
       if (rawItem[k] !== undefined && k !== 'forceRestore') cleanIncoming[k] = rawItem[k];
     }
 
-    const idx = store.schedules.findIndex((s: any) => s.id === cleanIncoming.id);
+    const idx = store.schedules.findIndex((s: any) => s && s.id === cleanIncoming.id);
     const existingById = idx >= 0 ? store.schedules[idx] : (pgPool ? await pgGet('schedules', cleanIncoming.id) : null);
 
     // Detect conflicting legacy/alternate-ID shifts for the same (date + canonicalTechKey) so old shifts NEVER resurface
@@ -4967,12 +4971,13 @@ app.post("/api/schedules", async (req, res) => {
       updatedAt: monotonicUpdatedAt(newestConflict, cleanIncoming.updatedAt)
     };
 
-    const pgOk = await pgUpsert('schedules', savedItem.id, savedItem, Boolean(rawItem.forceRestore));
+    const pgOk = await pgUpsert('schedules', savedItem.id, savedItem, true);
     if (pgPool && !pgOk) {
       return res.status(503).json({ error: "PostgreSQL save failed for schedule" });
     }
+    deletedSet.delete(savedItem.id);
 
-    const curIdx = store.schedules.findIndex((s: any) => s.id === savedItem.id);
+    const curIdx = store.schedules.findIndex((s: any) => s && s.id === savedItem.id);
     if (curIdx >= 0) store.schedules[curIdx] = savedItem;
     else store.schedules.push(savedItem);
 
@@ -4983,24 +4988,41 @@ app.post("/api/schedules", async (req, res) => {
     broadcastSse({ type: 'schedule_deleted', scheduleId: rId, clientId, time: Date.now() });
   }
   if (savedItems.length > 0) {
-    broadcastSse({ type: 'schedule_updated', schedules: savedItems, schedule: savedItems[0], clientId, time: Date.now() });
+    broadcastSse({
+      type: 'schedule_updated',
+      schedules: savedItems,
+      schedule: savedItems[0],
+      restoredIds: savedItems.map((s: any) => s.id),
+      clientId,
+      time: Date.now()
+    });
   }
   broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
-  res.json({ status: "success", count: savedItems.length, schedules: savedItems });
+  res.json({ status: "success", count: savedItems.length, schedules: savedItems, schedule: savedItems[0] || null });
 });
 const handleUpdateScheduleRoute = async (req: express.Request, res: express.Response) => {
   const { id } = req.params;
   if (!id) return res.status(400).json({ error: "Schedule ID is required" });
-  if (await isIdDeletedInServer(id)) return res.status(410).json({ error: "Deleted", id });
+  const forceRestore = req.body?.forceRestore !== false;
+  if (!forceRestore && await isIdDeletedInServer(id)) return res.status(410).json({ error: "Deleted", id });
+
   const store = getCachedData();
   if (!Array.isArray(store.schedules)) store.schedules = [];
   const idx = store.schedules.findIndex((s: any) => s && s.id === id);
   const existing = idx >= 0 ? store.schedules[idx] : (pgPool ? await pgGet('schedules', id) : null);
+
+  const cleanBody: Record<string, any> = {};
+  if (req.body && typeof req.body === 'object') {
+    for (const k of Object.keys(req.body)) {
+      if (req.body[k] !== undefined && k !== 'forceRestore') cleanBody[k] = req.body[k];
+    }
+  }
+
   const item = {
     ...(existing || {}),
-    ...(req.body || {}),
+    ...cleanBody,
     id,
-    updatedAt: monotonicUpdatedAt(existing, req.body?.updatedAt)
+    updatedAt: monotonicUpdatedAt(existing, cleanBody.updatedAt)
   };
 
   // Deduplicate same canonical technician + date if any alternate ID exists
@@ -5025,7 +5047,7 @@ const handleUpdateScheduleRoute = async (req: express.Request, res: express.Resp
     }
   }
 
-  const pgOk = await pgUpsert('schedules', id, item, false);
+  const pgOk = await pgUpsert('schedules', id, item, true);
   if (pgPool && !pgOk) return res.status(503).json({ error: "PostgreSQL save failed for schedule" });
 
   const curIdx = store.schedules.findIndex((s: any) => s && s.id === id);
@@ -5037,7 +5059,14 @@ const handleUpdateScheduleRoute = async (req: express.Request, res: express.Resp
   for (const rId of replacedConflictIds) {
     broadcastSse({ type: 'schedule_deleted', scheduleId: rId, clientId, time: Date.now() });
   }
-  broadcastSse({ type: 'schedule_updated', schedules: [item], schedule: item, clientId, time: Date.now() });
+  broadcastSse({
+    type: 'schedule_updated',
+    schedules: [item],
+    schedule: item,
+    restoredIds: [id],
+    clientId,
+    time: Date.now()
+  });
   broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
   res.json({ status: "success", schedule: item });
 };
