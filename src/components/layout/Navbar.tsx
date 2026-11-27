@@ -336,7 +336,7 @@ export const Navbar: React.FC = () => {
 
   return (
     <>
-      <header id="app-header" className="bg-slate-900 text-slate-100 border-b border-slate-800 sticky top-0 z-40 shadow-sm">
+      <header id="app-header" className="bg-slate-900 text-slate-100 border-b border-slate-800 sticky top-0 z-[45] shadow-sm">
         {/* Top bar with Menu Button, Hotel info and Admin toggle */}
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16">
@@ -562,7 +562,7 @@ export const Navbar: React.FC = () => {
 
       {/* MENÚ DESPLEGABLE DE LA PARTE IZQUIERDA (SIDEBAR DRAWER) */}
       {isSidebarOpen && (
-        <div className="fixed inset-0 z-50 flex">
+        <div className="fixed inset-0 z-[2500] flex">
           {/* Backdrop con oscurecimiento suave */}
           <div 
             className="fixed inset-0 bg-slate-950/75 transition-opacity duration-200"

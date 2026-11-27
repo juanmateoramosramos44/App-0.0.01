@@ -156,6 +156,7 @@ export const DailyRoundsView: React.FC = () => {
     clearAllRoundTemplate,
     refreshRoundTemplateFromCloud,
     refreshRoundsFromCloud,
+    ensureRoundFullLoaded,
     syncRoundsSilently,
     startNewRound, 
     updateActiveRoundCheckpoint, 
@@ -637,11 +638,39 @@ export const DailyRoundsView: React.FC = () => {
     if (Array.isArray(round.photos)) {
       round.photos.forEach((p: string) => addPhoto(p));
     }
+    if (seen.size === 0 && round.photosDeferred && typeof round.photoCount === 'number' && round.photoCount > 0) {
+      return round.photoCount;
+    }
     if (seen.size === 0 && !isInitialSyncDone && cachedRoundPhotoCounts[round.id]) {
       return cachedRoundPhotoCounts[round.id];
     }
     return seen.size;
   }, [cachedRoundPhotoCounts, isInitialSyncDone]);
+
+  const handleOpenRoundDetail = (rnd: DailyRound, initialTab: 'todos' | 'cargados' | 'pendientes' | 'novedades' | 'fotos' = 'todos') => {
+    setSelectedRoundDetail(rnd);
+    setModalFilterTab(initialTab);
+    if (rnd.photosDeferred && (rnd.photoCount ?? 1) > 0) {
+      void ensureRoundFullLoaded(rnd.id);
+    }
+  };
+
+  const handleOpenRoundShare = (rnd: DailyRound) => {
+    setRoundToShare(rnd);
+    setIsJustCompletedShare(false);
+    if (rnd.photosDeferred && (rnd.photoCount ?? 1) > 0) {
+      void ensureRoundFullLoaded(rnd.id);
+    }
+  };
+
+  const handleDownloadRoundPdfSafe = async (rnd: DailyRound) => {
+    let targetRound = rnd;
+    if (rnd.photosDeferred && (rnd.photoCount ?? 1) > 0) {
+      const hydrated = await ensureRoundFullLoaded(rnd.id);
+      if (hydrated) targetRound = hydrated;
+    }
+    downloadRoundPdf(targetRound, settings?.hotelInfo);
+  };
 
   const getRoundDisplayKeyReadings = (rnd: DailyRound): string => {
     if (!rnd) return '72 PSI • 60°C ACS';
@@ -2686,10 +2715,7 @@ export const DailyRoundsView: React.FC = () => {
                           <div className="mt-1">
                             <button
                               type="button"
-                              onClick={() => {
-                                setSelectedRoundDetail(rnd);
-                                setModalFilterTab('fotos');
-                              }}
+                              onClick={() => handleOpenRoundDetail(rnd, 'fotos')}
                               className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 font-extrabold text-[10px] transition-colors cursor-pointer shadow-2xs"
                               title={`Ver las ${getRoundTotalPhotos(rnd)} fotografías registradas en esta ronda`}
                             >
@@ -2732,7 +2758,7 @@ export const DailyRoundsView: React.FC = () => {
                       </button>
 
                       <button
-                        onClick={() => setSelectedRoundDetail(rnd)}
+                        onClick={() => handleOpenRoundDetail(rnd, 'todos')}
                         className="p-1.5 text-slate-600 hover:text-blue-700 hover:bg-blue-100/70 border border-slate-200 hover:border-blue-300 rounded-lg transition-colors inline-flex items-center cursor-pointer"
                         title="Ver detalle completo de la ronda"
                       >
@@ -2741,10 +2767,7 @@ export const DailyRoundsView: React.FC = () => {
 
                       {getRoundTotalPhotos(rnd) > 0 && (
                         <button
-                          onClick={() => {
-                            setSelectedRoundDetail(rnd);
-                            setModalFilterTab('fotos');
-                          }}
+                          onClick={() => handleOpenRoundDetail(rnd, 'fotos')}
                           className="p-1.5 text-emerald-700 hover:text-emerald-950 bg-emerald-50 hover:bg-emerald-100/80 border border-emerald-300 rounded-lg transition-colors inline-flex items-center cursor-pointer shadow-2xs"
                           title={`Ver las ${getRoundTotalPhotos(rnd)} fotos cargadas en esta ronda`}
                         >
@@ -2755,10 +2778,7 @@ export const DailyRoundsView: React.FC = () => {
                       {/* Ajustes y opciones de compartir (Exclusivo para Administrador) */}
                       {isAdmin && rnd.status !== 'en_progreso' && (
                         <button
-                          onClick={() => {
-                            setRoundToShare(rnd);
-                            setIsJustCompletedShare(false);
-                          }}
+                          onClick={() => handleOpenRoundShare(rnd)}
                           className="p-1.5 text-indigo-700 hover:text-indigo-950 hover:bg-indigo-100/80 border border-indigo-200 hover:border-indigo-300 rounded-lg transition-colors inline-flex items-center cursor-pointer shadow-2xs"
                           title="Ajustes de ronda, descargar PDF y enviar a WhatsApp / Redes (Exclusivo Administrador)"
                         >
@@ -2768,7 +2788,7 @@ export const DailyRoundsView: React.FC = () => {
 
                       {rnd.status !== 'en_progreso' && (
                         <button
-                          onClick={() => downloadRoundPdf(rnd, settings?.hotelInfo)}
+                          onClick={() => { void handleDownloadRoundPdfSafe(rnd); }}
                           className="p-1.5 text-rose-600 hover:text-rose-800 hover:bg-rose-100/70 border border-rose-200 hover:border-rose-300 rounded-lg transition-colors inline-flex items-center cursor-pointer"
                           title="Descargar Reporte PDF Oficial"
                         >
@@ -3044,7 +3064,7 @@ export const DailyRoundsView: React.FC = () => {
                   <div className="flex items-center space-x-2 shrink-0">
                     <button
                       type="button"
-                      onClick={() => downloadRoundPdf(liveSelectedRoundDetail, settings?.hotelInfo)}
+                      onClick={() => { void handleDownloadRoundPdfSafe(liveSelectedRoundDetail); }}
                       className="px-2.5 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-bold flex items-center space-x-1.5 shadow-2xs transition-colors cursor-pointer"
                       title="Descargar Reporte en PDF"
                     >
@@ -3054,10 +3074,7 @@ export const DailyRoundsView: React.FC = () => {
                     {isAdmin && (
                       <button
                         type="button"
-                        onClick={() => {
-                          setRoundToShare(liveSelectedRoundDetail);
-                          setIsJustCompletedShare(false);
-                        }}
+                        onClick={() => handleOpenRoundShare(liveSelectedRoundDetail)}
                         className="px-2.5 py-1.5 bg-indigo-700 hover:bg-indigo-800 text-white rounded-lg text-xs font-bold flex items-center space-x-1.5 shadow-2xs transition-colors cursor-pointer"
                         title="Ajustes de ronda y enviar a WhatsApp / Redes (Exclusivo Administrador)"
                       >

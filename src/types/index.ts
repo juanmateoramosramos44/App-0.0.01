@@ -259,6 +259,8 @@ export interface DailyRound {
   lastUpdated?: string;
   lastHeartbeat?: string;
   completedAt?: string;
+  photosDeferred?: boolean;
+  photoCount?: number;
 }
 
 export type PreventiveFrequency = 
@@ -427,6 +429,7 @@ export interface UploadedDocumentSheet {
   frozenCols?: number;
   headerBgColor?: string;
   headerTextColor?: string;
+  isDeferred?: boolean;
 }
 
 export interface UploadedDocument {
@@ -443,6 +446,8 @@ export interface UploadedDocument {
   totalRows: number;
   totalColumns: number;
   rawBase64?: string;
+  hasRawBinary?: boolean;
+  isDeferredPayload?: boolean;
   sheetsModifiedAfterRaw?: boolean;
   notes?: string;
   folderId?: string; // ID of the folder this document belongs to

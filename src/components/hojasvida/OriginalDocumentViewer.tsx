@@ -155,8 +155,8 @@ const computeSheetsContentSignature = (sheets?: UploadedDocumentSheet[]): string
   }
 };
 
-const AUTOSAVE_DEBOUNCE_MS = 450;
-const SAVED_DISPLAY_DURATION_MS = 2200;
+const AUTOSAVE_DEBOUNCE_MS = 500;
+const SAVED_DISPLAY_DURATION_MS = 2000;
 const AUTO_CENTER_STORAGE_KEY = 'hdv_excel_auto_center';
 const FOLDER_VIEW_MODE_STORAGE_KEY = 'hdv_folder_view_mode';
 
@@ -181,7 +181,7 @@ export const OriginalDocumentViewer: React.FC<OriginalDocumentViewerProps> = ({
   onSelectFolder,
   canDeleteRecords = true
 }) => {
-  const { notify } = useMaintenance();
+  const { notify, ensureUploadedDocumentLoaded } = useMaintenance();
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
 
   // Folder modals
@@ -201,6 +201,7 @@ export const OriginalDocumentViewer: React.FC<OriginalDocumentViewerProps> = ({
   // Optimistic / debounced autosave state for FortuneSheet (explícito en 'idle' al abrir)
   const [draftDoc, setDraftDoc] = useState<UploadedDocument | null>(null);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const [isHydratingDoc, setIsHydratingDoc] = useState<boolean>(false);
   const [workbookSessionKey, setWorkbookSessionKey] = useState<string>('');
   const [workbookSeedSheets, setWorkbookSeedSheets] = useState<FortuneSheet[]>([]);
 
@@ -387,17 +388,27 @@ export const OriginalDocumentViewer: React.FC<OriginalDocumentViewerProps> = ({
       };
       lastSavedStampRef.current = `${docToSave.id}:${updatedStamp}`;
 
-      const updatePromise = Promise.resolve(
-        onUpdateDocument(docToSave, {
-          silent: true,
-          omitRawBase64: isSpreadsheet && !syncBinaryNow
-        })
-      );
-      const timeoutPromise = new Promise<boolean>((resolve) => {
-        setTimeout(() => resolve(false), 12000);
-      });
-      const updateOutcome = await Promise.race([updatePromise, timeoutPromise]);
-      const confirmedOk = updateOutcome !== false;
+      const tryUpdateOnce = async () => {
+        const updatePromise = Promise.resolve(
+          onUpdateDocument(docToSave, {
+            silent: true,
+            omitRawBase64: isSpreadsheet && !syncBinaryNow,
+            skipGlobalSyncBadge: true
+          })
+        );
+        const timeoutPromise = new Promise<boolean>((resolve) => {
+          setTimeout(() => resolve(false), 18000);
+        });
+        return (await Promise.race([updatePromise, timeoutPromise])) !== false;
+      };
+
+      let confirmedOk = await tryUpdateOnce();
+      if (!confirmedOk && isMountedRef.current && saveSeqRef.current === seq) {
+        await new Promise((resolve) => setTimeout(resolve, 600));
+        if (isMountedRef.current && saveSeqRef.current === seq) {
+          confirmedOk = await tryUpdateOnce();
+        }
+      }
 
       if (!isMountedRef.current) return;
       // Si el usuario cambió a otro documento mientras guardaba el anterior, no alterar el estado visual del nuevo documento
@@ -490,7 +501,7 @@ export const OriginalDocumentViewer: React.FC<OriginalDocumentViewerProps> = ({
     };
   }, []);
 
-  // Synchronize storeDoc -> FortuneSheet seed ONLY when switching documents or receiving a true remote change
+  // Synchronize storeDoc -> FortuneSheet seed ONLY when switching documents, hydrating deferred content, or receiving a true remote change
   useEffect(() => {
     if (!storeDoc) {
       if (autosaveTimerRef.current) {
@@ -511,11 +522,21 @@ export const OriginalDocumentViewer: React.FC<OriginalDocumentViewerProps> = ({
       latestDocRef.current = null;
       latestFortuneSheetsRef.current = null;
       setDraftDoc(null);
+      setIsHydratingDoc(false);
       setWorkbookSessionKey('');
       setWorkbookSeedSheets([]);
       setSaveStatus('idle');
       return;
     }
+
+    const docNeedsHydration = (d: UploadedDocument): boolean => {
+      if (d.isDeferredPayload) return true;
+      const vType = getDocVisualType(d);
+      if (vType === 'spreadsheet') {
+        return Array.isArray(d.sheets) && d.sheets.some(s => Boolean(s?.isDeferred));
+      }
+      return Boolean(d.hasRawBinary && !d.rawBase64);
+    };
 
     const prevId = latestDocRef.current?.id;
     const isSwitchingDoc = prevId !== storeDoc.id;
@@ -530,7 +551,7 @@ export const OriginalDocumentViewer: React.FC<OriginalDocumentViewerProps> = ({
         const prevDocToFlush = latestDocRef.current;
         void onUpdateDocument(
           { ...prevDocToFlush, updatedAt: new Date().toISOString() },
-          { silent: true, omitRawBase64: getDocVisualType(prevDocToFlush) === 'spreadsheet' }
+          { silent: true, omitRawBase64: getDocVisualType(prevDocToFlush) === 'spreadsheet', skipGlobalSyncBadge: true }
         );
       }
       if (savedResetTimerRef.current) {
@@ -539,11 +560,27 @@ export const OriginalDocumentViewer: React.FC<OriginalDocumentViewerProps> = ({
       }
       isDirtyRef.current = false;
       hasUserEditedDocRef.current = false;
-      lastSyncedSignatureRef.current = computeSheetsContentSignature(storeDoc.sheets);
       latestDocRef.current = storeDoc;
       setDraftDoc(storeDoc);
       setSaveStatus('idle');
 
+      if (docNeedsHydration(storeDoc)) {
+        lastSyncedSignatureRef.current = '';
+        latestFortuneSheetsRef.current = null;
+        setWorkbookSeedSheets([]);
+        setWorkbookSessionKey('');
+        setIsHydratingDoc(true);
+        const targetDocId = storeDoc.id;
+        void ensureUploadedDocumentLoaded(targetDocId).finally(() => {
+          if (isMountedRef.current && latestDocRef.current?.id === targetDocId) {
+            setIsHydratingDoc(false);
+          }
+        });
+        return;
+      }
+
+      setIsHydratingDoc(false);
+      lastSyncedSignatureRef.current = computeSheetsContentSignature(storeDoc.sheets);
       if (getDocVisualType(storeDoc) === 'spreadsheet') {
         const converted = uploadedDocToFortuneSheets(storeDoc);
         latestFortuneSheetsRef.current = converted;
@@ -557,9 +594,37 @@ export const OriginalDocumentViewer: React.FC<OriginalDocumentViewerProps> = ({
       return;
     }
 
-    // Same document updated in store: NEVER remount Workbook if content signature matches our own synced state
+    // Hydration finished for currently active document
+    if (docNeedsHydration(storeDoc)) {
+      if (!isHydratingDoc) {
+        setIsHydratingDoc(true);
+        const targetDocId = storeDoc.id;
+        void ensureUploadedDocumentLoaded(targetDocId).finally(() => {
+          if (isMountedRef.current && latestDocRef.current?.id === targetDocId) {
+            setIsHydratingDoc(false);
+          }
+        });
+      }
+      return;
+    }
+
     const incomingSig = computeSheetsContentSignature(storeDoc.sheets);
+    const awaitingInitialMount = getDocVisualType(storeDoc) === 'spreadsheet' && !workbookSessionKey;
+    if (awaitingInitialMount) {
+      setIsHydratingDoc(false);
+      lastSyncedSignatureRef.current = incomingSig;
+      latestDocRef.current = storeDoc;
+      setDraftDoc(storeDoc);
+      const converted = uploadedDocToFortuneSheets(storeDoc);
+      latestFortuneSheetsRef.current = converted;
+      setWorkbookSeedSheets(converted);
+      setWorkbookSessionKey(`${storeDoc.id}-${Date.now()}`);
+      return;
+    }
+
+    // Same document updated in store: NEVER remount Workbook if content signature matches our own synced state
     if (incomingSig === lastSyncedSignatureRef.current) {
+      setIsHydratingDoc(false);
       if (!isDirtyRef.current && storeDoc !== latestDocRef.current) {
         latestDocRef.current = storeDoc;
         setDraftDoc(storeDoc);
@@ -573,6 +638,7 @@ export const OriginalDocumentViewer: React.FC<OriginalDocumentViewerProps> = ({
       const prevStamp = `${latestDocRef.current?.id}:${latestDocRef.current?.updatedAt || latestDocRef.current?.uploadDate}`;
       if (incomingStamp !== prevStamp) {
         hasUserEditedDocRef.current = false;
+        setIsHydratingDoc(false);
         lastSyncedSignatureRef.current = incomingSig;
         latestDocRef.current = storeDoc;
         setDraftDoc(storeDoc);
@@ -584,7 +650,7 @@ export const OriginalDocumentViewer: React.FC<OriginalDocumentViewerProps> = ({
         }
       }
     }
-  }, [storeDoc, onUpdateDocument, persistDocSnapshotToDb]);
+  }, [storeDoc, onUpdateDocument, persistDocSnapshotToDb, ensureUploadedDocumentLoaded, isHydratingDoc, workbookSessionKey]);
 
   const currentDoc = draftDoc || storeDoc;
   const currentVisualType = useMemo(
@@ -772,6 +838,10 @@ export const OriginalDocumentViewer: React.FC<OriginalDocumentViewerProps> = ({
           targetDoc = latestDocRef.current;
         }
       }
+      if (!targetDoc.rawBase64 && (targetDoc.isDeferredPayload || targetDoc.hasRawBinary)) {
+        const hydrated = await ensureUploadedDocumentLoaded(targetDoc.id);
+        if (hydrated) targetDoc = hydrated;
+      }
       await openDocumentInComputerExcel(targetDoc);
     } catch (err) {
       console.error('Error abriendo archivo en computador:', err);
@@ -813,7 +883,7 @@ export const OriginalDocumentViewer: React.FC<OriginalDocumentViewerProps> = ({
       onDragOver={(e) => { e.preventDefault(); setIsDraggingFiles(true); }}
       onDragLeave={() => setIsDraggingFiles(false)}
       onDrop={handleDropFiles}
-      className={`space-y-4 ${isFullscreen ? 'fixed inset-0 z-50 bg-slate-100 p-4 sm:p-6 overflow-auto flex flex-col' : ''} ${
+      className={`space-y-4 ${isFullscreen ? 'fixed inset-0 z-[2100] bg-slate-100 p-4 sm:p-6 overflow-auto flex flex-col' : ''} ${
         isDraggingFiles ? 'ring-2 ring-emerald-500 rounded-2xl' : ''
       }`}
     >
@@ -1389,7 +1459,7 @@ export const OriginalDocumentViewer: React.FC<OriginalDocumentViewerProps> = ({
 
       {/* New Folder / Subfolder Modal */}
       {isNewFolderModalOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-[2200] bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
           <form
             onSubmit={(e) => {
               e.preventDefault();
@@ -1634,11 +1704,11 @@ export const OriginalDocumentViewer: React.FC<OriginalDocumentViewerProps> = ({
           {/* Interactive Renderer by File Type */}
           {currentVisualType === 'spreadsheet' ? (
             <div
-              className={`w-full relative bg-white excel-precision-scroll ${
+              className={`w-full relative z-0 isolate overflow-hidden bg-white excel-precision-scroll ${
                 isFullscreen ? 'flex-1 min-h-[75vh]' : 'h-[660px]'
               }`}
             >
-              {workbookSessionKey && workbookSeedSheets.length > 0 ? (
+              {!isHydratingDoc && workbookSessionKey && workbookSeedSheets.length > 0 ? (
                 <Workbook
                   ref={workbookRef}
                   key={workbookSessionKey}
@@ -1652,8 +1722,9 @@ export const OriginalDocumentViewer: React.FC<OriginalDocumentViewerProps> = ({
                   lang="es"
                 />
               ) : (
-                <div className="h-full flex items-center justify-center text-xs text-slate-400">
-                  Cargando hoja de cálculo...
+                <div className="h-full flex flex-col items-center justify-center gap-2 text-xs text-slate-500">
+                  <Loader2 className="w-5 h-5 animate-spin text-emerald-600" />
+                  <span>{isHydratingDoc ? 'Cargando hoja de cálculo desde PostgreSQL...' : 'Cargando hoja de cálculo...'}</span>
                 </div>
               )}
             </div>

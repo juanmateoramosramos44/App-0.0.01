@@ -324,6 +324,7 @@ interface MaintenanceContextType {
   uploadedDocuments: UploadedDocument[];
   addUploadedDocument: (doc: Omit<UploadedDocument, 'id'>, options?: { silent?: boolean; onOptimistic?: (doc: UploadedDocument) => void }) => Promise<UploadedDocument>;
   updateUploadedDocument: (doc: UploadedDocument, options?: { silent?: boolean; omitRawBase64?: boolean; skipGlobalSyncBadge?: boolean }) => Promise<boolean>;
+  ensureUploadedDocumentLoaded: (docId: string) => Promise<UploadedDocument | null>;
   moveUploadedDocument: (docId: string, folderId: string | null) => Promise<void>;
   deleteUploadedDocument: (id: string) => Promise<void>;
   clearAllUploadedDocuments: () => Promise<void>;
@@ -358,6 +359,7 @@ interface MaintenanceContextType {
   clearAllRoundTemplate: () => void;
   refreshRoundTemplateFromCloud: () => Promise<void>;
   refreshRoundsFromCloud: () => Promise<void>;
+  ensureRoundFullLoaded: (roundId: string) => Promise<DailyRound | null>;
   syncRoundsSilently: () => Promise<void>;
   startNewRound: (shift: RoundShift, technicianName: string, customDate?: string) => DailyRound | null;
   updateRound: (roundId: string, data: Partial<DailyRound>) => Promise<void>;
@@ -2111,7 +2113,7 @@ const mergeRoundLists = (
 
         const mergedPhotosRoot = mergeUniquePhotos(winner.photos, loser.photos);
 
-        const candidate = normalizeRoundRecord({
+        const prelimCandidate = normalizeRoundRecord({
           ...winner,
           checkpoints: mergedCheckpoints,
           meterReadings: mergedMeterReadings,
@@ -2119,6 +2121,18 @@ const mergeRoundLists = (
           anomaliesCount: mergedAnomalies.length,
           photos: mergedPhotosRoot.length > 0 ? mergedPhotosRoot : undefined
         });
+        const mergedPhotoUrlsCount = collectRoundPhotoUrls(prelimCandidate).length;
+        const maxPhotoCount = Math.max(winner.photoCount || 0, loser.photoCount || 0, mergedPhotoUrlsCount);
+        const keepDeferred = Boolean(
+          mergedPhotoUrlsCount === 0 &&
+          (winner.photosDeferred || loser.photosDeferred) &&
+          maxPhotoCount > 0
+        );
+        const candidate: DailyRound = {
+          ...prelimCandidate,
+          photosDeferred: keepDeferred ? true : undefined,
+          photoCount: maxPhotoCount > 0 ? maxPhotoCount : (winner.photoCount ?? loser.photoCount)
+        };
 
         // Preservar identidad de referencia de `existing` si contenido, estado y fotos son idénticos (evita espabileo visual en React)
         const preserved =
@@ -2162,7 +2176,7 @@ const getRoundSyncFingerprint = (r: DailyRound): string => {
 
   const photosCount = collectRoundPhotoUrls(r).length;
   // Excluir timestamps volátiles (lastHeartbeat/lastUpdated) para evitar re-renders y espabileo cuando las lecturas y fotos no han cambiado
-  return `${r.id}|${r.status}|${r.compliancePercentage}|${r.date}|${r.time}|${r.shift}|${r.technicianName}|${r.technicianSignature || ''}|${r.completedAt || ''}|${r.generalNotes || ''}|${r.anomalies?.length || 0}|${r.checkpoints?.length || 0}|${photosCount}|${chkSig}`;
+  return `${r.id}|${r.status}|${r.compliancePercentage}|${r.date}|${r.time}|${r.shift}|${r.technicianName}|${r.technicianSignature || ''}|${r.completedAt || ''}|${r.generalNotes || ''}|${r.anomalies?.length || 0}|${r.checkpoints?.length || 0}|${photosCount}|${r.photosDeferred ? '1' : '0'}|${r.photoCount ?? 0}|${chkSig}`;
 };
 
 const areRoundsEqual = (a: DailyRound[], b: DailyRound[]): boolean => {
@@ -3343,6 +3357,48 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
     return sanitizeSystemSettings(INITIAL_SETTINGS);
   });
 
+  const TEMPLATE_DELETED_IDS_KEY = 'hotel_round_template_deleted_ids';
+  const TEMPLATE_CLEARED_KEY = 'hotel_round_template_cleared';
+
+  const getDeletedTemplateCheckpointIds = (): string[] => {
+    try {
+      const raw = localStorage.getItem(TEMPLATE_DELETED_IDS_KEY);
+      const parsed = raw ? JSON.parse(raw) : [];
+      return Array.isArray(parsed) ? parsed.map(x => String(x || '').trim()).filter(Boolean) : [];
+    } catch {
+      return [];
+    }
+  };
+
+  const setDeletedTemplateCheckpointIds = (ids: Iterable<string>) => {
+    try {
+      const clean = Array.from(new Set(Array.from(ids).map(x => String(x || '').trim()).filter(Boolean)));
+      localStorage.setItem(TEMPLATE_DELETED_IDS_KEY, JSON.stringify(clean));
+    } catch {}
+  };
+
+  const markDeletedTemplateCheckpointId = (id: string) => {
+    if (!id) return;
+    const next = getDeletedTemplateCheckpointIds();
+    if (!next.includes(id)) next.push(id);
+    setDeletedTemplateCheckpointIds(next);
+  };
+
+  const getRoundTemplateClearedByUser = (): boolean => {
+    try {
+      return localStorage.getItem(TEMPLATE_CLEARED_KEY) === 'true';
+    } catch {
+      return false;
+    }
+  };
+
+  const setRoundTemplateClearedByUser = (cleared: boolean) => {
+    try {
+      if (cleared) localStorage.setItem(TEMPLATE_CLEARED_KEY, 'true');
+      else localStorage.removeItem(TEMPLATE_CLEARED_KEY);
+    } catch {}
+  };
+
   const sanitizeCheckpointTemplate = (chk: RoundCheckpoint): RoundCheckpoint => {
   if (!chk) return chk;
   const copy: RoundCheckpoint = {
@@ -3369,28 +3425,88 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
   return copy;
 }
 
+  const getCanonicalBaselineCheckpoints = (): RoundCheckpoint[] => {
+    const raw = HISTORICAL_ROUNDS[0]?.checkpoints?.length
+      ? HISTORICAL_ROUNDS[0].checkpoints
+      : STANDARD_ROUND_CHECKPOINTS;
+    return raw.map(sanitizeCheckpointTemplate);
+  };
+
+  const mergeBaselineRoundTemplate = (
+    items?: RoundCheckpoint[] | null,
+    deletedIds?: string[] | null,
+    clearedByUser?: boolean
+  ): RoundCheckpoint[] => {
+    const baseline = getCanonicalBaselineCheckpoints();
+    if (clearedByUser && (!Array.isArray(items) || items.length === 0)) {
+      return [];
+    }
+    const deletedSet = new Set<string>(
+      (Array.isArray(deletedIds) ? deletedIds : getDeletedTemplateCheckpointIds())
+        .map(x => String(x || '').trim())
+        .filter(Boolean)
+    );
+
+    if (!Array.isArray(items) || items.length === 0) {
+      return baseline.filter(b => b && !deletedSet.has(String(b.id || '')));
+    }
+
+    const normalizedItems = items.filter(c => c && typeof c === 'object').map(sanitizeCheckpointTemplate);
+    const usedItemIndices = new Set<number>();
+    const missingFromBaseline: RoundCheckpoint[] = [];
+
+    for (const baseChk of baseline) {
+      if (!baseChk || !baseChk.id || deletedSet.has(String(baseChk.id))) continue;
+
+      let matchIdx = normalizedItems.findIndex((it, idx) => !usedItemIndices.has(idx) && it.id === baseChk.id);
+      if (matchIdx < 0) {
+        const bTitle = String(baseChk.title || '').trim().toLowerCase();
+        const bArea = String(baseChk.area || '').trim().toLowerCase();
+        matchIdx = normalizedItems.findIndex(
+          (it, idx) =>
+            !usedItemIndices.has(idx) &&
+            String(it.title || '').trim().toLowerCase() === bTitle &&
+            String(it.area || '').trim().toLowerCase() === bArea
+        );
+      }
+
+      if (matchIdx >= 0) {
+        usedItemIndices.add(matchIdx);
+      } else {
+        missingFromBaseline.push(baseChk);
+      }
+    }
+
+    return missingFromBaseline.length > 0
+      ? [...normalizedItems, ...missingFromBaseline]
+      : normalizedItems;
+  };
+
   const [roundTemplate, setRoundTemplate] = useState<RoundCheckpoint[]>(() => {
+    let parsed: RoundCheckpoint[] | null = null;
     const saved = localStorage.getItem('hotel_round_template');
     if (saved) {
       try {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length >= 26) return parsed.map(sanitizeCheckpointTemplate);
+        const candidate = JSON.parse(saved);
+        if (Array.isArray(candidate)) parsed = candidate;
       } catch (e) { console.error(e); }
     }
-    const raw = HISTORICAL_ROUNDS[0]?.checkpoints?.length 
-      ? HISTORICAL_ROUNDS[0].checkpoints 
-      : STANDARD_ROUND_CHECKPOINTS;
-    return raw.map(sanitizeCheckpointTemplate);
+    return mergeBaselineRoundTemplate(parsed, getDeletedTemplateCheckpointIds(), getRoundTemplateClearedByUser());
   });
 
   useEffect(() => {
     localStorage.setItem('hotel_round_template', JSON.stringify(roundTemplate));
   }, [roundTemplate]);
 
-  const saveRoundTemplateToCloud = async (items: RoundCheckpoint[]) => {
+  const saveRoundTemplateToCloud = async (
+    items: RoundCheckpoint[],
+    extra?: { deletedCheckpointIds?: string[]; clearedByUser?: boolean }
+  ) => {
     beginDbSave();
     try {
       const sanitized = items.map(sanitizeCheckpointTemplate);
+      const deletedIds = extra?.deletedCheckpointIds ?? getDeletedTemplateCheckpointIds();
+      const clearedByUser = extra?.clearedByUser ?? getRoundTemplateClearedByUser();
       roundTemplateRef.current = sanitized;
       localStorage.setItem('hotel_round_template', JSON.stringify(sanitized));
       localActionIds.current.add('round_template');
@@ -3401,7 +3517,12 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
           'Content-Type': 'application/json',
           'X-Client-Id': clientSessionId.current
         },
-        body: JSON.stringify({ items: sanitized, updatedAt: new Date().toISOString() })
+        body: JSON.stringify({
+          items: sanitized,
+          deletedCheckpointIds: deletedIds,
+          clearedByUser,
+          updatedAt: new Date().toISOString()
+        })
       });
       if (res.ok) {
         endDbSave(true);
@@ -3421,12 +3542,22 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
       const res = await fetch(`/api/app-data/round_template?_t=${Date.now()}`, { cache: 'no-store' });
       if (!res.ok) throw new Error('Error consultando plantilla');
       const data = await res.json();
-      if (data && Array.isArray(data.items) && data.items.length > 0) {
-        const sanitized = data.items.map(sanitizeCheckpointTemplate);
-        roundTemplateRef.current = sanitized;
-        setRoundTemplate(sanitized);
-        localStorage.setItem('hotel_round_template', JSON.stringify(sanitized));
-        notify('🔄 Plantilla sincronizada correctamente desde PostgreSQL.');
+      if (data && Array.isArray(data.items)) {
+        if (Array.isArray(data.deletedCheckpointIds)) {
+          setDeletedTemplateCheckpointIds(data.deletedCheckpointIds);
+        }
+        if (typeof data.clearedByUser === 'boolean') {
+          setRoundTemplateClearedByUser(data.clearedByUser);
+        }
+        const healed = mergeBaselineRoundTemplate(
+          data.items,
+          Array.isArray(data.deletedCheckpointIds) ? data.deletedCheckpointIds : getDeletedTemplateCheckpointIds(),
+          typeof data.clearedByUser === 'boolean' ? data.clearedByUser : getRoundTemplateClearedByUser()
+        );
+        roundTemplateRef.current = healed;
+        setRoundTemplate(healed);
+        localStorage.setItem('hotel_round_template', JSON.stringify(healed));
+        notify(`🔄 Plantilla sincronizada correctamente desde PostgreSQL (${healed.length} puntos).`);
       } else {
         notify('No se encontró plantilla personalizada en el servidor.');
       }
@@ -3884,7 +4015,11 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
     const itemTitle = itemToDelete ? `: "${itemToDelete.title}" (${itemToDelete.area})` : '';
     localActionIds.current.add(id);
     setTimeout(() => { localActionIds.current.delete(id); }, 15000);
+    markDeletedTemplateCheckpointId(id);
     const updated = currentList.filter(item => item.id !== id);
+    if (updated.length === 0) {
+      setRoundTemplateClearedByUser(true);
+    }
     roundTemplateRef.current = updated;
     setRoundTemplate(updated);
 
@@ -3900,7 +4035,10 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
       });
     }
 
-    await saveRoundTemplateToCloud(updated);
+    await saveRoundTemplateToCloud(updated, {
+      deletedCheckpointIds: getDeletedTemplateCheckpointIds(),
+      clearedByUser: updated.length === 0 ? true : getRoundTemplateClearedByUser()
+    });
     notify(`🗑️ Plantilla de ronda eliminada${itemTitle}`);
   };
 
@@ -3909,11 +4047,13 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
       notify('Acceso restringido: No tienes permisos para restablecer la plantilla.');
       return;
     }
-    const updated = STANDARD_ROUND_CHECKPOINTS.map(c => ({ ...c }));
+    setDeletedTemplateCheckpointIds([]);
+    setRoundTemplateClearedByUser(false);
+    const updated = getCanonicalBaselineCheckpoints();
     roundTemplateRef.current = updated;
     setRoundTemplate(updated);
-    await saveRoundTemplateToCloud(updated);
-    notify('🔄 Plantilla de rondas restaurada a la predeterminada');
+    await saveRoundTemplateToCloud(updated, { deletedCheckpointIds: [], clearedByUser: false });
+    notify(`🔄 Plantilla de rondas restaurada (${updated.length} puntos predeterminados)`);
   };
 
   const clearAllRoundTemplate = async () => {
@@ -3922,9 +4062,15 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
       return;
     }
     if (confirm('¿Está seguro de eliminar TODOS los puntos creados en la plantilla de rondas? Esto dejará la lista completamente en blanco para todos los usuarios en vivo.')) {
+      setRoundTemplateClearedByUser(true);
+      const allIds = Array.from(new Set([
+        ...getDeletedTemplateCheckpointIds(),
+        ...(roundTemplateRef.current || []).map(c => c?.id).filter(Boolean) as string[]
+      ]));
+      setDeletedTemplateCheckpointIds(allIds);
       roundTemplateRef.current = [];
       setRoundTemplate([]);
-      await saveRoundTemplateToCloud([]);
+      await saveRoundTemplateToCloud([], { deletedCheckpointIds: allIds, clearedByUser: true });
       localStorage.removeItem('hotel_round_template');
       if (activeRound) {
         setActiveRound(null);
@@ -4233,13 +4379,13 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
   }, [settings]);
   useEffect(() => {
     const handle = setTimeout(() => {
-      idbSet(STORAGE_KEYS.DOCUMENTS, uploadedDocuments).catch(() => {});
-      const ok = safeSetItem(STORAGE_KEYS.DOCUMENTS, JSON.stringify(uploadedDocuments));
-      if (!ok) {
-        const lightweight = uploadedDocuments.map(d => ({ ...d, rawBase64: undefined }));
-        safeSetItem(STORAGE_KEYS.DOCUMENTS, JSON.stringify(lightweight));
+      const fullDocs = uploadedDocuments.filter(d => d && !d.isDeferredPayload);
+      if (fullDocs.length > 0 && fullDocs.length === uploadedDocuments.length) {
+        idbSet(STORAGE_KEYS.DOCUMENTS, uploadedDocuments).catch(() => {});
       }
-    }, 300);
+      const lightweight = uploadedDocuments.map(d => ({ ...d, rawBase64: undefined }));
+      safeSetItem(STORAGE_KEYS.DOCUMENTS, JSON.stringify(lightweight));
+    }, 350);
     return () => clearTimeout(handle);
   }, [uploadedDocuments]);
   useEffect(() => {
@@ -6008,6 +6154,8 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
           serverDeletedList,
           data.uploadedDocuments
         );
+        const localById = new Map<string, UploadedDocument>((uploadedDocumentsRef.current || []).map(d => [d.id, d]));
+        const serverById = new Map<string, UploadedDocument>((data.uploadedDocuments || []).map((d: UploadedDocument) => [d.id, d]));
         const mergedDocsRaw = mergeGenericAuthoritative(
           uploadedDocumentsRef.current || [],
           data.uploadedDocuments,
@@ -6015,20 +6163,29 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
           pendingCreations,
           true
         );
-        const localById = new Map<string, UploadedDocument>((uploadedDocumentsRef.current || []).map(d => [d.id, d]));
-        const serverById = new Map<string, UploadedDocument>((data.uploadedDocuments || []).map((d: UploadedDocument) => [d.id, d]));
         const mergedDocs = mergedDocsRaw.map((doc: UploadedDocument) => {
+          const localMatch = localById.get(doc.id);
+          const serverMatch = serverById.get(doc.id);
+          // Preserve already-hydrated local sheets & rawBase64 when server sends a ?lite=1 deferred summary
+          if (doc.isDeferredPayload && localMatch && !localMatch.isDeferredPayload) {
+            const tLocal = new Date(localMatch.updatedAt || localMatch.uploadDate || 0).getTime() || 0;
+            const tServer = new Date((serverMatch?.updatedAt || serverMatch?.uploadDate || doc.updatedAt || 0)).getTime() || 0;
+            if (tLocal >= tServer) {
+              return localMatch;
+            }
+          }
           if (doc.rawBase64) return doc;
-          const fallbackRaw = serverById.get(doc.id)?.rawBase64 || localById.get(doc.id)?.rawBase64;
+          const fallbackRaw = serverMatch?.rawBase64 || localMatch?.rawBase64;
           return fallbackRaw ? { ...doc, rawBase64: fallbackRaw } : doc;
         });
         if (JSON.stringify(mergedDocs) !== JSON.stringify(uploadedDocumentsRef.current)) {
           uploadedDocumentsRef.current = mergedDocs;
           setUploadedDocuments(mergedDocs);
-          idbSet(STORAGE_KEYS.DOCUMENTS, mergedDocs).catch(() => {});
-          if (!safeSetItem(STORAGE_KEYS.DOCUMENTS, JSON.stringify(mergedDocs))) {
-            safeSetItem(STORAGE_KEYS.DOCUMENTS, JSON.stringify(mergedDocs.map(d => ({ ...d, rawBase64: undefined }))));
+          const hasOnlyFullDocs = mergedDocs.every(d => !d.isDeferredPayload);
+          if (hasOnlyFullDocs) {
+            idbSet(STORAGE_KEYS.DOCUMENTS, mergedDocs).catch(() => {});
           }
+          safeSetItem(STORAGE_KEYS.DOCUMENTS, JSON.stringify(mergedDocs.map(d => ({ ...d, rawBase64: undefined }))));
         }
       }
 
@@ -6222,12 +6379,16 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
         }
       }
 
-      if (Array.isArray(data.roundTemplate) && data.roundTemplate.length > 0 && !localActionIds.current.has('round_template')) {
-        const sanitizedTpl = data.roundTemplate.map(sanitizeCheckpointTemplate);
-        if (JSON.stringify(sanitizedTpl) !== JSON.stringify(roundTemplateRef.current)) {
-          roundTemplateRef.current = sanitizedTpl;
-          setRoundTemplate(sanitizedTpl);
-          localStorage.setItem('hotel_round_template', JSON.stringify(sanitizedTpl));
+      if (Array.isArray(data.roundTemplate) && !localActionIds.current.has('round_template')) {
+        const healedTpl = mergeBaselineRoundTemplate(
+          data.roundTemplate,
+          getDeletedTemplateCheckpointIds(),
+          data.roundTemplate.length === 0 ? getRoundTemplateClearedByUser() : false
+        );
+        if (JSON.stringify(healedTpl) !== JSON.stringify(roundTemplateRef.current)) {
+          roundTemplateRef.current = healedTpl;
+          setRoundTemplate(healedTpl);
+          localStorage.setItem('hotel_round_template', JSON.stringify(healedTpl));
         }
       }
 
@@ -6270,9 +6431,9 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
       })
       .catch(() => {});
 
-    // 2. Initial full authoritative load from PostgreSQL server API
+    // 2. Initial fast authoritative load from PostgreSQL server API (?lite=1)
     const initialFetchStartedAt = Date.now();
-    fetch(`/api/data?_t=${Date.now()}`, { cache: 'no-store' })
+    fetch(`/api/data?lite=1&_t=${Date.now()}`, { cache: 'no-store' })
       .then(res => res.json())
       .then(data => {
         if (data && typeof data === 'object' && Object.keys(data).length > 0) {
@@ -6294,7 +6455,7 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
     const performBackgroundSync = () => {
       if (!isInitialFetchDone.current) return;
       const pollStartedAt = Date.now();
-      fetch(`/api/data?_t=${Date.now()}`, { cache: 'no-store' })
+      fetch(`/api/data?lite=1&_t=${Date.now()}`, { cache: 'no-store' })
         .then(res => res.json())
         .then(data => {
           applyAuthoritativeServerData(data, false, pollStartedAt);
@@ -6694,10 +6855,18 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
             if (payload.clientId && payload.clientId === clientSessionId.current) return;
             const docItem = payload.document as UploadedDocument;
             if (!docItem || !docItem.id || getDeletedUploadedDocumentIds().has(docItem.id)) return;
-            const updated = [docItem, ...(uploadedDocumentsRef.current || []).filter(d => d.id !== docItem.id)];
+            const existingDoc = (uploadedDocumentsRef.current || []).find(d => d.id === docItem.id);
+            const mergedDocItem: UploadedDocument = {
+              ...docItem,
+              rawBase64: docItem.rawBase64 || existingDoc?.rawBase64,
+              isDeferredPayload: docItem.isDeferredPayload ?? false
+            };
+            const updated = [mergedDocItem, ...(uploadedDocumentsRef.current || []).filter(d => d.id !== docItem.id)];
             uploadedDocumentsRef.current = updated;
             setUploadedDocuments(updated);
-            idbSet(STORAGE_KEYS.DOCUMENTS, updated).catch(() => {});
+            if (!mergedDocItem.isDeferredPayload) {
+              idbSet(STORAGE_KEYS.DOCUMENTS, updated).catch(() => {});
+            }
           } else if (payload && payload.type === 'uploaded_document_deleted' && payload.documentId) {
             const delId = payload.documentId;
             trackLocalDeletion(delId);
@@ -6756,10 +6925,20 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
             localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(sanitized));
           } else if (payload && payload.type === 'app_data_updated' && payload.id === 'round_template' && payload.data && Array.isArray(payload.data.items)) {
             if (payload.clientId && payload.clientId === clientSessionId.current) return;
-            const sanitized = payload.data.items.map(sanitizeCheckpointTemplate);
-            roundTemplateRef.current = sanitized;
-            setRoundTemplate(sanitized);
-            localStorage.setItem('hotel_round_template', JSON.stringify(sanitized));
+            if (Array.isArray(payload.data.deletedCheckpointIds)) {
+              setDeletedTemplateCheckpointIds(payload.data.deletedCheckpointIds);
+            }
+            if (typeof payload.data.clearedByUser === 'boolean') {
+              setRoundTemplateClearedByUser(payload.data.clearedByUser);
+            }
+            const healed = mergeBaselineRoundTemplate(
+              payload.data.items,
+              Array.isArray(payload.data.deletedCheckpointIds) ? payload.data.deletedCheckpointIds : getDeletedTemplateCheckpointIds(),
+              typeof payload.data.clearedByUser === 'boolean' ? payload.data.clearedByUser : getRoundTemplateClearedByUser()
+            );
+            roundTemplateRef.current = healed;
+            setRoundTemplate(healed);
+            localStorage.setItem('hotel_round_template', JSON.stringify(healed));
           } else if (payload && payload.type === 'app_data_updated' && payload.id === 'schedule_config' && payload.data) {
             if (Array.isArray(payload.data.schedulePersonnel)) {
               try { localStorage.setItem('hotel_maint_schedule_personnel', JSON.stringify(payload.data.schedulePersonnel)); } catch {}
@@ -6773,7 +6952,7 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
               return;
             }
             const sseFetchStartedAt = Date.now();
-            fetch(`/api/data?_t=${Date.now()}`, { cache: 'no-store' })
+            fetch(`/api/data?lite=1&_t=${Date.now()}`, { cache: 'no-store' })
               .then(r => r.json())
               .then(fresh => {
                 applyAuthoritativeServerData(fresh, false, sseFetchStartedAt);
@@ -9093,6 +9272,78 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
   // -------------------------------------------------------------
   // UPLOADED DOCUMENTS (Exact Original Documents in PostgreSQL)
   // -------------------------------------------------------------
+  const inFlightDocHydrationsRef = useRef<Map<string, Promise<UploadedDocument | null>>>(new Map());
+  const inFlightRoundHydrationsRef = useRef<Map<string, Promise<DailyRound | null>>>(new Map());
+
+  const ensureUploadedDocumentLoaded = useCallback(async (docId: string): Promise<UploadedDocument | null> => {
+    if (!docId) return null;
+    const current = (uploadedDocumentsRef.current || []).find(d => d && d.id === docId);
+    if (current && !current.isDeferredPayload && Array.isArray(current.sheets) && current.sheets.every(s => !s?.isDeferred)) {
+      return current;
+    }
+    const existingPromise = inFlightDocHydrationsRef.current.get(docId);
+    if (existingPromise) return existingPromise;
+
+    const task = (async (): Promise<UploadedDocument | null> => {
+      try {
+        const res = await fetchWithTimeout(`/api/uploaded-documents/${encodeURIComponent(docId)}?_t=${Date.now()}`, { cache: 'no-store' }, 20000);
+        if (!res.ok) return current || null;
+        const fullDoc = (await res.json()) as UploadedDocument;
+        if (!fullDoc || !fullDoc.id || getDeletedUploadedDocumentIds().has(fullDoc.id)) return current || null;
+        const normalizedFull: UploadedDocument = { ...fullDoc, isDeferredPayload: false };
+        const nextList = (uploadedDocumentsRef.current || []).some(d => d.id === normalizedFull.id)
+          ? (uploadedDocumentsRef.current || []).map(d => d.id === normalizedFull.id ? normalizedFull : d)
+          : [normalizedFull, ...(uploadedDocumentsRef.current || [])];
+        uploadedDocumentsRef.current = nextList;
+        setUploadedDocuments(nextList);
+        idbSet(STORAGE_KEYS.DOCUMENTS, nextList).catch(() => {});
+        return normalizedFull;
+      } catch (e) {
+        console.warn('Error hydrating uploaded document on-demand:', docId, e);
+        return current || null;
+      } finally {
+        inFlightDocHydrationsRef.current.delete(docId);
+      }
+    })();
+
+    inFlightDocHydrationsRef.current.set(docId, task);
+    return task;
+  }, []);
+
+  const ensureRoundFullLoaded = useCallback(async (roundId: string): Promise<DailyRound | null> => {
+    if (!roundId) return null;
+    const current = (roundsRef.current || []).find(r => r && r.id === roundId);
+    if (current && !current.photosDeferred) {
+      return current;
+    }
+    const existingPromise = inFlightRoundHydrationsRef.current.get(roundId);
+    if (existingPromise) return existingPromise;
+
+    const task = (async (): Promise<DailyRound | null> => {
+      try {
+        const res = await fetchWithTimeout(`/api/rounds/${encodeURIComponent(roundId)}?_t=${Date.now()}`, { cache: 'no-store' }, 20000);
+        if (!res.ok) return current || null;
+        const fullRound = (await res.json()) as DailyRound;
+        if (!fullRound || !fullRound.id || getDeletedRoundIds().has(fullRound.id)) return current || null;
+        const hydratedRound: DailyRound = { ...fullRound, photosDeferred: false };
+        const merged = mergeRoundLists(roundsRef.current || [], [hydratedRound], getDeletedRoundIds(), activeRoundRef.current?.id, getPendingLocalCreationIds());
+        roundsRef.current = merged;
+        setRounds(merged);
+        safeSetItem(STORAGE_KEYS.ROUNDS, JSON.stringify(merged));
+        idbSet(STORAGE_KEYS.ROUNDS, merged).catch(() => {});
+        return merged.find(r => r.id === roundId) || hydratedRound;
+      } catch (e) {
+        console.warn('Error hydrating full round on-demand:', roundId, e);
+        return current || null;
+      } finally {
+        inFlightRoundHydrationsRef.current.delete(roundId);
+      }
+    })();
+
+    inFlightRoundHydrationsRef.current.set(roundId, task);
+    return task;
+  }, []);
+
   const addUploadedDocument = async (
     docData: Omit<UploadedDocument, 'id'>,
     options?: { silent?: boolean; onOptimistic?: (doc: UploadedDocument) => void }
@@ -9101,6 +9352,7 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
     const nowIso = new Date().toISOString();
     const newDoc: UploadedDocument = {
       ...docData,
+      isDeferredPayload: false,
       id: `doc-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
       updatedAt: docData.updatedAt || nowIso
     };
@@ -9110,12 +9362,10 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
     uploadedDocumentsRef.current = updated;
     setUploadedDocuments(updated);
     idbSet(STORAGE_KEYS.DOCUMENTS, updated).catch(() => {});
-    if (!safeSetItem(STORAGE_KEYS.DOCUMENTS, JSON.stringify(updated))) {
-      safeSetItem(STORAGE_KEYS.DOCUMENTS, JSON.stringify(updated.map(d => ({ ...d, rawBase64: undefined }))));
-    }
+    safeSetItem(STORAGE_KEYS.DOCUMENTS, JSON.stringify(updated.map(d => ({ ...d, rawBase64: undefined }))));
 
     try {
-      roundsChannel.current?.postMessage({ type: 'uploaded_document_updated', document: newDoc });
+      roundsChannel.current?.postMessage({ type: 'uploaded_document_updated', document: { ...newDoc, rawBase64: undefined } });
     } catch {}
 
     options?.onOptimistic?.(newDoc);
@@ -9129,7 +9379,7 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
           'X-Client-Id': clientSessionId.current
         },
         body: JSON.stringify(newDoc)
-      }, 15000);
+      }, 20000);
       if (res.ok) {
         endDbSave(true);
       } else {
@@ -9152,8 +9402,11 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
   ): Promise<boolean> => {
     markCollectionMutation('uploadedDocuments');
     const prevTs = new Date(updatedDoc.updatedAt || 0).getTime() || 0;
+    const existingLocal = (uploadedDocumentsRef.current || []).find(d => d.id === updatedDoc.id);
     const stampedDoc: UploadedDocument = {
       ...updatedDoc,
+      rawBase64: updatedDoc.rawBase64 || existingLocal?.rawBase64,
+      isDeferredPayload: false,
       updatedAt: new Date(Math.max(Date.now(), prevTs + 1)).toISOString()
     };
     trackLocalCreation(stampedDoc.id);
@@ -9161,18 +9414,15 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
     uploadedDocumentsRef.current = updated;
     setUploadedDocuments(updated);
     idbSet(STORAGE_KEYS.DOCUMENTS, updated).catch(() => {});
-    if (options?.omitRawBase64) {
-      safeSetItem(STORAGE_KEYS.DOCUMENTS, JSON.stringify(updated.map(d => ({ ...d, rawBase64: undefined }))));
-    } else if (!safeSetItem(STORAGE_KEYS.DOCUMENTS, JSON.stringify(updated))) {
-      safeSetItem(STORAGE_KEYS.DOCUMENTS, JSON.stringify(updated.map(d => ({ ...d, rawBase64: undefined }))));
-    }
+    safeSetItem(STORAGE_KEYS.DOCUMENTS, JSON.stringify(updated.map(d => ({ ...d, rawBase64: undefined }))));
 
+    const { isDeferredPayload: _omitDef, hasRawBinary: _omitHasRaw, ...cleanStamped } = stampedDoc;
     const payloadDoc: UploadedDocument = options?.omitRawBase64
-      ? { ...stampedDoc, rawBase64: undefined }
-      : stampedDoc;
+      ? { ...cleanStamped, rawBase64: undefined }
+      : cleanStamped;
 
     try {
-      roundsChannel.current?.postMessage({ type: 'uploaded_document_updated', document: payloadDoc });
+      roundsChannel.current?.postMessage({ type: 'uploaded_document_updated', document: { ...payloadDoc, rawBase64: undefined } });
     } catch {}
 
     let ok = false;
@@ -9185,7 +9435,7 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
           'X-Client-Id': clientSessionId.current
         },
         body: JSON.stringify(payloadDoc)
-      }, 12000);
+      }, 20000);
       if (res.ok) {
         ok = true;
       } else {
@@ -11059,6 +11309,20 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
     localStorage.setItem('active_round_resume_lock', reconciled.id);
     setTimeout(() => localStorage.removeItem('active_round_resume_lock'), 10000);
 
+    if (round.photosDeferred && (round.photoCount ?? 1) > 0) {
+      void ensureRoundFullLoaded(round.id).then(fullRound => {
+        if (fullRound && activeRoundRef.current?.id === fullRound.id) {
+          const reReconciled = reconcileActiveRoundWithTemplate(
+            { ...fullRound, status: 'en_progreso', completedAt: undefined, technicianSignature: undefined, lastUpdated: new Date().toISOString() },
+            roundTemplateRef.current || roundTemplate
+          );
+          activeRoundRef.current = reReconciled;
+          setActiveRound(reReconciled);
+          safeSetItem(STORAGE_KEYS.ACTIVE_ROUND, JSON.stringify(reReconciled));
+        }
+      });
+    }
+
     notify(`Ronda reanudada: Continúa completando los puntos pendientes.`);
   };
 
@@ -11739,6 +12003,7 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
         uploadedDocuments,
         addUploadedDocument,
         updateUploadedDocument,
+        ensureUploadedDocumentLoaded,
         moveUploadedDocument,
         deleteUploadedDocument,
         clearAllUploadedDocuments,
@@ -11761,6 +12026,7 @@ export const MaintenanceProvider: React.FC<{ children: React.ReactNode }> = ({ c
         clearAllRoundTemplate,
         refreshRoundTemplateFromCloud,
         refreshRoundsFromCloud,
+        ensureRoundFullLoaded,
         syncRoundsSilently,
         startNewRound,
         updateRound,

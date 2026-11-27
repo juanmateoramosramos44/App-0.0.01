@@ -34,10 +34,7 @@ export default defineConfig(() => {
         'react',
         'react-dom',
         'lucide-react',
-        'date-fns',
-        'firebase/app',
-        'firebase/firestore',
-        'firebase/auth'
+        'date-fns'
       ]
     },
     build: {
@@ -50,6 +47,12 @@ export default defineConfig(() => {
               return 'data-historical-rounds';
             }
             if (id.includes('node_modules')) {
+              if (id.includes('@fortune-sheet')) {
+                return 'vendor-fortunesheet';
+              }
+              if (id.includes('exceljs')) {
+                return 'vendor-exceljs';
+              }
               if (id.includes('xlsx')) {
                 return 'vendor-xlsx';
               }
@@ -58,9 +61,6 @@ export default defineConfig(() => {
               }
               if (id.includes('recharts') || id.includes('d3-')) {
                 return 'vendor-charts';
-              }
-              if (id.includes('firebase')) {
-                return 'vendor-firebase';
               }
               if (id.includes('lucide-react')) {
                 return 'vendor-icons';

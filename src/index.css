@@ -34,6 +34,12 @@ body {
 }
 
 /* Barras de desplazamiento precisas tipo Microsoft Excel (con flechas direccionales arriba/abajo/izquierda/derecha) */
+.excel-precision-scroll {
+  position: relative;
+  z-index: 0;
+  isolation: isolate;
+}
+
 .excel-precision-scroll,
 .excel-precision-scroll .luckysheet-scrollbar-ltr,
 .excel-precision-scroll .fortune-dialog {

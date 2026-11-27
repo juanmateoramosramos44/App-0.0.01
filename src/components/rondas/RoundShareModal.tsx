@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   X, 
   FileDown, 
@@ -44,12 +44,13 @@ interface RoundShareModalProps {
 }
 
 export const RoundShareModal: React.FC<RoundShareModalProps> = ({
-  round,
+  round: initialRound,
   hotelInfo,
   onClose,
   isJustCompleted = false,
 }) => {
-  const { updateRound, notify, currentUser } = useMaintenance();
+  const { rounds, updateRound, ensureRoundFullLoaded, notify, currentUser } = useMaintenance();
+  const round = initialRound ? (rounds.find(r => r.id === initialRound.id) || initialRound) : null;
   const [copied, setCopied] = useState(false);
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
   const [shareSuccessMessage, setShareSuccessMessage] = useState<string | null>(null);
@@ -58,6 +59,12 @@ export const RoundShareModal: React.FC<RoundShareModalProps> = ({
   const [editingDateValue, setEditingDateValue] = useState(round?.date || '');
   const [previewPhotoUrl, setPreviewPhotoUrl] = useState<string | null>(null);
   const [previewPhotoTitle, setPreviewPhotoTitle] = useState<string>('Evidencia Fotográfica de la Ronda');
+
+  useEffect(() => {
+    if (round?.id && round.photosDeferred && (round.photoCount ?? 1) > 0) {
+      void ensureRoundFullLoaded(round.id);
+    }
+  }, [round?.id, round?.photosDeferred, round?.photoCount, ensureRoundFullLoaded]);
 
   if (!round) return null;
 
@@ -191,10 +198,15 @@ export const RoundShareModal: React.FC<RoundShareModalProps> = ({
     }
   };
 
-  const handleDownloadPdf = () => {
+  const handleDownloadPdf = async () => {
     setIsGeneratingPdf(true);
     try {
-      downloadRoundPdf(round, hotelInfo);
+      let targetRound = round;
+      if (round.photosDeferred && (round.photoCount ?? 1) > 0) {
+        const hydrated = await ensureRoundFullLoaded(round.id);
+        if (hydrated) targetRound = hydrated;
+      }
+      downloadRoundPdf(targetRound, hotelInfo);
       setShareSuccessMessage('✅ PDF descargado exitosamente en tu dispositivo.');
       setTimeout(() => setShareSuccessMessage(null), 4000);
     } catch (e) {
@@ -204,9 +216,14 @@ export const RoundShareModal: React.FC<RoundShareModalProps> = ({
     }
   };
 
-  const handlePrintPdf = () => {
+  const handlePrintPdf = async () => {
     try {
-      const doc = generateRoundPdf(round, hotelInfo);
+      let targetRound = round;
+      if (round.photosDeferred && (round.photoCount ?? 1) > 0) {
+        const hydrated = await ensureRoundFullLoaded(round.id);
+        if (hydrated) targetRound = hydrated;
+      }
+      const doc = generateRoundPdf(targetRound, hotelInfo);
       const pdfBlob = doc.output('blob');
       const blobUrl = URL.createObjectURL(pdfBlob);
       const printWindow = window.open(blobUrl, '_blank');

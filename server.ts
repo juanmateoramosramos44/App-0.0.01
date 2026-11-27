@@ -162,6 +162,13 @@ if (DATABASE_URL) {
     pgPool.on('error', (err) => {
       console.warn("[PostgreSQL Pool] Warning / connection event:", err.message);
     });
+    // Keep Coolify / PostgreSQL TCP connections warm so idle pools never suffer cold-start stalls
+    const pgKeepaliveTimer = setInterval(() => {
+      pgPool?.query('SELECT 1').catch(() => {});
+    }, 25000);
+    if (typeof pgKeepaliveTimer.unref === 'function') {
+      pgKeepaliveTimer.unref();
+    }
     console.log("[PostgreSQL] Pool initialized for Coolify / production database.");
   } catch (err) {
     console.warn("[PostgreSQL] Error creating database pool:", err);
@@ -408,6 +415,201 @@ function sanitizeCheckpointTemplateServer(chk: any) {
   return copy;
 }
 
+function getCanonicalBaselineCheckpointsServer(): any[] {
+  const source = HISTORICAL_ROUNDS?.[0]?.checkpoints;
+  if (!Array.isArray(source)) return [];
+  return source.map(sanitizeCheckpointTemplateServer);
+}
+
+function mergeBaselineRoundTemplateServer(
+  items: any[] | undefined | null,
+  deletedCheckpointIds?: any,
+  clearedByUser?: boolean
+): any[] {
+  const baseline = getCanonicalBaselineCheckpointsServer();
+  if (clearedByUser === true && (!Array.isArray(items) || items.length === 0)) {
+    return [];
+  }
+  const deletedSet = new Set<string>(
+    Array.isArray(deletedCheckpointIds)
+      ? deletedCheckpointIds.map((x: any) => String(x || '').trim()).filter(Boolean)
+      : []
+  );
+
+  if (!Array.isArray(items) || items.length === 0) {
+    return baseline.filter((b: any) => b && !deletedSet.has(String(b.id || '')));
+  }
+
+  const normalizedItems = items.filter((c: any) => c && typeof c === 'object').map(sanitizeCheckpointTemplateServer);
+  const usedItemIndices = new Set<number>();
+
+  // 1-to-1 matching so intentionally distinct checkpoints with shared title+area (e.g. Cava De Refrigeración x2) are preserved accurately
+  const missingFromBaseline: any[] = [];
+  for (const baseChk of baseline) {
+    if (!baseChk || !baseChk.id || deletedSet.has(String(baseChk.id))) continue;
+
+    let matchIdx = normalizedItems.findIndex((it: any, idx: number) => !usedItemIndices.has(idx) && it.id === baseChk.id);
+    if (matchIdx < 0) {
+      const bTitle = String(baseChk.title || '').trim().toLowerCase();
+      const bArea = String(baseChk.area || '').trim().toLowerCase();
+      matchIdx = normalizedItems.findIndex(
+        (it: any, idx: number) =>
+          !usedItemIndices.has(idx) &&
+          String(it.title || '').trim().toLowerCase() === bTitle &&
+          String(it.area || '').trim().toLowerCase() === bArea
+      );
+    }
+
+    if (matchIdx >= 0) {
+      usedItemIndices.add(matchIdx);
+    } else {
+      missingFromBaseline.push(baseChk);
+    }
+  }
+
+  return missingFromBaseline.length > 0
+    ? [...normalizedItems, ...missingFromBaseline]
+    : normalizedItems;
+}
+
+const isInlinePhotoPayloadServer = (val: any): boolean =>
+  typeof val === 'string' && val.length > 300 && val.startsWith('data:image/');
+
+function countRoundPhotosServer(round: any): number {
+  if (!round || typeof round !== 'object') return 0;
+  const seen = new Set<string>();
+  const add = (u: any) => {
+    if (typeof u === 'string' && u.trim().length > 25 && !u.includes('cached_in_db') && (u.startsWith('data:image/') || u.startsWith('http://') || u.startsWith('https://') || u.startsWith('/assets/'))) {
+      seen.add(u);
+    }
+  };
+  for (const c of (Array.isArray(round.checkpoints) ? round.checkpoints : [])) {
+    if (!c) continue;
+    add(c.photoUrl);
+    if (Array.isArray(c.photos)) c.photos.forEach(add);
+    for (const f of (Array.isArray(c.measurementFields) ? c.measurementFields : [])) {
+      if (!f) continue;
+      add(f.photoUrl);
+      if (Array.isArray(f.photos)) f.photos.forEach(add);
+    }
+  }
+  const mr = round.meterReadings;
+  if (mr && typeof mr === 'object') {
+    add(mr.waterMeterPhotoUrl);
+    if (Array.isArray(mr.waterMeterPhotos)) mr.waterMeterPhotos.forEach(add);
+    add(mr.electricMeterPhotoUrl);
+    if (Array.isArray(mr.electricMeterPhotos)) mr.electricMeterPhotos.forEach(add);
+    add(mr.gasMeterPhotoUrl);
+    if (Array.isArray(mr.gasMeterPhotos)) mr.gasMeterPhotos.forEach(add);
+    if (mr.customMeters && typeof mr.customMeters === 'object') {
+      for (const cm of Object.values(mr.customMeters) as any[]) {
+        if (!cm) continue;
+        add(cm.photoUrl);
+        if (Array.isArray(cm.photos)) cm.photos.forEach(add);
+      }
+    }
+  }
+  for (const a of (Array.isArray(round.anomalies) ? round.anomalies : [])) {
+    if (!a) continue;
+    add(a.photoUrl);
+    if (Array.isArray(a.photos)) a.photos.forEach(add);
+  }
+  if (Array.isArray(round.photos)) round.photos.forEach(add);
+  return seen.size;
+}
+
+function buildLiteRoundServer(round: any, keepFull: boolean): any {
+  if (!round || typeof round !== 'object' || keepFull) return round;
+  const photoCount = typeof round.photoCount === 'number' ? round.photoCount : countRoundPhotosServer(round);
+  const stripUrl = (u: any) => (isInlinePhotoPayloadServer(u) ? undefined : u);
+  const stripList = (arr: any) => {
+    if (!Array.isArray(arr)) return arr;
+    const filtered = arr.filter((u: any) => !isInlinePhotoPayloadServer(u));
+    return filtered.length > 0 ? filtered : undefined;
+  };
+
+  const checkpoints = Array.isArray(round.checkpoints)
+    ? round.checkpoints.map((c: any) => {
+        if (!c) return c;
+        const nextFields = Array.isArray(c.measurementFields)
+          ? c.measurementFields.map((f: any) => {
+              if (!f) return f;
+              return {
+                ...f,
+                photoUrl: stripUrl(f.photoUrl),
+                photos: stripList(f.photos)
+              };
+            })
+          : c.measurementFields;
+        return {
+          ...c,
+          photoUrl: stripUrl(c.photoUrl),
+          photos: stripList(c.photos),
+          measurementFields: nextFields
+        };
+      })
+    : round.checkpoints;
+
+  let meterReadings = round.meterReadings;
+  if (meterReadings && typeof meterReadings === 'object') {
+    let customMeters = meterReadings.customMeters;
+    if (customMeters && typeof customMeters === 'object') {
+      const nextCm: Record<string, any> = {};
+      for (const [k, cm] of Object.entries(customMeters) as [string, any][]) {
+        nextCm[k] = cm && typeof cm === 'object'
+          ? { ...cm, photoUrl: stripUrl(cm.photoUrl), photos: stripList(cm.photos) }
+          : cm;
+      }
+      customMeters = nextCm;
+    }
+    meterReadings = {
+      ...meterReadings,
+      waterMeterPhotoUrl: stripUrl(meterReadings.waterMeterPhotoUrl),
+      waterMeterPhotos: stripList(meterReadings.waterMeterPhotos),
+      electricMeterPhotoUrl: stripUrl(meterReadings.electricMeterPhotoUrl),
+      electricMeterPhotos: stripList(meterReadings.electricMeterPhotos),
+      gasMeterPhotoUrl: stripUrl(meterReadings.gasMeterPhotoUrl),
+      gasMeterPhotos: stripList(meterReadings.gasMeterPhotos),
+      customMeters
+    };
+  }
+
+  const anomalies = Array.isArray(round.anomalies)
+    ? round.anomalies.map((a: any) => a ? { ...a, photoUrl: stripUrl(a.photoUrl), photos: stripList(a.photos) } : a)
+    : round.anomalies;
+
+  return {
+    ...round,
+    checkpoints,
+    meterReadings,
+    anomalies,
+    photos: stripList(round.photos),
+    photosDeferred: true,
+    photoCount
+  };
+}
+
+function buildLiteUploadedDocServer(doc: any): any {
+  if (!doc || typeof doc !== 'object') return doc;
+  const liteSheets = Array.isArray(doc.sheets)
+    ? doc.sheets.map((s: any) => ({
+        name: s?.name || 'Hoja1',
+        headers: [],
+        rows: [],
+        totalRows: s?.totalRows ?? (Array.isArray(s?.rows) ? s.rows.length : 0),
+        totalColumns: s?.totalColumns ?? (Array.isArray(s?.headers) ? s.headers.length : 0),
+        isDeferred: true
+      }))
+    : [];
+  const { rawBase64, ...rest } = doc;
+  return {
+    ...rest,
+    sheets: liteSheets,
+    hasRawBinary: Boolean(rawBase64 || doc.hasRawBinary),
+    isDeferredPayload: true
+  };
+}
+
 function buildInitialSeedData() {
   let seed: any = null;
   try {
@@ -606,8 +808,19 @@ async function loadPostgresIntoMemory(client: any) {
     const delQ = await client.query('SELECT id FROM deleted_ids');
     const deletedSet = new Set<string>((delQ.rows || []).map((r: any) => r.id).filter(Boolean));
 
-    for (const t of tables) {
-      const q = await client.query(`SELECT id, data FROM ${t.name}`);
+    const [tableResults, setQ, tplQ, schedCfgQ] = await Promise.all([
+      Promise.all(
+        tables.map(async (t) => ({
+          t,
+          q: await client.query(`SELECT id, data FROM ${t.name}`)
+        }))
+      ),
+      client.query('SELECT data FROM settings WHERE id = $1', ['app_settings']),
+      client.query('SELECT data FROM app_data WHERE id = $1', ['round_template']),
+      client.query('SELECT data FROM app_data WHERE id = $1', ['schedule_config'])
+    ]);
+
+    for (const { t, q } of tableResults) {
       if (q.rows && q.rows.length > 0) {
         memoryCache[t.key] = q.rows
           .map((r: any) => (r && r.data && typeof r.data === 'object') ? { ...r.data, id: r.data.id || r.id } : null)
@@ -621,22 +834,26 @@ async function loadPostgresIntoMemory(client: any) {
     }
     memoryCache.deletedIds = Array.from(deletedSet);
 
-    const setQ = await client.query('SELECT data FROM settings WHERE id = $1', ['app_settings']);
     if (setQ.rows.length > 0) {
       memoryCache.settings = setQ.rows[0].data;
     }
 
-    const tplQ = await client.query('SELECT data FROM app_data WHERE id = $1', ['round_template']);
-    if (tplQ.rows.length > 0 && Array.isArray(tplQ.rows[0].data?.items)) {
-      memoryCache.roundTemplate = tplQ.rows[0].data.items;
+    if (tplQ.rows.length > 0 && tplQ.rows[0].data) {
+      const tplData = tplQ.rows[0].data;
+      if (!memoryCache.appData) memoryCache.appData = {};
+      const healedItems = mergeBaselineRoundTemplateServer(
+        tplData.items,
+        tplData.deletedCheckpointIds,
+        tplData.clearedByUser
+      );
+      memoryCache.appData['round_template'] = { ...tplData, items: healedItems };
+      memoryCache.roundTemplate = healedItems;
     }
-    const schedCfgQ = await client.query('SELECT data FROM app_data WHERE id = $1', ['schedule_config']);
     if (schedCfgQ.rows.length > 0 && schedCfgQ.rows[0].data) {
       if (!memoryCache.appData) memoryCache.appData = {};
       memoryCache.appData['schedule_config'] = schedCfgQ.rows[0].data;
     }
     syncRoundAnomaliesToIncidents(memoryCache);
-    scheduleSaveToDisk();
     console.log('[PostgreSQL] Loaded authoritative records from PostgreSQL into memory cache.');
   } catch (e) {
     console.warn('[PostgreSQL] Warning loading postgres records into memory:', e);
@@ -1384,7 +1601,7 @@ function scheduleSaveToDisk() {
     } finally {
       isWritingToDisk = false;
     }
-  }, 200);
+  }, 1500);
 }
 
 function mergeAppData(incoming: any) {
@@ -1736,8 +1953,15 @@ function mergeAppData(incoming: any) {
             safeParseTs(cleanItem.createdAt)
           );
           chosen = tIncoming >= tExisting ? { ...existing, ...cleanItem } : { ...cleanItem, ...existing };
-          if (key === 'uploadedDocuments' && !chosen.rawBase64 && (existing.rawBase64 || cleanItem.rawBase64)) {
-            chosen.rawBase64 = cleanItem.rawBase64 || existing.rawBase64;
+          if (key === 'uploadedDocuments') {
+            if (!chosen.rawBase64 && (existing.rawBase64 || cleanItem.rawBase64)) {
+              chosen.rawBase64 = cleanItem.rawBase64 || existing.rawBase64;
+            }
+            if (cleanItem.isDeferredPayload && Array.isArray(existing.sheets) && existing.sheets.length > 0) {
+              chosen.sheets = existing.sheets;
+            }
+            delete chosen.isDeferredPayload;
+            delete chosen.hasRawBinary;
           }
         }
         if (key === 'users' && Array.isArray(chosen.visibleSections) && !chosen.visibleSections.includes('tareas')) {
@@ -1794,9 +2018,14 @@ function mergeAppData(incoming: any) {
     };
   }
 
-  // Round template update
+  // Round template update (never allow shrinking below canonical 26 unless explicitly deleted/cleared)
   if (Array.isArray(incoming.roundTemplate)) {
-    current.roundTemplate = incoming.roundTemplate;
+    const tplMeta = current.appData?.round_template || {};
+    current.roundTemplate = mergeBaselineRoundTemplateServer(
+      incoming.roundTemplate,
+      tplMeta.deletedCheckpointIds,
+      tplMeta.clearedByUser
+    );
   }
 
   // Cronogramas (Master Schedules)
@@ -2064,7 +2293,19 @@ app.get("/api/data", async (req, res) => {
       if (pgDocumentFolders) data.documentFolders = pgDocumentFolders;
       if (pgBitacora) data.bitacora = pgBitacora;
       if (qSettings?.rows?.[0]?.data) data.settings = qSettings.rows[0].data;
-      if (Array.isArray(qTemplate?.rows?.[0]?.data?.items)) data.roundTemplate = qTemplate.rows[0].data.items;
+      if (qTemplate?.rows?.[0]?.data) {
+        const tplMeta = qTemplate.rows[0].data;
+        if (!data.appData) data.appData = {};
+        const healedTemplate = mergeBaselineRoundTemplateServer(
+          tplMeta.items,
+          tplMeta.deletedCheckpointIds,
+          tplMeta.clearedByUser
+        );
+        data.roundTemplate = healedTemplate;
+        data.appData['round_template'] = { ...tplMeta, items: healedTemplate };
+      } else {
+        data.roundTemplate = mergeBaselineRoundTemplateServer(data.roundTemplate);
+      }
       if (qScheduleConfig?.rows?.[0]?.data) {
         if (!data.appData) data.appData = {};
         data.appData['schedule_config'] = qScheduleConfig.rows[0].data;
@@ -2072,10 +2313,51 @@ app.get("/api/data", async (req, res) => {
       }
 
       data.deletedIds = Array.from(allDeleted);
-      scheduleSaveToDisk();
     } catch (e) {
       console.warn("[PostgreSQL] Notice syncing /api/data with DB:", (e as any)?.message || e);
     }
+  } else {
+    const tplMeta = data.appData?.round_template || {};
+    data.roundTemplate = mergeBaselineRoundTemplateServer(
+      data.roundTemplate,
+      tplMeta.deletedCheckpointIds,
+      tplMeta.clearedByUser
+    );
+  }
+
+  const isLite = req.query.lite === '1' || req.query.lite === 'true';
+  if (isLite) {
+    const rawRounds = Array.isArray(data?.rounds) ? data.rounds : [];
+    const sortedForLite = [...rawRounds].sort((a: any, b: any) => {
+      const tA = safeParseTs(a?.lastUpdated || a?.completedAt || `${a?.date || ''}T${a?.time || '00:00'}:00`);
+      const tB = safeParseTs(b?.lastUpdated || b?.completedAt || `${b?.date || ''}T${b?.time || '00:00'}:00`);
+      return tB - tA;
+    });
+    const fullIds = new Set<string>();
+    let recentKept = 0;
+    for (const r of sortedForLite) {
+      if (!r || !r.id) continue;
+      if (r.status === 'en_progreso') {
+        fullIds.add(r.id);
+      } else if (recentKept < 6) {
+        fullIds.add(r.id);
+        recentKept++;
+      }
+    }
+
+    const liteRounds = rawRounds.map((r: any) => buildLiteRoundServer(r, Boolean(r?.id && fullIds.has(r.id))));
+    const liteDocs = Array.isArray(data?.uploadedDocuments)
+      ? data.uploadedDocuments.map(buildLiteUploadedDocServer)
+      : [];
+
+    return res.json({
+      ...(data || {}),
+      rounds: liteRounds,
+      uploadedDocuments: liteDocs,
+      liteMode: true,
+      serverVersion: SERVER_BUILD_TIME,
+      serverTime: Date.now()
+    });
   }
 
   res.json({ ...(data || {}), serverVersion: SERVER_BUILD_TIME, serverTime: Date.now() });
@@ -2087,7 +2369,6 @@ app.get("/api/audit", (req, res) => {
   res.setHeader("Expires", "0");
   const data = getCachedData();
   const auditResult = performServerStateAudit(data);
-  scheduleSaveToDisk();
   res.json(auditResult);
 });
 
@@ -4153,20 +4434,47 @@ app.put("/api/shift-swaps/:id", handleUpdateShiftSwapRoute);
 app.patch("/api/shift-swaps/:id", handleUpdateShiftSwapRoute);
 
 // Uploaded Documents
-app.get("/api/uploaded-documents", async (_req, res) => {
+app.get("/api/uploaded-documents", async (req, res) => {
   res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+  const isLite = req.query.lite === '1' || req.query.lite === 'true';
   const store = getCachedData();
   if (pgPool) {
     try {
       const q = await pgPool.query('SELECT id, data FROM uploaded_documents ORDER BY updated_at DESC');
       const pgDocs = (q.rows || []).map((r: any) => (r && r.data && typeof r.data === 'object') ? { ...r.data, id: r.data.id || r.id } : null).filter(Boolean);
       store.uploadedDocuments = pgDocs;
-      return res.json(pgDocs);
+      return res.json(isLite ? pgDocs.map(buildLiteUploadedDocServer) : pgDocs);
     } catch (e) {
       console.warn("[PostgreSQL] Notice loading uploaded documents from DB:", (e as any)?.message || e);
     }
   }
-  res.json(store.uploadedDocuments || []);
+  const docs = store.uploadedDocuments || [];
+  res.json(isLite ? docs.map(buildLiteUploadedDocServer) : docs);
+});
+app.get("/api/uploaded-documents/:id", async (req, res) => {
+  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+  const { id } = req.params;
+  if (await isIdDeletedInServer(id)) {
+    return res.status(410).json({ error: "Deleted", id });
+  }
+  const store = getCachedData();
+  let doc: any = null;
+  if (pgPool) {
+    try {
+      doc = await pgGet('uploaded_documents', id);
+    } catch {}
+  }
+  if (!doc && Array.isArray(store.uploadedDocuments)) {
+    doc = store.uploadedDocuments.find((d: any) => d && d.id === id);
+  }
+  if (!doc) return res.status(404).json({ error: "Document not found", id });
+  const normalized = { ...doc, id: doc.id || id, isDeferredPayload: false, hasRawBinary: Boolean(doc.rawBase64) };
+  if (Array.isArray(store.uploadedDocuments)) {
+    const idx = store.uploadedDocuments.findIndex((d: any) => d && d.id === id);
+    if (idx >= 0) store.uploadedDocuments[idx] = normalized;
+    else store.uploadedDocuments.unshift(normalized);
+  }
+  res.json(normalized);
 });
 app.get("/api/uploaded-documents/:id/download", async (req, res) => {
   const { id } = req.params;
@@ -4225,34 +4533,76 @@ const handleUpsertUploadedDocument = async (req: express.Request, res: express.R
   if (!Array.isArray(store.uploadedDocuments)) store.uploadedDocuments = [];
   const cleanItem: Record<string, any> = {};
   for (const k of Object.keys(item)) {
-    if (item[k] !== undefined) cleanItem[k] = item[k];
+    if (item[k] !== undefined && k !== 'isDeferredPayload' && k !== 'hasRawBinary') {
+      cleanItem[k] = item[k];
+    }
   }
 
   const idx = store.uploadedDocuments.findIndex((d: any) => d && d.id === docId);
-  const existing = idx >= 0 ? store.uploadedDocuments[idx] : (pgPool ? await pgGet('uploaded_documents', docId) : null);
-  const savedDoc = {
-    ...(existing || {}),
-    ...cleanItem,
-    id: docId,
-    updatedAt: monotonicUpdatedAt(existing, cleanItem.updatedAt)
-  };
-  if (!savedDoc.rawBase64 && existing?.rawBase64) {
-    savedDoc.rawBase64 = existing.rawBase64;
+  const existing = idx >= 0 ? store.uploadedDocuments[idx] : null;
+  const nextUpdatedAt = monotonicUpdatedAt(existing, cleanItem.updatedAt);
+  const isPartialPatchWithoutBinary = req.method === 'PATCH' && !cleanItem.rawBase64 && Boolean(pgPool);
+
+  let pgOk = true;
+  let savedDoc: any = null;
+
+  if (isPartialPatchWithoutBinary && pgPool) {
+    // Fast JSONB merge in PostgreSQL without transferring multi-MB rawBase64 back and forth
+    const patchPayload = { ...cleanItem, id: docId, updatedAt: nextUpdatedAt };
+    try {
+      const patchRes = await pgPool.query(
+        `UPDATE uploaded_documents
+         SET data = data || $2::jsonb, updated_at = CURRENT_TIMESTAMP
+         WHERE id = $1
+         RETURNING id`,
+        [docId, JSON.stringify(patchPayload)]
+      );
+      if (patchRes.rowCount && patchRes.rowCount > 0) {
+        savedDoc = {
+          ...(existing || {}),
+          ...patchPayload,
+          ...(existing?.rawBase64 ? { rawBase64: existing.rawBase64 } : {})
+        };
+      }
+    } catch (patchErr) {
+      console.warn(`[PostgreSQL] Fast JSONB patch fallback on ${docId}:`, (patchErr as any)?.message || patchErr);
+    }
   }
 
-  const pgOk = await pgUpsert('uploaded_documents', savedDoc.id, savedDoc, Boolean(item.forceRestore));
-  if (pgPool && !pgOk) {
-    return res.status(503).json({ error: "PostgreSQL save failed for uploaded document" });
+  if (!savedDoc) {
+    const dbExisting = existing || (pgPool ? await pgGet('uploaded_documents', docId) : null);
+    savedDoc = {
+      ...(dbExisting || {}),
+      ...cleanItem,
+      id: docId,
+      updatedAt: monotonicUpdatedAt(dbExisting, cleanItem.updatedAt)
+    };
+    if (!savedDoc.rawBase64 && dbExisting?.rawBase64) {
+      savedDoc.rawBase64 = dbExisting.rawBase64;
+    }
+    pgOk = await pgUpsert('uploaded_documents', savedDoc.id, savedDoc, Boolean(item.forceRestore));
+    if (pgPool && !pgOk) {
+      return res.status(503).json({ error: "PostgreSQL save failed for uploaded document" });
+    }
   }
 
   if (idx >= 0) store.uploadedDocuments[idx] = savedDoc;
   else store.uploadedDocuments.unshift(savedDoc);
 
   scheduleSaveToDisk();
+  const { rawBase64: savedBinary, ...savedMeta } = savedDoc;
+  const slimDoc = {
+    ...savedMeta,
+    hasRawBinary: Boolean(savedBinary || existing?.hasRawBinary),
+    isDeferredPayload: false
+  };
   const clientId = req.headers['x-client-id'] || null;
-  broadcastSse({ type: 'uploaded_document_updated', document: savedDoc, clientId, time: Date.now() });
-  broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
-  res.json({ status: "success", document: savedDoc });
+  broadcastSse({ type: 'uploaded_document_updated', document: slimDoc, clientId, time: Date.now() });
+  // Only trigger global data_updated on brand new document uploads (POST), never on spreadsheet autosave edits (PATCH/PUT)
+  if (req.method === 'POST') {
+    broadcastSse({ type: 'data_updated', clientId, time: Date.now() });
+  }
+  res.json({ status: "success", document: slimDoc });
 };
 app.post("/api/uploaded-documents", handleUpsertUploadedDocument);
 app.put("/api/uploaded-documents/:id", handleUpsertUploadedDocument);
@@ -5366,9 +5716,32 @@ app.get("/api/app-data/:id", async (req, res) => {
   if (pgPool) {
     const dbData = await pgGet('app_data', id);
     if (dbData) {
+      if (id === 'round_template') {
+        const healedItems = mergeBaselineRoundTemplateServer(
+          dbData.items,
+          dbData.deletedCheckpointIds,
+          dbData.clearedByUser
+        );
+        const result = { ...dbData, items: healedItems };
+        store.appData[id] = result;
+        store.roundTemplate = healedItems;
+        return res.json(result);
+      }
       store.appData[id] = dbData;
       return res.json(dbData);
     }
+  }
+  if (id === 'round_template') {
+    const localMeta = store.appData[id] || {};
+    const healedItems = mergeBaselineRoundTemplateServer(
+      localMeta.items || store.roundTemplate,
+      localMeta.deletedCheckpointIds,
+      localMeta.clearedByUser
+    );
+    const result = { ...localMeta, items: healedItems };
+    store.appData[id] = result;
+    store.roundTemplate = healedItems;
+    return res.json(result);
   }
   if (store.appData[id]) {
     return res.json(store.appData[id]);
@@ -5389,6 +5762,13 @@ app.post("/api/app-data/:id", async (req, res) => {
     ...payload,
     updatedAt: monotonicUpdatedAt(existing, payload?.updatedAt)
   };
+  if (id === 'round_template' && Array.isArray(mergedAppData.items)) {
+    mergedAppData.items = mergeBaselineRoundTemplateServer(
+      mergedAppData.items,
+      mergedAppData.deletedCheckpointIds,
+      mergedAppData.clearedByUser
+    );
+  }
   const pgOk = await pgUpsert('app_data', id, mergedAppData);
   if (pgPool && !pgOk) {
     return res.status(503).json({ error: "PostgreSQL save failed for app_data" });
